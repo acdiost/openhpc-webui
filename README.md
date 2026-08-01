@@ -75,6 +75,11 @@
 - Slurm 集群
 - uv (Python 包管理器)
 
+Rocky Linux 9 部署文档：
+
+- [LDAP 安装与初始化](./docs/LDAP_ROCKY9.md)
+- [使用 SSSD 接入 LDAP](./docs/SSSD_LDAP_ROCKY9.md)
+
 ### 安装步骤
 
 1. **克隆项目**
@@ -112,7 +117,7 @@ SLURM_DEFAULT_ACCOUNT=cardc
 
 # 应用配置
 SECRET_KEY=<使用 openssl rand -hex 32 生成>
-SESSION_HTTPS_ONLY=True
+SESSION_HTTPS_ONLY=False
 JOB_OUTPUT_ALLOWED_ROOTS=/data/jobs
 DEBUG=False
 ```
@@ -133,7 +138,7 @@ uvicorn main:app --host 0.0.0.0 --port 6827
 
 打开浏览器访问: `http://your-server:6827`
 
-直接使用 HTTP 进行本地调试时需设置 `SESSION_HTTPS_ONLY=False`；生产环境应通过 HTTPS 反向代理访问并保持该值为 `True`。
+直接使用 HTTP 访问时保持 `SESSION_HTTPS_ONLY=False`；通过 HTTPS 反向代理访问时必须设为 `True`。
 
 默认登录使用 LDAP 管理员账户。
 
@@ -266,7 +271,7 @@ uv add package-name
 | `LDAP_USE_SSL` | 是否使用 SSL | `False` |
 | `SLURM_DEFAULT_ACCOUNT` | Slurm 默认账户 | `cardc` |
 | `SECRET_KEY` | Session 密钥，至少 32 个随机字符 | **必须设置** |
-| `SESSION_HTTPS_ONLY` | 仅通过 HTTPS 发送 Session Cookie | `True` |
+| `SESSION_HTTPS_ONLY` | 仅通过 HTTPS 发送 Session Cookie；HTTPS 部署应设为 `True` | `False` |
 | `JOB_OUTPUT_ALLOWED_ROOTS` | 作业输出额外允许目录，Linux 下用冒号分隔 | - |
 | `DEBUG` | 调试模式 | `False` |
 

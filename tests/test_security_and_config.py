@@ -9,6 +9,7 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-0123456789abcdef")
 
 import main
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 from node_config import NodeConfigManager
 from partition_config import PartitionConfigManager
@@ -22,6 +23,32 @@ class SessionSecurityTests(unittest.TestCase):
         ):
             with self.assertRaises(RuntimeError):
                 main._get_session_secret()
+
+    def test_http_session_cookie_is_the_default(self):
+        session_middleware = next(
+            middleware
+            for middleware in main.app.user_middleware
+            if middleware.cls.__name__ == "SessionMiddleware"
+        )
+
+        self.assertFalse(session_middleware.kwargs["https_only"])
+
+    def test_login_session_is_available_after_http_navigation(self):
+        with patch.object(
+            main.auth_mgr,
+            "authenticate_user",
+            return_value={"username": "alice", "cn": "Alice"},
+        ), patch.object(main.admin_mgr, "is_admin", return_value=True):
+            client = TestClient(main.app, base_url="http://testserver")
+            response = client.post(
+                "/api/auth/login",
+                json={"username": "alice", "password": "secret"},
+            )
+            dashboard = client.get("/", follow_redirects=False)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("secure", response.headers["set-cookie"].lower())
+        self.assertEqual(dashboard.status_code, 200)
 
 
 class JobOutputSecurityTests(unittest.TestCase):

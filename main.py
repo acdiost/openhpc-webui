@@ -57,7 +57,7 @@ app = FastAPI(title="智算中心管理门户")
 
 # Add session middleware
 SECRET_KEY = _get_session_secret()
-SESSION_HTTPS_ONLY = os.getenv("SESSION_HTTPS_ONLY", "True").strip().lower() in (
+SESSION_HTTPS_ONLY = os.getenv("SESSION_HTTPS_ONLY", "False").strip().lower() in (
     "true",
     "1",
     "yes",
