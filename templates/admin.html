@@ -1,0 +1,637 @@
+{% extends "base.html" %} {#
+============================================================ 权限管理页 路由:
+GET /admin 仅管理员可访问
+============================================================ #} {% block title
+%}权限管理{% endblock %} {% block breadcrumb_title %}权限管理{% endblock %} {#
+══════════════════════════════════════════════════════════ 主体内容
+══════════════════════════════════════════════════════════ #} {% block content
+%}
+
+<!-- 页面标题行 -->
+<div class="flex justify-between items-center" style="margin-bottom: 24px">
+    <h2 style="font-size: 28px; font-weight: 700">系统权限管理</h2>
+    <button class="btn btn-secondary" onclick="loadAdminData()">
+        <svg
+            style="
+                width: 16px;
+                height: 16px;
+                display: inline-block;
+                margin-right: 4px;
+                vertical-align: -3px;
+            "
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+        >
+            <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            />
+        </svg>
+        刷新
+    </button>
+</div>
+
+<!-- 权限说明卡片 -->
+<div
+    class="card"
+    style="
+        margin-bottom: 20px;
+        background-color: #fff7ed;
+        border-left: 4px solid #f97316;
+    "
+>
+    <h3
+        style="
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #c2410c;
+        "
+    >
+        <svg
+            style="
+                width: 18px;
+                height: 18px;
+                display: inline-block;
+                margin-right: 6px;
+                vertical-align: -3px;
+            "
+            fill="currentColor"
+            viewBox="0 0 20 20"
+        >
+            <path
+                fill-rule="evenodd"
+                d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                clip-rule="evenodd"
+            />
+        </svg>
+        权限说明
+    </h3>
+    <div
+        style="
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            font-size: 14px;
+            color: #9a3412;
+        "
+    >
+        <div>
+            <div style="font-weight: 600; margin-bottom: 6px">
+                <span
+                    style="
+                        display: inline-block;
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 50%;
+                        background: #dc3023;
+                        margin-right: 6px;
+                        vertical-align: 2px;
+                    "
+                ></span>
+                管理员权限
+            </div>
+            <ul style="margin-left: 16px; line-height: 2">
+                <li>访问所有管理页面（用户、组、分区、节点）</li>
+                <li>查看并取消任意用户的作业</li>
+                <li>管理系统权限（添加/移除管理员）</li>
+                <li>修改 LDAP 用户和 Slurm 配置</li>
+            </ul>
+        </div>
+        <div>
+            <div style="font-weight: 600; margin-bottom: 6px">
+                <span
+                    style="
+                        display: inline-block;
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 50%;
+                        background: #6b7280;
+                        margin-right: 6px;
+                        vertical-align: 2px;
+                    "
+                ></span>
+                普通用户权限
+            </div>
+            <ul style="margin-left: 16px; line-height: 2">
+                <li>仅可访问「作业管理」页面</li>
+                <li>可查看所有用户的作业和输出文件</li>
+                <li>只能取消属于自己的作业</li>
+                <li>可访问侧边栏中的外部系统链接</li>
+            </ul>
+        </div>
+    </div>
+    <div
+        style="
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #fed7aa;
+            font-size: 13px;
+            color: #9a3412;
+        "
+    >
+        <strong>注意：</strong>管理员列表存储在
+        <code style="background: #fde68a; padding: 1px 5px; border-radius: 3px"
+            >.env</code
+        >
+        文件的
+        <code style="background: #fde68a; padding: 1px 5px; border-radius: 3px"
+            >ADMIN_USERS</code
+        >
+        字段中，
+        可通过本页面在线修改（立即生效，无需重启），也可直接编辑文件（需重启服务）。
+        系统自动保证值的唯一性。
+    </div>
+</div>
+
+<!-- 添加管理员卡片 -->
+<div class="card" style="margin-bottom: 20px">
+    <h3 class="card-title">添加管理员</h3>
+    <div
+        style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap"
+    >
+        <div style="flex: 1; min-width: 200px">
+            <label
+                style="
+                    display: block;
+                    font-size: 13px;
+                    color: #374151;
+                    margin-bottom: 6px;
+                    font-weight: 500;
+                "
+            >
+                用户名
+            </label>
+            <div style="position: relative">
+                <input
+                    type="text"
+                    id="newAdminUsername"
+                    placeholder="输入 LDAP 用户名…"
+                    style="
+                        width: 100%;
+                        padding: 9px 12px;
+                        border: 1px solid #e5e7eb;
+                        border-radius: 6px;
+                        font-size: 14px;
+                        box-sizing: border-box;
+                    "
+                    onkeydown="if (event.key === 'Enter') addAdmin();"
+                    autocomplete="off"
+                />
+                <!-- 用户名补全下拉 -->
+                <div
+                    id="userSuggestions"
+                    style="
+                        display: none;
+                        position: absolute;
+                        top: 100%;
+                        left: 0;
+                        right: 0;
+                        background: #fff;
+                        border: 1px solid #e5e7eb;
+                        border-top: none;
+                        border-radius: 0 0 6px 6px;
+                        z-index: 100;
+                        max-height: 180px;
+                        overflow-y: auto;
+                        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                    "
+                ></div>
+            </div>
+        </div>
+        <div style="flex-shrink: 0">
+            <button
+                class="btn btn-primary"
+                onclick="addAdmin()"
+                id="addAdminBtn"
+            >
+                <svg
+                    style="
+                        width: 14px;
+                        height: 14px;
+                        display: inline-block;
+                        margin-right: 4px;
+                        vertical-align: -2px;
+                    "
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                >
+                    <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M12 4v16m8-8H4"
+                    />
+                </svg>
+                授予管理员权限
+            </button>
+        </div>
+        <div style="flex-shrink: 0">
+            <button
+                class="btn btn-secondary"
+                onclick="loadLdapUsersForSuggest()"
+                style="font-size: 13px"
+            >
+                从 LDAP 加载用户列表
+            </button>
+        </div>
+    </div>
+    <div
+        id="addAdminError"
+        style="
+            display: none;
+            margin-top: 10px;
+            padding: 8px 12px;
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #dc2626;
+        "
+    ></div>
+</div>
+
+<!-- 当前管理员列表卡片 -->
+<div class="card">
+    <div
+        style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        "
+    >
+        <h3 class="card-title" style="margin-bottom: 0">当前管理员列表</h3>
+        <span style="font-size: 14px; color: #6b7280">
+            共 <strong id="adminCount">—</strong> 位管理员 &nbsp;|&nbsp; 存储于
+            <code
+                style="
+                    background: #f3f4f6;
+                    padding: 1px 6px;
+                    border-radius: 4px;
+                "
+                >ADMIN_USERS</code
+            >
+        </span>
+    </div>
+
+    <!-- 当前登录用户提示 -->
+    <div
+        id="selfWarning"
+        style="
+            display: none;
+            margin-bottom: 14px;
+            padding: 8px 12px;
+            background: #fffbeb;
+            border: 1px solid #fbbf24;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #92400e;
+        "
+    >
+        <strong>提示：</strong>您无法撤销自己（<span id="selfUsername"></span
+        >）的管理员权限，需由其他管理员操作。
+    </div>
+
+    <div style="overflow-x: auto">
+        <table class="table" id="adminTable">
+            <thead>
+                <tr>
+                    <th style="width: 48px">#</th>
+                    <th>用户名</th>
+                    <th>在 LDAP 中存在</th>
+                    <th>当前会话</th>
+                    <th style="width: 160px">操作</th>
+                </tr>
+            </thead>
+            <tbody id="adminTableBody">
+                <tr>
+                    <td colspan="5" class="text-center py-8 text-gray-500">
+                        加载中…
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- 空列表提示 -->
+    <div
+        id="emptyAdminTip"
+        style="
+            display: none;
+            text-align: center;
+            padding: 32px;
+            color: #6b7280;
+            font-size: 14px;
+        "
+    >
+        <svg
+            style="
+                width: 40px;
+                height: 40px;
+                margin: 0 auto 12px;
+                display: block;
+                color: #d1d5db;
+            "
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+        >
+            <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.5"
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+            />
+        </svg>
+        尚无管理员！建议立即添加至少一位管理员，否则登录后所有用户都将被视为普通用户。
+    </div>
+</div>
+
+{% endblock %} {# ══════════════════════════════════════════════════════════
+页面脚本 ══════════════════════════════════════════════════════════ #} {% block
+page_scripts %}
+<script>
+    /* ── 当前登录用户（从服务端注入） ────────────────────── */
+    const SELF_USERNAME = "{{ user.get('username', '') }}";
+
+    /* ── LDAP 用户缓存（供补全使用） ─────────────────────── */
+    let ldapUsers = [];
+
+    /* ══════════════════════════════════════════════════════
+       数据加载
+       ══════════════════════════════════════════════════════ */
+
+    /** 加载管理员列表并渲染表格 */
+    async function loadAdminData() {
+        const tbody = document.getElementById("adminTableBody");
+        tbody.innerHTML =
+            '<tr><td colspan="5" class="text-center py-8 text-gray-500">加载中…</td></tr>';
+
+        try {
+            const data = await (await fetch("/api/admin/list")).json();
+            const admins = data.admins || [];
+
+            document.getElementById("adminCount").textContent = admins.length;
+            document.getElementById("emptyAdminTip").style.display =
+                admins.length === 0 ? "block" : "none";
+
+            // 显示自身警告
+            if (admins.includes(SELF_USERNAME)) {
+                document.getElementById("selfWarning").style.display = "block";
+                document.getElementById("selfUsername").textContent =
+                    SELF_USERNAME;
+            }
+
+            if (admins.length === 0) {
+                tbody.innerHTML =
+                    '<tr><td colspan="5" class="text-center py-6 text-gray-400">暂无管理员</td></tr>';
+                return;
+            }
+
+            // 并行检查每位管理员是否存在于 LDAP
+            const ldapChecks = await Promise.allSettled(
+                admins.map((u) =>
+                    fetch(`/api/ldap/users/${u}`).then((r) => r.ok),
+                ),
+            );
+
+            tbody.innerHTML = admins
+                .map((username, idx) => {
+                    const inLdap =
+                        ldapChecks[idx].status === "fulfilled" &&
+                        ldapChecks[idx].value;
+                    const isSelf = username === SELF_USERNAME;
+                    const initials = username.charAt(0).toUpperCase();
+
+                    return `
+                <tr>
+                    <td style="color:#9ca3af;">${idx + 1}</td>
+                    <td>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <div style="width:32px;height:32px;border-radius:50%;
+                                        background:#dc3023;color:#fff;
+                                        display:flex;align-items:center;justify-content:center;
+                                        font-weight:700;font-size:13px;flex-shrink:0;">
+                                ${initials}
+                            </div>
+                            <div>
+                                <div style="font-weight:600;">${username}</div>
+                                ${isSelf ? '<div style="font-size:11px;color:#6b7280;">（当前登录）</div>' : ""}
+                            </div>
+                            <span class="badge badge-error" style="font-size:11px;">管理员</span>
+                        </div>
+                    </td>
+                    <td>
+                        ${
+                            inLdap
+                                ? '<span class="badge badge-success">存在</span>'
+                                : '<span class="badge" style="background:#fef3c7;color:#92400e;">未找到</span>'
+                        }
+                    </td>
+                    <td>
+                        ${
+                            isSelf
+                                ? '<span class="badge badge-info">当前会话</span>'
+                                : "—"
+                        }
+                    </td>
+                    <td>
+                        ${
+                            isSelf
+                                ? `<button class="btn btn-secondary" disabled
+                                       style="padding:4px 12px;font-size:12px;opacity:0.5;cursor:not-allowed;"
+                                       title="不能撤销自己的管理员权限">撤销权限</button>`
+                                : `<button class="btn" onclick="removeAdmin('${username}')"
+                                       style="padding:4px 12px;font-size:12px;background:#dc3023;color:white;">
+                                   撤销权限
+                               </button>`
+                        }
+                    </td>
+                </tr>`;
+                })
+                .join("");
+        } catch (e) {
+            console.error("[admin] 加载管理员列表失败:", e);
+            tbody.innerHTML =
+                '<tr><td colspan="5" class="text-center py-6" style="color:#dc3023;">加载失败，请检查接口</td></tr>';
+        }
+    }
+
+    /** 预加载 LDAP 用户列表（用于输入框自动补全） */
+    async function loadLdapUsersForSuggest() {
+        try {
+            const data = await (await fetch("/api/ldap/users")).json();
+            ldapUsers = (data.users || [])
+                .map((u) => u.username)
+                .filter(Boolean);
+            showToast(`已加载 ${ldapUsers.length} 个 LDAP 用户`, "success");
+            // 触发一次补全显示
+            filterSuggestions(
+                document.getElementById("newAdminUsername").value,
+            );
+        } catch (e) {
+            showToast("加载 LDAP 用户列表失败", "error");
+        }
+    }
+
+    /* ══════════════════════════════════════════════════════
+       添加管理员
+       ══════════════════════════════════════════════════════ */
+
+    async function addAdmin() {
+        const input = document.getElementById("newAdminUsername");
+        const errBox = document.getElementById("addAdminError");
+        const btn = document.getElementById("addAdminBtn");
+        const username = input.value.trim();
+
+        errBox.style.display = "none";
+        hideSuggestions();
+
+        if (!username) {
+            showError(errBox, "请输入用户名");
+            return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = "处理中…";
+
+        try {
+            const res = await fetch("/api/admin", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username }),
+            });
+            const data = await res.json();
+
+            if (res.ok) {
+                showToast(`用户 ${username} 已授予管理员权限`, "success");
+                input.value = "";
+                await loadAdminData();
+            } else {
+                showError(errBox, data.detail || "添加失败");
+            }
+        } catch (e) {
+            showError(errBox, "网络错误，请重试");
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = `<svg style="width:14px;height:14px;display:inline-block;
+                              margin-right:4px;vertical-align:-2px;"
+                             fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+            </svg>授予管理员权限`;
+        }
+    }
+
+    /* ══════════════════════════════════════════════════════
+       撤销管理员
+       ══════════════════════════════════════════════════════ */
+
+    async function removeAdmin(username) {
+        if (
+            !confirm(
+                `确定要撤销用户 "${username}" 的管理员权限吗？\n该用户之后将只能访问作业管理页面。`,
+            )
+        )
+            return;
+
+        try {
+            const res = await fetch(
+                `/api/admin/${encodeURIComponent(username)}`,
+                { method: "DELETE" },
+            );
+            const data = await res.json();
+
+            if (res.ok) {
+                showToast(`已撤销 ${username} 的管理员权限`, "success");
+                await loadAdminData();
+            } else {
+                showToast(data.detail || "撤销失败", "error");
+            }
+        } catch (e) {
+            showToast("网络错误，请重试", "error");
+        }
+    }
+
+    /* ══════════════════════════════════════════════════════
+       输入框自动补全
+       ══════════════════════════════════════════════════════ */
+
+    function filterSuggestions(value) {
+        const box = document.getElementById("userSuggestions");
+        if (!ldapUsers.length || !value.trim()) {
+            hideSuggestions();
+            return;
+        }
+
+        const keyword = value.toLowerCase();
+        const matches = ldapUsers
+            .filter((u) => u.toLowerCase().includes(keyword))
+            .slice(0, 10);
+
+        if (matches.length === 0) {
+            hideSuggestions();
+            return;
+        }
+
+        box.innerHTML = matches
+            .map(
+                (u) => `
+            <div onclick="selectSuggestion('${u}')"
+                 style="padding:8px 12px; font-size:13px; cursor:pointer;
+                        border-bottom:1px solid #f3f4f6; transition:background .1s;"
+                 onmouseover="this.style.background='#f9fafb'"
+                 onmouseout="this.style.background=''">
+                ${u}
+            </div>`,
+            )
+            .join("");
+        box.style.display = "block";
+    }
+
+    function selectSuggestion(username) {
+        document.getElementById("newAdminUsername").value = username;
+        hideSuggestions();
+    }
+
+    function hideSuggestions() {
+        document.getElementById("userSuggestions").style.display = "none";
+    }
+
+    /* ── 工具函数 ─────────────────────────────────────────── */
+
+    function showError(el, msg) {
+        el.textContent = msg;
+        el.style.display = "block";
+    }
+
+    /* ── 事件绑定 ─────────────────────────────────────────── */
+
+    document.addEventListener("DOMContentLoaded", () => {
+        loadAdminData();
+
+        const input = document.getElementById("newAdminUsername");
+        input.addEventListener("input", (e) =>
+            filterSuggestions(e.target.value),
+        );
+        input.addEventListener("blur", () => setTimeout(hideSuggestions, 150));
+        input.addEventListener("focus", (e) =>
+            filterSuggestions(e.target.value),
+        );
+
+        // 点击页面其他区域关闭补全
+        document.addEventListener("click", (e) => {
+            if (
+                !e.target.closest("#newAdminUsername") &&
+                !e.target.closest("#userSuggestions")
+            ) {
+                hideSuggestions();
+            }
+        });
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,309 @@
+{% extends "base.html" %}
+{#
+============================================================
+账户管理页
+路由: GET /accounts
+============================================================
+#}
+{% block title %}账户管理{% endblock %}
+{% block breadcrumb_title %}账户管理{% endblock %}
+
+{% block content %}
+<!-- 页面标题行 -->
+<div class="flex justify-between items-center" style="margin-bottom: 24px">
+    <h2 style="font-size: 28px; font-weight: 700">Slurm 账户管理</h2>
+    <button class="btn btn-primary" onclick="showCreateAccountModal()">
+        + 创建账户
+    </button>
+</div>
+
+<!-- 账户列表卡片 -->
+<div class="card">
+    <div class="flex justify-between items-center" style="margin-bottom: 16px">
+        <h3 class="card-title" style="margin-bottom: 0">账户列表</h3>
+        <span style="color: #6b7280; font-size: 14px">
+            总计: <strong id="accountCount">—</strong> 个账户
+        </span>
+    </div>
+    <div style="overflow-x: auto">
+        <table class="table" id="accountsTable">
+            <thead>
+                <tr>
+                    <th>账户名</th>
+                    <th>组织</th>
+                    <th>描述</th>
+                    <th>协调员</th>
+                    <th>标记</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="accountsTableBody">
+                <tr>
+                    <td colspan="6" class="text-center py-8 text-gray-500">
+                        加载中…
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<!-- 创建账户弹窗 -->
+<div id="createAccountModal" class="modal" style="display: none">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>创建新账户</h3>
+            <button class="modal-close" onclick="closeCreateAccountModal()">
+                &times;
+            </button>
+        </div>
+        <form id="createAccountForm" onsubmit="handleCreateAccount(event)">
+            <div class="form-group">
+                <label for="create_account_name">账户名</label>
+                <input
+                    type="text"
+                    id="create_account_name"
+                    name="name"
+                    required
+                    autocomplete="off"
+                />
+            </div>
+            <div class="form-group">
+                <label for="create_account_org">组织</label>
+                <input
+                    type="text"
+                    id="create_account_org"
+                    name="organization"
+                    autocomplete="off"
+                />
+            </div>
+            <div class="form-group">
+                <label for="create_account_description">描述</label>
+                <textarea
+                    id="create_account_description"
+                    name="description"
+                    rows="3"
+                    style="
+                        width: 100%;
+                        padding: 8px 12px;
+                        border: 1px solid #d1d5db;
+                        border-radius: 6px;
+                        font-size: 14px;
+                        font-family: inherit;
+                        resize: vertical;
+                    "
+                ></textarea>
+            </div>
+            <div class="modal-footer">
+                <button
+                    type="button"
+                    class="btn btn-secondary"
+                    onclick="closeCreateAccountModal()"
+                >
+                    取消
+                </button>
+                <button type="submit" class="btn btn-primary">创建</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 编辑账户弹窗 -->
+<div id="editAccountModal" class="modal" style="display: none">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>编辑账户</h3>
+            <button class="modal-close" onclick="closeEditAccountModal()">
+                &times;
+            </button>
+        </div>
+        <form id="editAccountForm" onsubmit="handleEditAccount(event)">
+            <input type="hidden" id="edit_account_name" name="name" />
+            <div class="form-group">
+                <label>账户名</label>
+                <input
+                    type="text"
+                    id="edit_account_name_display"
+                    disabled
+                    style="background-color: #f3f4f6; cursor: not-allowed"
+                />
+            </div>
+            <div class="form-group">
+                <label for="edit_account_org">组织</label>
+                <input
+                    type="text"
+                    id="edit_account_org"
+                    name="organization"
+                    autocomplete="off"
+                />
+            </div>
+            <div class="form-group">
+                <label for="edit_account_description">描述</label>
+                <textarea
+                    id="edit_account_description"
+                    name="description"
+                    rows="3"
+                    style="
+                        width: 100%;
+                        padding: 8px 12px;
+                        border: 1px solid #d1d5db;
+                        border-radius: 6px;
+                        font-size: 14px;
+                        font-family: inherit;
+                        resize: vertical;
+                    "
+                ></textarea>
+            </div>
+            <div class="modal-footer">
+                <button
+                    type="button"
+                    class="btn btn-secondary"
+                    onclick="closeEditAccountModal()"
+                >
+                    取消
+                </button>
+                <button type="submit" class="btn btn-primary">保存</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<script>
+    /* ── 数据加载 ─────────────────────────────────────────── */
+
+    async function loadAccounts() {
+        const tbody = document.getElementById("accountsTableBody");
+        const accounts = await fetchAccounts();
+
+        if (!accounts || accounts.length === 0) {
+            tbody.innerHTML =
+                '<tr><td colspan="6" class="text-center py-8 text-gray-500">暂无账户数据</td></tr>';
+            document.getElementById("accountCount").textContent = "0";
+            return;
+        }
+
+        tbody.innerHTML = accounts
+            .map((account) => {
+                const coordinators =
+                    account.coordinators && account.coordinators.length > 0
+                        ? account.coordinators.join(", ")
+                        : "—";
+                const flags =
+                    account.flags && account.flags.length > 0
+                        ? account.flags.join(", ")
+                        : "—";
+                return `
+                <tr>
+                    <td><strong>${account.name}</strong></td>
+                    <td>${account.organization || "—"}</td>
+                    <td>${account.description || "—"}</td>
+                    <td style="font-size: 13px; color: #6b7280;">${coordinators}</td>
+                    <td style="font-size: 13px; color: #6b7280;">${flags}</td>
+                    <td>
+                        <button class="btn btn-secondary"
+                                style="padding: 4px 12px; font-size: 12px; margin-right: 4px;"
+                                onclick="showEditAccountModal('${account.name}')">编辑</button>
+                        <button class="btn"
+                                style="padding: 4px 12px; font-size: 12px; background-color: #dc3023; color: white;"
+                                onclick="deleteAccountConfirm('${account.name}')">删除</button>
+                    </td>
+                </tr>`;
+            })
+            .join("");
+
+        document.getElementById("accountCount").textContent = accounts.length;
+    }
+
+    /* ── 创建账户 ───────────────────────────────────────────── */
+
+    function showCreateAccountModal() {
+        document.getElementById("createAccountForm").reset();
+        document.getElementById("createAccountModal").style.display = "flex";
+    }
+
+    function closeCreateAccountModal() {
+        document.getElementById("createAccountModal").style.display = "none";
+    }
+
+    async function handleCreateAccount(event) {
+        event.preventDefault();
+        const fd = new FormData(event.target);
+        const accountData = {
+            name: fd.get("name"),
+            organization: fd.get("organization") || "",
+            description: fd.get("description") || "",
+        };
+
+        const success = await createAccount(accountData);
+        if (success) {
+            closeCreateAccountModal();
+            loadAccounts();
+        }
+    }
+
+    /* ── 编辑账户 ───────────────────────────────────────────── */
+
+    async function showEditAccountModal(accountName) {
+        const accounts = await fetchAccounts();
+        const target = accounts.find((a) => a.name === accountName);
+        if (!target) {
+            showToast("获取账户信息失败", "error");
+            return;
+        }
+
+        document.getElementById("edit_account_name").value = accountName;
+        document.getElementById("edit_account_name_display").value = accountName;
+        document.getElementById("edit_account_org").value =
+            target.organization || "";
+        document.getElementById("edit_account_description").value =
+            target.description || "";
+        document.getElementById("editAccountModal").style.display = "flex";
+    }
+
+    function closeEditAccountModal() {
+        document.getElementById("editAccountModal").style.display = "none";
+    }
+
+    async function handleEditAccount(event) {
+        event.preventDefault();
+        const fd = new FormData(event.target);
+        const accountName = fd.get("name");
+        const accountData = {};
+
+        const organization = fd.get("organization");
+        if (organization !== null && organization !== undefined) {
+            accountData.organization = organization;
+        }
+        const description = fd.get("description");
+        if (description !== null && description !== undefined) {
+            accountData.description = description;
+        }
+
+        const success = await updateAccount(accountName, accountData);
+        if (success) {
+            closeEditAccountModal();
+            loadAccounts();
+        }
+    }
+
+    /* ── 删除账户 ───────────────────────────────────────────── */
+
+    async function deleteAccountConfirm(accountName) {
+        if (!confirm(`确定要删除账户 "${accountName}" 吗？此操作无法撤销！`))
+            return;
+        const success = await deleteAccount(accountName);
+        if (success) loadAccounts();
+    }
+
+    /* ── 页面初始化 ───────────────────────────────────────── */
+
+    document.addEventListener("DOMContentLoaded", () => {
+        loadAccounts();
+        enableTableSorting("accountsTable");
+    });
+</script>
+{% endblock %}

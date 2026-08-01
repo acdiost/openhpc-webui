@@ -1,0 +1,460 @@
+{% extends "base.html" %}
+{#
+============================================================
+集群用户管理页
+路由: GET /cluster-users
+============================================================
+#}
+{% block title %}集群用户管理{% endblock %}
+{% block breadcrumb_title %}集群用户管理{% endblock %}
+
+{% block content %}
+<!-- 页面标题行 -->
+<div class="flex justify-between items-center" style="margin-bottom: 24px">
+    <div>
+        <h2 style="font-size: 28px; font-weight: 700">集群用户管理</h2>
+        <p style="color: #6b7280; margin-top: 6px">
+            使用 sacctmgr 维护账户关联（Association）
+        </p>
+    </div>
+    <button class="btn btn-primary" onclick="showCreateAssocModal()">
+        + 添加关联
+    </button>
+</div>
+
+<!-- 过滤与统计 -->
+<div class="card" style="margin-bottom: 16px">
+    <div class="flex items-center gap-3 flex-wrap">
+        <label for="assocAccountFilter" style="font-weight: 600; color: #374151">账户筛选</label>
+        <select id="assocAccountFilter" style="min-width: 220px">
+            <option value="">默认账户</option>
+        </select>
+        <button class="btn btn-secondary" onclick="loadAssociations()">刷新</button>
+        <span style="color: #6b7280; font-size: 14px; margin-left: auto">
+            总计: <strong id="assocCount">—</strong> 条关联
+        </span>
+    </div>
+</div>
+
+<!-- 关联列表 -->
+<div class="card">
+    <div style="overflow-x: auto">
+        <table class="table" id="associationsTable">
+            <thead>
+                <tr>
+                    <th>用户</th>
+                    <th>账户</th>
+                    <th>集群</th>
+                    <th>分区</th>
+                    <th>QOS</th>
+                    <th>默认 QOS</th>
+                    <th>核时</th>
+                    <th>卡时</th>
+                    <th>默认</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="associationsTableBody">
+                <tr>
+                    <td colspan="10" class="text-center py-8 text-gray-500">
+                        加载中…
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<!-- 创建关联弹窗 -->
+<div id="createAssocModal" class="modal" style="display: none">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>添加账户关联</h3>
+            <button class="modal-close" onclick="closeCreateAssocModal()">
+                &times;
+            </button>
+        </div>
+        <form id="createAssocForm" onsubmit="handleCreateAssoc(event)">
+            <div class="form-group">
+                <label for="create_assoc_user">用户名</label>
+                <input
+                    type="text"
+                    id="create_assoc_user"
+                    name="username"
+                    required
+                    autocomplete="off"
+                />
+            </div>
+            <div class="form-group">
+                <label for="create_assoc_account">账户</label>
+                <select id="create_assoc_account" name="account" required></select>
+            </div>
+            <div class="form-group">
+                <label for="create_assoc_partition">分区</label>
+                <input
+                    type="text"
+                    id="create_assoc_partition"
+                    name="partition"
+                    placeholder="留空表示全局"
+                />
+            </div>
+            <div class="form-group">
+                <label for="create_assoc_qos">QOS 列表</label>
+                <input
+                    type="text"
+                    id="create_assoc_qos"
+                    name="qos"
+                    placeholder="用英文逗号分隔，如 normal,qos_test"
+                />
+            </div>
+            <div class="form-group">
+                <label for="create_assoc_default_qos">默认 QOS</label>
+                <input
+                    type="text"
+                    id="create_assoc_default_qos"
+                    name="default_qos"
+                    placeholder="如 qos_test"
+                />
+            </div>
+            <div class="modal-footer">
+                <button
+                    type="button"
+                    class="btn btn-secondary"
+                    onclick="closeCreateAssocModal()"
+                >
+                    取消
+                </button>
+                <button type="submit" class="btn btn-primary">创建</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 编辑关联弹窗 -->
+<div id="editAssocModal" class="modal" style="display: none">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>编辑关联</h3>
+            <button class="modal-close" onclick="closeEditAssocModal()">
+                &times;
+            </button>
+        </div>
+        <form id="editAssocForm" onsubmit="handleEditAssoc(event)">
+            <input type="hidden" id="edit_assoc_account" name="account" />
+            <input type="hidden" id="edit_assoc_user" name="username" />
+            <div class="form-group">
+                <label>用户 / 账户</label>
+                <input
+                    type="text"
+                    id="edit_assoc_identity"
+                    disabled
+                    style="background-color: #f3f4f6; cursor: not-allowed"
+                />
+            </div>
+            <div class="form-group">
+                <label for="edit_assoc_partition">分区</label>
+                <input
+                    type="text"
+                    id="edit_assoc_partition"
+                    name="partition"
+                    placeholder="留空表示全局"
+                />
+            </div>
+            <div class="form-group">
+                <label for="edit_assoc_qos">QOS 列表</label>
+                <input
+                    type="text"
+                    id="edit_assoc_qos"
+                    name="qos"
+                    placeholder="用英文逗号分隔"
+                />
+            </div>
+            <div class="form-group">
+                <label for="edit_assoc_default_qos">默认 QOS</label>
+                <input
+                    type="text"
+                    id="edit_assoc_default_qos"
+                    name="default_qos"
+                />
+            </div>
+            <div class="modal-footer">
+                <button
+                    type="button"
+                    class="btn btn-secondary"
+                    onclick="closeEditAssocModal()"
+                >
+                    取消
+                </button>
+                <button type="submit" class="btn btn-primary">保存</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 核时/卡时拨付弹窗 -->
+<div id="tresMinutesModal" class="modal" style="display: none">
+    <div class="modal-content" style="max-width: 520px">
+        <div class="modal-header">
+            <h3 id="tresMinutesModalTitle">核时/卡时拨付</h3>
+            <button class="modal-close" onclick="closeTRESMinutesModal()">
+                &times;
+            </button>
+        </div>
+        <form id="tresMinutesForm" onsubmit="handleTRESMinutesSubmit(event)">
+            <input type="hidden" id="tres_account" name="account" />
+            <input type="hidden" id="tres_username" name="username" />
+            <div class="form-group">
+                <label for="tres_cpu_minutes">核时额度 (cpu minutes)</label>
+                <input
+                    type="number"
+                    id="tres_cpu_minutes"
+                    name="cpu_minutes"
+                    min="0"
+                    step="1"
+                    placeholder="如 1000"
+                />
+            </div>
+            <div class="form-group">
+                <label for="tres_gpu_minutes">卡时额度 (gpu minutes)</label>
+                <input
+                    type="number"
+                    id="tres_gpu_minutes"
+                    name="gpu_minutes"
+                    min="0"
+                    step="1"
+                    placeholder="如 1000"
+                />
+            </div>
+            <div style="font-size: 12px; color: #6b7280; margin-top: -6px; margin-bottom: 12px;">
+                该操作会设置 GrpTRESMins，留空表示不修改该项。
+            </div>
+            <div class="modal-footer">
+                <button
+                    type="button"
+                    class="btn btn-secondary"
+                    onclick="closeTRESMinutesModal()"
+                >
+                    取消
+                </button>
+                <button type="submit" class="btn btn-primary">确认拨付</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<script>
+    /* ── 数据加载 ─────────────────────────────────────────── */
+
+    async function loadAccountOptions() {
+        const accounts = await fetchAccounts();
+        const filterSelect = document.getElementById("assocAccountFilter");
+        const createSelect = document.getElementById("create_assoc_account");
+
+        const options = accounts
+            .map((a) => `<option value="${a.name}">${a.name}</option>`)
+            .join("");
+
+        if (createSelect) {
+            createSelect.innerHTML = options || "";
+        }
+
+        if (filterSelect) {
+            const current = filterSelect.value;
+            filterSelect.innerHTML =
+                '<option value="">默认账户</option>' + options;
+            if (current) filterSelect.value = current;
+        }
+    }
+
+    async function loadAssociations() {
+        const tbody = document.getElementById("associationsTableBody");
+        const accountFilter =
+            document.getElementById("assocAccountFilter").value || null;
+        const assocs = await fetchAssociations(accountFilter);
+
+        if (!assocs || assocs.length === 0) {
+            tbody.innerHTML =
+                '<tr><td colspan="10" class="text-center py-8 text-gray-500">暂无关联数据</td></tr>';
+            document.getElementById("assocCount").textContent = "0";
+            return;
+        }
+
+        tbody.innerHTML = assocs
+            .map((assoc) => {
+                const qos = assoc.qos && assoc.qos.length > 0 ? assoc.qos.join(", ") : "—";
+                const isAccountLevel = !assoc.user;
+                const userLabel = isAccountLevel ? "（账户级）" : assoc.user;
+                const actionButtons = isAccountLevel
+                    ? "<span style=\"color:#9ca3af\">—</span>"
+                    : `
+                        <button class="btn btn-secondary"
+                                style="padding: 4px 12px; font-size: 12px; margin-right: 4px;"
+                                onclick="showTRESMinutesModal('${assoc.account}', '${assoc.user}')">拨付</button>
+                        <button class="btn btn-secondary"
+                                style="padding: 4px 12px; font-size: 12px; margin-right: 4px;"
+                                onclick="showEditAssocModal('${assoc.account}', '${assoc.user}')">编辑</button>
+                        <button class="btn"
+                                style="padding: 4px 12px; font-size: 12px; background-color: #dc3023; color: white;"
+                                onclick="deleteAssocConfirm('${assoc.account}', '${assoc.user}', '${assoc.partition || ""}')">删除</button>
+                      `;
+                return `
+                <tr>
+                    <td><strong>${userLabel || "—"}</strong></td>
+                    <td>${assoc.account || "—"}</td>
+                    <td>${assoc.cluster || "—"}</td>
+                    <td>${assoc.partition || "—"}</td>
+                    <td style="font-size: 13px; color: #6b7280;">${qos}</td>
+                    <td>${assoc.default_qos || "—"}</td>
+                    <td>${assoc.cpu_minutes || 0}</td>
+                    <td>${assoc.gpu_minutes || 0}</td>
+                    <td>${assoc.is_default ? "是" : "否"}</td>
+                    <td>${actionButtons}</td>
+                </tr>`;
+            })
+            .join("");
+
+        document.getElementById("assocCount").textContent = assocs.length;
+    }
+
+    /* ── 创建关联 ───────────────────────────────────────────── */
+
+    function showCreateAssocModal() {
+        document.getElementById("createAssocForm").reset();
+        document.getElementById("createAssocModal").style.display = "flex";
+    }
+
+    function closeCreateAssocModal() {
+        document.getElementById("createAssocModal").style.display = "none";
+    }
+
+    async function handleCreateAssoc(event) {
+        event.preventDefault();
+        const fd = new FormData(event.target);
+        const payload = {
+            username: fd.get("username"),
+            account: fd.get("account"),
+            partition: fd.get("partition") || null,
+            qos: fd.get("qos") || null,
+            default_qos: fd.get("default_qos") || null,
+        };
+
+        const success = await createAssociation(payload);
+        if (success) {
+            closeCreateAssocModal();
+            loadAssociations();
+        }
+    }
+
+    /* ── 编辑关联 ───────────────────────────────────────────── */
+
+    async function showEditAssocModal(account, username) {
+        const assocs = await fetchAssociations(account);
+        const target = assocs.find((a) => a.account === account && a.user === username);
+        if (!target) {
+            showToast("获取关联信息失败", "error");
+            return;
+        }
+
+        document.getElementById("edit_assoc_account").value = account;
+        document.getElementById("edit_assoc_user").value = username;
+        document.getElementById("edit_assoc_identity").value = `${username} / ${account}`;
+        document.getElementById("edit_assoc_partition").value =
+            target.partition || "";
+        document.getElementById("edit_assoc_qos").value =
+            target.qos && target.qos.length > 0 ? target.qos.join(",") : "";
+        document.getElementById("edit_assoc_default_qos").value =
+            target.default_qos || "";
+        document.getElementById("editAssocModal").style.display = "flex";
+    }
+
+    function closeEditAssocModal() {
+        document.getElementById("editAssocModal").style.display = "none";
+    }
+
+    async function handleEditAssoc(event) {
+        event.preventDefault();
+        const fd = new FormData(event.target);
+        const account = fd.get("account");
+        const username = fd.get("username");
+        const payload = {
+            partition: fd.get("partition") || "",
+            qos: fd.get("qos") || "",
+            default_qos: fd.get("default_qos") || "",
+        };
+
+        const success = await updateAssociation(account, username, payload);
+        if (success) {
+            closeEditAssocModal();
+            loadAssociations();
+        }
+    }
+
+    /* ── 删除关联 ───────────────────────────────────────────── */
+
+    async function deleteAssocConfirm(account, username, partition) {
+        if (!confirm(`确定要删除关联 "${username}/${account}" 吗？此操作无法撤销！`))
+            return;
+        const success = await deleteAssociation(account, username, partition || null);
+        if (success) loadAssociations();
+    }
+
+    /* ── 核时/卡时拨付 ───────────────────────────────────── */
+
+    async function showTRESMinutesModal(account, username) {
+        const assocs = await fetchAssociations(account);
+        const target = assocs.find((a) => a.account === account && a.user === username);
+        if (!target) {
+            showToast("获取关联信息失败", "error");
+            return;
+        }
+
+        document.getElementById("tresMinutesModalTitle").textContent = `核时/卡时拨付：${username} / ${account}`;
+        document.getElementById("tres_account").value = account;
+        document.getElementById("tres_username").value = username;
+        document.getElementById("tres_cpu_minutes").value = target.cpu_minutes || 0;
+        document.getElementById("tres_gpu_minutes").value = target.gpu_minutes || 0;
+        document.getElementById("tresMinutesModal").style.display = "flex";
+    }
+
+    function closeTRESMinutesModal() {
+        document.getElementById("tresMinutesModal").style.display = "none";
+    }
+
+    async function handleTRESMinutesSubmit(event) {
+        event.preventDefault();
+        const fd = new FormData(event.target);
+        const account = fd.get("account");
+        const username = fd.get("username");
+        const cpuRaw = fd.get("cpu_minutes");
+        const gpuRaw = fd.get("gpu_minutes");
+
+        const payload = {};
+        if (cpuRaw !== null && cpuRaw !== "") payload.cpu_minutes = parseInt(cpuRaw);
+        if (gpuRaw !== null && gpuRaw !== "") payload.gpu_minutes = parseInt(gpuRaw);
+        if (payload.cpu_minutes === undefined && payload.gpu_minutes === undefined) {
+            showToast("请至少填写核时或卡时", "warning");
+            return;
+        }
+
+        const success = await setAssociationTRESMinutes(account, username, payload);
+        if (success) {
+            closeTRESMinutesModal();
+            loadAssociations();
+        }
+    }
+
+    /* ── 页面初始化 ───────────────────────────────────────── */
+
+    document.addEventListener("DOMContentLoaded", async () => {
+        await loadAccountOptions();
+        await loadAssociations();
+        enableTableSorting("associationsTable");
+        const filter = document.getElementById("assocAccountFilter");
+        filter.addEventListener("change", loadAssociations);
+    });
+</script>
+{% endblock %}

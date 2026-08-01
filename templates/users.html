@@ -1,0 +1,1063 @@
+{% extends "base.html" %} {#
+============================================================ 用户管理页 路由:
+GET /users ============================================================ #} {%
+block title %}用户管理{% endblock %} {% block breadcrumb_title %}用户管理{%
+endblock %} {# ══════════════════════════════════════════════════════════
+主体内容 ══════════════════════════════════════════════════════════ #} {% block
+content %}
+
+<!-- 页面标题行 -->
+<div class="flex justify-between items-center" style="margin-bottom: 24px">
+    <h2 style="font-size: 28px; font-weight: 700">LDAP 用户管理</h2>
+    <button class="btn btn-primary" onclick="showCreateUserModal()">
+        + 创建用户
+    </button>
+</div>
+
+<!-- 用户列表卡片 -->
+<div class="card" style="margin-bottom: 20px">
+    <div class="flex justify-between items-center" style="margin-bottom: 16px">
+        <div>
+            <input
+                type="text"
+                id="userSearch"
+                placeholder="搜索用户名、UID、家目录、配额…"
+                style="
+                    padding: 8px 12px;
+                    border: 1px solid #e5e7eb;
+                    border-radius: 6px;
+                    width: 300px;
+                "
+            />
+        </div>
+        <span style="color: #6b7280; font-size: 14px">
+            总计: <strong id="userCount">—</strong> 个用户
+        </span>
+    </div>
+
+    <div style="overflow-x: auto">
+        <table class="table" id="usersTable">
+            <thead>
+                <tr>
+                    <th>用户名</th>
+                    <th>UID</th>
+                    <th>GID</th>
+                    <th>家目录</th>
+                    <th>存储配额</th>
+                    <th>Shell</th>
+                    <th>所属组</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="usersTableBody">
+                <tr>
+                    <td colspan="9" class="text-center py-8 text-gray-500">
+                        加载中…
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- LDAP 连接状态卡片 -->
+<div class="card">
+    <h3 class="card-title">LDAP 连接状态</h3>
+    <div class="flex items-center gap-2" id="ldapStatusRow">
+        <span class="badge badge-success">检测中…</span>
+        <span style="color: #6b7280; font-size: 14px"
+            >正在连接 LDAP 服务器…</span
+        >
+    </div>
+</div>
+
+{% endblock %} {# ══════════════════════════════════════════════════════════
+弹窗层 ══════════════════════════════════════════════════════════ #} {% block
+modals %}
+
+<!-- 创建用户弹窗 -->
+<div id="createUserModal" class="modal" style="display: none">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>创建新用户</h3>
+            <button class="modal-close" onclick="closeCreateUserModal()">
+                &times;
+            </button>
+        </div>
+        <form id="createUserForm" onsubmit="handleCreateUser(event)">
+            <div class="form-group">
+                <label for="create_username">用户名</label>
+                <input
+                    type="text"
+                    id="create_username"
+                    name="username"
+                    required
+                    autocomplete="off"
+                />
+            </div>
+            <div class="form-group">
+                <label for="create_uid">UID</label>
+                <input
+                    type="number"
+                    id="create_uid"
+                    name="uid"
+                    required
+                    min="1000"
+                />
+            </div>
+            <div class="form-group">
+                <label for="create_gid">主组</label>
+                <select id="create_gid" name="gid" required>
+                    <option value="">选择组…</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="create_home">家目录</label>
+                <input
+                    type="text"
+                    id="create_home"
+                    name="home"
+                    required
+                    placeholder="/home/username"
+                />
+            </div>
+            <div class="form-group">
+                <label for="create_quota">存储配额 (GB)</label>
+                <div style="display: flex; gap: 10px; align-items: center">
+                    <input
+                        type="number"
+                        id="create_quota"
+                        name="storage_quota_gb"
+                        min="1"
+                        step="0.1"
+                        placeholder="如 500"
+                        style="flex: 1"
+                    />
+                    <label
+                        for="create_quota_unlimited"
+                        style="
+                            display: flex;
+                            align-items: center;
+                            gap: 6px;
+                            font-weight: normal;
+                            cursor: pointer;
+                            margin-bottom: 0;
+                        "
+                    >
+                        <input
+                            type="checkbox"
+                            id="create_quota_unlimited"
+                            name="quota_unlimited"
+                            checked
+                            style="width: 16px; height: 16px; margin-top: 0"
+                        />
+                        不限制
+                    </label>
+                </div>
+                <div style="font-size: 12px; color: #9ca3af; margin-top: 6px">
+                    使用 NFS quota，留空且勾选「不限制」表示默认不限额
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="create_shell">Shell</label>
+                <select id="create_shell" name="shell">
+                    <option value="/bin/bash">/bin/bash</option>
+                    <option value="/bin/sh">/bin/sh</option>
+                    <option value="/usr/sbin/nologin">/usr/sbin/nologin</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="create_password">密码</label>
+                <input
+                    type="password"
+                    id="create_password"
+                    name="password"
+                    placeholder="留空则不设置密码"
+                    autocomplete="new-password"
+                />
+            </div>
+            <div class="form-group">
+                <label
+                    for="create_is_admin"
+                    style="
+                        display: flex;
+                        align-items: flex-start;
+                        gap: 10px;
+                        cursor: pointer;
+                        margin-bottom: 0;
+                        font-weight: normal;
+                    "
+                >
+                    <input
+                        type="checkbox"
+                        id="create_is_admin"
+                        name="is_admin"
+                        style="
+                            width: 16px;
+                            height: 16px;
+                            margin-top: 2px;
+                            accent-color: #dc3023;
+                            cursor: pointer;
+                            flex-shrink: 0;
+                        "
+                    />
+                    <div>
+                        <span
+                            style="
+                                font-size: 14px;
+                                font-weight: 500;
+                                color: #374151;
+                            "
+                            >授予管理员权限</span
+                        >
+                        <div
+                            style="
+                                font-size: 12px;
+                                color: #9ca3af;
+                                margin-top: 2px;
+                                line-height: 1.4;
+                            "
+                        >
+                            管理员可访问所有管理页面并操作任意用户的作业
+                        </div>
+                    </div>
+                </label>
+            </div>
+            <div class="modal-footer">
+                <button
+                    type="button"
+                    class="btn btn-secondary"
+                    onclick="closeCreateUserModal()"
+                >
+                    取消
+                </button>
+                <button type="submit" class="btn btn-primary">创建</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 编辑用户弹窗 -->
+<div id="editUserModal" class="modal" style="display: none">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>编辑用户</h3>
+            <button class="modal-close" onclick="closeEditUserModal()">
+                &times;
+            </button>
+        </div>
+        <form id="editUserForm" onsubmit="handleEditUser(event)">
+            <input type="hidden" id="edit_username" name="username" />
+            <div class="form-group">
+                <label for="edit_cn">显示名称</label>
+                <input type="text" id="edit_cn" name="cn" autocomplete="off" />
+            </div>
+            <div class="form-group">
+                <label for="edit_gid">主组</label>
+                <select id="edit_gid" name="gid">
+                    <option value="">选择组…</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="edit_home">家目录</label>
+                <input type="text" id="edit_home" name="home" />
+            </div>
+            <div class="form-group">
+                <label for="edit_quota">存储配额 (GB)</label>
+                <div style="display: flex; gap: 10px; align-items: center">
+                    <input
+                        type="number"
+                        id="edit_quota"
+                        name="storage_quota_gb"
+                        min="1"
+                        step="0.1"
+                        placeholder="如 500"
+                        style="flex: 1"
+                    />
+                    <label
+                        for="edit_quota_unlimited"
+                        style="
+                            display: flex;
+                            align-items: center;
+                            gap: 6px;
+                            font-weight: normal;
+                            cursor: pointer;
+                            margin-bottom: 0;
+                        "
+                    >
+                        <input
+                            type="checkbox"
+                            id="edit_quota_unlimited"
+                            name="quota_unlimited"
+                            checked
+                            style="width: 16px; height: 16px; margin-top: 0"
+                        />
+                        不限制
+                    </label>
+                </div>
+                <div style="font-size: 12px; color: #9ca3af; margin-top: 6px">
+                    修改后立即更新 NFS quota
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="edit_shell">Shell</label>
+                <select id="edit_shell" name="shell">
+                    <option value="/bin/bash">/bin/bash</option>
+                    <option value="/bin/sh">/bin/sh</option>
+                    <option value="/usr/sbin/nologin">/usr/sbin/nologin</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="edit_password">新密码</label>
+                <input
+                    type="password"
+                    id="edit_password"
+                    name="password"
+                    placeholder="留空则不修改密码"
+                    autocomplete="new-password"
+                />
+            </div>
+            <div class="form-group">
+                <label
+                    for="edit_is_admin"
+                    style="
+                        display: flex;
+                        align-items: flex-start;
+                        gap: 10px;
+                        cursor: pointer;
+                        margin-bottom: 0;
+                        font-weight: normal;
+                    "
+                >
+                    <input
+                        type="checkbox"
+                        id="edit_is_admin"
+                        name="is_admin"
+                        style="
+                            width: 16px;
+                            height: 16px;
+                            margin-top: 2px;
+                            accent-color: #dc3023;
+                            cursor: pointer;
+                            flex-shrink: 0;
+                        "
+                    />
+                    <div>
+                        <span
+                            style="
+                                font-size: 14px;
+                                font-weight: 500;
+                                color: #374151;
+                            "
+                            >管理员权限</span
+                        >
+                        <div
+                            style="
+                                font-size: 12px;
+                                color: #9ca3af;
+                                margin-top: 2px;
+                                line-height: 1.4;
+                            "
+                        >
+                            勾选授予 / 取消勾选撤销管理员权限（立即生效）
+                            <span
+                                id="edit_is_admin_self_note"
+                                style="
+                                    display: none;
+                                    color: #f59e0b;
+                                    font-weight: 600;
+                                "
+                                >—&nbsp;不能修改自己的权限</span
+                            >
+                        </div>
+                    </div>
+                </label>
+            </div>
+            <div class="modal-footer">
+                <button
+                    type="button"
+                    class="btn btn-secondary"
+                    onclick="closeEditUserModal()"
+                >
+                    取消
+                </button>
+                <button type="submit" class="btn btn-primary">保存</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 用户报表弹窗 -->
+<div id="userReportModal" class="modal" style="display: none">
+    <div class="modal-content" style="max-width: 1100px; width: 95vw">
+        <div class="modal-header">
+            <h3 id="userReportTitle">用户报表</h3>
+            <button class="modal-close" onclick="closeUserReportModal()">
+                &times;
+            </button>
+        </div>
+        <div
+            style="
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 12px 16px;
+                margin-bottom: 20px;
+                padding: 12px 14px;
+                background: #f9fafb;
+                border: 1px solid #eef2f7;
+                border-radius: 10px;
+            "
+        >
+            <label for="userReportRange" style="font-weight: 700; min-width: 72px; color: #374151"
+                >筛选范围</label
+            >
+            <select
+                id="userReportRange"
+                style="
+                    padding: 8px 12px;
+                    border: 1px solid #e5e7eb;
+                    border-radius: 8px;
+                    min-width: 120px;
+                    background: #fff;
+                "
+            >
+                <option value="day">近一天</option>
+                <option value="week">近一周</option>
+                <option value="month">近一月</option>
+                <option value="custom">自定义</option>
+            </select>
+            <input
+                type="date"
+                id="userReportStart"
+                style="
+                    padding: 8px 12px;
+                    border: 1px solid #e5e7eb;
+                    border-radius: 8px;
+                    min-width: 150px;
+                    background: #fff;
+                "
+            />
+            <span style="color: #9ca3af">至</span>
+            <input
+                type="date"
+                id="userReportEnd"
+                style="
+                    padding: 8px 12px;
+                    border: 1px solid #e5e7eb;
+                    border-radius: 8px;
+                    min-width: 150px;
+                    background: #fff;
+                "
+            />
+            <button
+                class="btn btn-secondary"
+                style="padding: 8px 14px"
+                onclick="applyCustomReportRange()"
+            >
+                应用
+            </button>
+            <button
+                class="btn btn-secondary"
+                style="padding: 8px 14px"
+                onclick="exportUserReportCsv()"
+            >
+                导出 CSV
+            </button>
+            <span
+                id="userReportStartDate"
+                style="color: #6b7280; font-size: 13px; margin-left: auto"
+            ></span>
+        </div>
+
+        <div class="card" style="margin-bottom: 20px">
+            <div
+                style="
+                    display: grid;
+                    grid-template-columns: repeat(3, minmax(0, 1fr));
+                    gap: 16px;
+                "
+            >
+                <div style="padding: 12px 14px; background: #f9fafb; border-radius: 10px">
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px">
+                        <div style="color: #374151; font-size: 14px; font-weight: 700">作业数</div>
+                        <div id="report_total_jobs" style="font-size: 22px; font-weight: 700">—</div>
+                    </div>
+                </div>
+                <div style="padding: 12px 14px; background: #f9fafb; border-radius: 10px">
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px">
+                        <div style="color: #374151; font-size: 14px; font-weight: 700">完成</div>
+                        <div id="report_completed_jobs" style="font-size: 22px; font-weight: 700">—</div>
+                    </div>
+                </div>
+                <div style="padding: 12px 14px; background: #f9fafb; border-radius: 10px">
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px">
+                        <div style="color: #374151; font-size: 14px; font-weight: 700">失败/异常</div>
+                        <div id="report_failed_jobs" style="font-size: 22px; font-weight: 700">—</div>
+                    </div>
+                </div>
+                <div style="padding: 12px 14px; background: #f9fafb; border-radius: 10px">
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px">
+                        <div style="color: #374151; font-size: 14px; font-weight: 700">取消</div>
+                        <div id="report_cancelled_jobs" style="font-size: 22px; font-weight: 700">—</div>
+                    </div>
+                </div>
+                <div style="padding: 12px 14px; background: #f9fafb; border-radius: 10px">
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px">
+                        <div style="color: #374151; font-size: 14px; font-weight: 700">机时 (CPU h)</div>
+                        <div id="report_cpu_hours" style="font-size: 22px; font-weight: 700">—</div>
+                    </div>
+                </div>
+                <div style="padding: 12px 14px; background: #f9fafb; border-radius: 10px">
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px">
+                        <div style="color: #374151; font-size: 14px; font-weight: 700">运行时长 (h)</div>
+                        <div id="report_elapsed_hours" style="font-size: 22px; font-weight: 700">—</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <style>
+            #userReportTable {
+                width: 100%;
+                border-collapse: separate;
+                border-spacing: 0;
+            }
+            #userReportTable th,
+            #userReportTable td {
+                padding: 10px 12px;
+                border-bottom: 1px solid #eef2f7;
+                white-space: nowrap;
+            }
+            #userReportTable th {
+                background: #f9fafb;
+                color: #374151;
+                font-weight: 600;
+                position: sticky;
+                top: 0;
+                z-index: 1;
+            }
+            #userReportTable tbody tr:nth-child(even) {
+                background: #fcfcfd;
+            }
+            #userReportTable tbody tr:hover {
+                background: #f3f4f6;
+            }
+        </style>
+
+        <div
+            style="
+                overflow-x: auto;
+                max-height: 420px;
+                border: 1px solid #e5e7eb;
+                border-radius: 10px;
+            "
+        >
+            <table class="table" id="userReportTable">
+                <thead>
+                    <tr>
+                        <th>作业ID</th>
+                        <th>名称</th>
+                        <th>状态</th>
+                        <th>分区</th>
+                        <th>CPU</th>
+                        <th>机时(h)</th>
+                        <th>运行(h)</th>
+                        <th>开始时间</th>
+                        <th>结束时间</th>
+                    </tr>
+                </thead>
+                <tbody id="userReportTableBody">
+                    <tr>
+                        <td colspan="9" class="text-center py-8 text-gray-500">
+                            加载中…
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 核时拨付弹窗 -->
+<div id="creditModal" class="modal" style="display: none">
+    <div class="modal-content" style="max-width: 520px">
+        <div class="modal-header">
+            <h3 id="creditModalTitle">核时拨付</h3>
+            <button class="modal-close" onclick="closeCreditModal()">
+                &times;
+            </button>
+        </div>
+        <form id="creditForm" onsubmit="handleCreditSubmit(event)">
+            <input type="hidden" id="credit_username" name="username" />
+            <div class="form-group">
+                <label for="credit_hours">拨付核时 (CPU 小时)</label>
+                <input
+                    type="number"
+                    id="credit_hours"
+                    name="hours"
+                    min="0.1"
+                    step="0.1"
+                    required
+                    placeholder="如 120"
+                />
+            </div>
+            <div class="form-group">
+                <label for="credit_reason">拨付原因</label>
+                <select id="credit_reason" name="reason">
+                    <option value="project">项目追加</option>
+                    <option value="compensation">资源补偿</option>
+                    <option value="grant">专项拨付</option>
+                    <option value="other">其他</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="credit_date">生效日期</label>
+                <input type="date" id="credit_date" name="effective_date" />
+            </div>
+            <div class="form-group">
+                <label for="credit_note">备注</label>
+                <textarea
+                    id="credit_note"
+                    name="note"
+                    rows="3"
+                    placeholder="可选"
+                ></textarea>
+            </div>
+            <div class="modal-footer">
+                <button
+                    type="button"
+                    class="btn btn-secondary"
+                    onclick="closeCreditModal()"
+                >
+                    取消
+                </button>
+                <button type="submit" class="btn btn-primary">确认拨付</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %} {# ══════════════════════════════════════════════════════════
+页面脚本（logout 已在 base.html 全局定义，此处无需重复）
+══════════════════════════════════════════════════════════ #} {% block
+page_scripts %}
+<script>
+    /* ── 数据加载 ─────────────────────────────────────────── */
+
+    async function loadUsers() {
+        const tbody = document.getElementById("usersTableBody");
+        const users = await fetchUsers();
+
+        if (!users || users.length === 0) {
+            tbody.innerHTML =
+                '<tr><td colspan="9" class="text-center py-8 text-gray-500">暂无用户数据</td></tr>';
+            document.getElementById("userCount").textContent = "0";
+            return;
+        }
+
+        tbody.innerHTML = users
+            .map(
+                (user) => `
+            <tr>
+                <td>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <strong>${user.username}</strong>
+                        ${
+                            user.is_admin
+                                ? `<span class="badge badge-error" style="font-size:10px; padding:1px 6px;">管理员</span>`
+                                : ""
+                        }
+                    </div>
+                </td>
+                <td>${user.uid}</td>
+                <td>${user.gid}</td>
+                <td style="font-family: monospace; font-size: 12px;">${user.home}</td>
+                <td>
+                    ${
+                        user.storage_quota_gb && user.storage_quota_gb > 0
+                            ? `${user.storage_quota_gb} GB`
+                            : "不限制"
+                    }
+                </td>
+                <td style="font-family: monospace; font-size: 12px;">${user.shell}</td>
+                <td>${user.groups && user.groups.length > 0 ? user.groups.join(", ") : "—"}</td>
+                <td><span class="badge badge-success">活跃</span></td>
+                <td>
+                    <button class="btn btn-secondary"
+                            style="padding: 4px 12px; font-size: 12px; margin-right: 4px; background-color: #2563eb; color: #ffffff;"
+                            onclick="showEditUserModal('${user.username}')">编辑</button>
+                    <button class="btn btn-secondary"
+                            style="padding: 4px 12px; font-size: 12px; margin-right: 4px; background-color: #7c3aed; color: #ffffff;"
+                            onclick="showUserReportModal('${user.username}')">报表</button>
+                    <button class="btn btn-secondary"
+                            style="padding: 4px 12px; font-size: 12px; margin-right: 4px; background-color: #10b981; color: #ffffff;"
+                            onclick="resetUserSshKey('${user.username}')">生成/重置密钥</button>
+                    <button class="btn btn-secondary"
+                            style="padding: 4px 12px; font-size: 12px; margin-right: 4px; background-color: #f59e0b; color: #111827;"
+                            onclick="showCreditModal('${user.username}')">核时拨付</button>
+                    <button class="btn"
+                            style="padding: 4px 12px; font-size: 12px; background-color: #dc3023; color: white;"
+                            onclick="deleteUser('${user.username}')">删除</button>
+                </td>
+            </tr>
+        `,
+            )
+            .join("");
+
+        document.getElementById("userCount").textContent = users.length;
+    }
+
+    async function loadLDAPStatus() {
+        const row = document.getElementById("ldapStatusRow");
+        try {
+            const status = await fetchLDAPStatus();
+            if (status.status === "connected") {
+                row.innerHTML = `
+                    <span class="badge badge-success">已连接</span>
+                    <span style="color: #6b7280; font-size: 14px;">
+                        服务器: ${status.server} &nbsp;|&nbsp; Bind DN: ${status.bind_dn}
+                    </span>`;
+            } else {
+                row.innerHTML = `
+                    <span class="badge badge-error">未连接</span>
+                    <span style="color: #6b7280; font-size: 14px;">
+                        错误: ${status.error || "无法连接"}
+                    </span>`;
+            }
+        } catch (e) {
+            row.innerHTML = `
+                <span class="badge badge-error">检测失败</span>
+                <span style="color: #6b7280; font-size: 14px;">无法获取 LDAP 状态</span>`;
+        }
+    }
+
+    /* ── 组选项（供创建/编辑表单共用） ──────────────────── */
+
+    async function loadGroupOptions() {
+        const groups = await fetchGroups();
+        const options = groups
+            .map(
+                (g) =>
+                    `<option value="${g.gid}">${g.name} (GID: ${g.gid})</option>`,
+            )
+            .join("");
+        const placeholder = '<option value="">选择组…</option>';
+
+        document.getElementById("create_gid").innerHTML = placeholder + options;
+        document.getElementById("edit_gid").innerHTML = placeholder + options;
+    }
+
+    /* ── 创建用户 ─────────────────────────────────────────── */
+
+    function showCreateUserModal() {
+        loadGroupOptions();
+        document.getElementById("createUserForm").reset();
+        document.getElementById("create_quota_unlimited").checked = true;
+        document.getElementById("createUserModal").style.display = "flex";
+        setupQuotaToggle("create");
+    }
+
+    function closeCreateUserModal() {
+        document.getElementById("createUserModal").style.display = "none";
+    }
+
+    async function handleCreateUser(event) {
+        event.preventDefault();
+        const fd = new FormData(event.target);
+        const createQuotaUnlimited = document.getElementById(
+            "create_quota_unlimited",
+        ).checked;
+        const createQuotaValue = document.getElementById("create_quota").value;
+        const userData = {
+            username: fd.get("username"),
+            uid: parseInt(fd.get("uid")),
+            gid: parseInt(fd.get("gid")),
+            home: fd.get("home"),
+            shell: fd.get("shell"),
+            password: fd.get("password") || null,
+            is_admin: fd.get("is_admin") === "on",
+            storage_quota_gb: createQuotaUnlimited
+                ? 0
+                : createQuotaValue
+                  ? parseFloat(createQuotaValue)
+                  : null,
+        };
+
+        const success = await createUser(userData);
+        if (success) {
+            closeCreateUserModal();
+            loadUsers();
+        }
+    }
+
+    /* ── 编辑用户 ─────────────────────────────────────────── */
+
+    async function showEditUserModal(username) {
+        const user = await fetchUser(username);
+        if (!user) {
+            showToast("获取用户信息失败", "error");
+            return;
+        }
+
+        await loadGroupOptions();
+
+        document.getElementById("edit_username").value = username;
+        document.getElementById("edit_cn").value = user.cn || "";
+        document.getElementById("edit_gid").value = user.gid || "";
+        document.getElementById("edit_home").value = user.home || "";
+        const editQuotaInput = document.getElementById("edit_quota");
+        const editQuotaUnlimited = document.getElementById(
+            "edit_quota_unlimited",
+        );
+        const hasQuota = user.storage_quota_gb && user.storage_quota_gb > 0;
+        if (editQuotaInput) editQuotaInput.value = hasQuota ? user.storage_quota_gb : "";
+        if (editQuotaUnlimited) editQuotaUnlimited.checked = !hasQuota;
+        document.getElementById("edit_shell").value = user.shell || "/bin/bash";
+        document.getElementById("edit_password").value = "";
+        const isAdminCheckbox = document.getElementById("edit_is_admin");
+        isAdminCheckbox.checked = !!user.is_admin;
+        // 编辑自己时禁用管理员开关，防止意外触发自我撤权报错
+        const isSelf = username === __USER__.username;
+        isAdminCheckbox.disabled = isSelf;
+        isAdminCheckbox.style.opacity = isSelf ? "0.4" : "1";
+        isAdminCheckbox.style.cursor = isSelf ? "not-allowed" : "pointer";
+        const selfNote = document.getElementById("edit_is_admin_self_note");
+        if (selfNote) selfNote.style.display = isSelf ? "inline" : "none";
+        document.getElementById("editUserModal").style.display = "flex";
+        setupQuotaToggle("edit");
+    }
+
+    function closeEditUserModal() {
+        document.getElementById("editUserModal").style.display = "none";
+    }
+
+    async function handleEditUser(event) {
+        event.preventDefault();
+        const fd = new FormData(event.target);
+        const username = fd.get("username");
+        const userData = {};
+
+        const cn = fd.get("cn");
+        if (cn) userData.cn = cn;
+        const gid = fd.get("gid");
+        if (gid) userData.gid = parseInt(gid);
+        const home = fd.get("home");
+        if (home) userData.home = home;
+        const shell = fd.get("shell");
+        if (shell) userData.shell = shell;
+        const password = fd.get("password");
+        if (password) userData.password = password;
+        const editQuotaUnlimited = document.getElementById(
+            "edit_quota_unlimited",
+        ).checked;
+        const editQuotaValue = document.getElementById("edit_quota").value;
+        if (editQuotaUnlimited) {
+            userData.storage_quota_gb = 0;
+        } else if (editQuotaValue) {
+            userData.storage_quota_gb = parseFloat(editQuotaValue);
+        }
+        // is_admin：仅在非编辑自己时传递，避免触发后端自我撤权保护
+        const editingUsername = fd.get("username");
+        if (editingUsername !== __USER__.username) {
+            userData.is_admin = fd.get("is_admin") === "on";
+        }
+
+        const success = await updateUser(username, userData);
+        if (success) {
+            closeEditUserModal();
+            loadUsers();
+        }
+    }
+
+    /* ── 用户报表 ─────────────────────────────────────────── */
+
+    let currentReportUser = "";
+
+    function showUserReportModal(username) {
+        currentReportUser = username;
+        document.getElementById("userReportTitle").textContent = `用户报表：${username}`;
+        const rangeSelect = document.getElementById("userReportRange");
+        rangeSelect.value = "day";
+        document.getElementById("userReportStart").value = "";
+        document.getElementById("userReportEnd").value = "";
+        document.getElementById("userReportModal").style.display = "flex";
+        loadUserReport(username, rangeSelect.value);
+        rangeSelect.onchange = () => {
+            if (rangeSelect.value === "custom") return;
+            loadUserReport(username, rangeSelect.value);
+        };
+    }
+
+    function closeUserReportModal() {
+        document.getElementById("userReportModal").style.display = "none";
+        currentReportUser = "";
+    }
+
+    async function loadUserReport(username, range, startDate = "", endDate = "") {
+        const tbody = document.getElementById("userReportTableBody");
+        tbody.innerHTML =
+            '<tr><td colspan="9" class="text-center py-8 text-gray-500">加载中…</td></tr>';
+        try {
+            const query = new URLSearchParams({ range });
+            if (startDate) query.set("start", startDate);
+            if (endDate) query.set("end", endDate);
+            const res = await fetch(
+                `/api/slurm/users/${username}/report?${query.toString()}`,
+            );
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.detail || "加载报表失败");
+            }
+
+            const totals = data.totals || {};
+            document.getElementById("report_total_jobs").textContent =
+                totals.total_jobs ?? 0;
+            document.getElementById("report_completed_jobs").textContent =
+                totals.completed_jobs ?? 0;
+            document.getElementById("report_failed_jobs").textContent =
+                totals.failed_jobs ?? 0;
+            document.getElementById("report_cancelled_jobs").textContent =
+                totals.cancelled_jobs ?? 0;
+            document.getElementById("report_cpu_hours").textContent =
+                totals.cpu_hours ?? 0;
+            document.getElementById("report_elapsed_hours").textContent =
+                totals.elapsed_hours ?? 0;
+            document.getElementById("userReportStartDate").textContent = data.start_date
+                ? `统计起始：${data.start_date}` +
+                  (data.end_date ? `，结束：${data.end_date}` : "")
+                : "";
+
+            const jobs = data.jobs || [];
+            if (jobs.length === 0) {
+                tbody.innerHTML =
+                    '<tr><td colspan="9" class="text-center py-8 text-gray-500">暂无作业数据</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = jobs
+                .map(
+                    (job) => `
+                <tr>
+                    <td>${job.job_id}</td>
+                    <td>${job.name || "—"}</td>
+                    <td>${job.state || "—"}</td>
+                    <td>${job.partition || "—"}</td>
+                    <td>${job.alloc_cpus || "—"}</td>
+                    <td>${job.cpu_hours ?? 0}</td>
+                    <td>${job.elapsed_hours ?? 0}</td>
+                    <td>${job.start_time || "—"}</td>
+                    <td>${job.end_time || "—"}</td>
+                </tr>
+            `,
+                )
+                .join("");
+        } catch (e) {
+            showToast(e.message || "加载报表失败", "error");
+            tbody.innerHTML =
+                '<tr><td colspan="9" class="text-center py-8 text-gray-500">加载失败</td></tr>';
+        }
+    }
+
+    function applyCustomReportRange() {
+        if (!currentReportUser) return;
+        const rangeSelect = document.getElementById("userReportRange");
+        const startDate = document.getElementById("userReportStart").value;
+        const endDate = document.getElementById("userReportEnd").value;
+        rangeSelect.value = "custom";
+        if (!startDate) {
+            showToast("请选择开始日期", "warning");
+            return;
+        }
+        loadUserReport(currentReportUser, "custom", startDate, endDate);
+    }
+
+    function exportUserReportCsv() {
+        if (!currentReportUser) return;
+        const rangeSelect = document.getElementById("userReportRange");
+        const startDate = document.getElementById("userReportStart").value;
+        const endDate = document.getElementById("userReportEnd").value;
+        const query = new URLSearchParams({ range: rangeSelect.value });
+        if (startDate) query.set("start", startDate);
+        if (endDate) query.set("end", endDate);
+        const url = `/api/slurm/users/${currentReportUser}/report.csv?${query.toString()}`;
+        window.open(url, "_blank");
+    }
+
+    /* ── 核时拨付 ─────────────────────────────────────────── */
+
+    function showCreditModal(username) {
+        document.getElementById("creditModalTitle").textContent = `核时拨付：${username}`;
+        document.getElementById("credit_username").value = username;
+        document.getElementById("creditForm").reset();
+        const today = new Date().toISOString().slice(0, 10);
+        document.getElementById("credit_date").value = today;
+        document.getElementById("creditModal").style.display = "flex";
+    }
+
+    function closeCreditModal() {
+        document.getElementById("creditModal").style.display = "none";
+    }
+
+    async function handleCreditSubmit(event) {
+        event.preventDefault();
+        const fd = new FormData(event.target);
+        const username = fd.get("username");
+        const payload = {
+            hours: parseFloat(fd.get("hours")),
+            reason: fd.get("reason") || null,
+            note: fd.get("note") || null,
+            effective_date: fd.get("effective_date") || null,
+        };
+
+        try {
+            const res = await fetch(`/api/slurm/users/${username}/credit`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.detail || "拨付失败");
+            }
+            showToast(data.message || "拨付成功", "success");
+            closeCreditModal();
+        } catch (e) {
+            showToast(e.message || "拨付失败", "error");
+        }
+    }
+
+    /* ── 删除用户 ─────────────────────────────────────────── */
+
+    async function deleteUser(username) {
+        if (!confirm(`确定要删除用户 "${username}" 吗？此操作无法撤销！`))
+            return;
+        const success = await deleteUserAPI(username);
+        if (success) loadUsers();
+    }
+
+    /* ── 页面初始化 ───────────────────────────────────────── */
+
+    function setupQuotaToggle(prefix) {
+        const input = document.getElementById(`${prefix}_quota`);
+        const checkbox = document.getElementById(`${prefix}_quota_unlimited`);
+        if (!input || !checkbox) return;
+        const applyState = () => {
+            const unlimited = checkbox.checked;
+            input.disabled = unlimited;
+            if (unlimited) input.value = "";
+            input.style.opacity = unlimited ? "0.6" : "1";
+        };
+        checkbox.addEventListener("change", applyState);
+        applyState();
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+        loadUsers();
+        loadLDAPStatus();
+        setupTableSearch("userSearch", "usersTable");
+        enableTableSorting("usersTable");
+    });
+</script>
+{% endblock %}

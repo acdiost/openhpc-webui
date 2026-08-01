@@ -1,0 +1,304 @@
+{% extends "base.html" %} {#
+============================================================ 系统概览 / 仪表盘
+路由: GET / ============================================================ #} {%
+block title %}系统概览{% endblock %} {% block head_extra %} {#
+页面加载后立即跳转到作业管理（当前首页为跳转占位页） #} {#
+<meta http-equiv="refresh" content="0; url=/jobs" /> #} {% endblock %} {% block
+breadcrumb_title %}系统概览{% endblock %} {% block content %} {# ── 页面标题行
+── #}
+<div
+    style="
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 24px;
+    "
+>
+    <h2 style="font-size: 28px; font-weight: 700">系统概览</h2>
+    <button class="btn btn-secondary" onclick="refreshDashboard(this)">
+        <svg
+            style="
+                width: 16px;
+                height: 16px;
+                display: inline-block;
+                margin-right: 4px;
+                vertical-align: -3px;
+            "
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+        >
+            <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            />
+        </svg>
+        刷新
+    </button>
+</div>
+
+{# ── 统计卡片组 ── #}
+<div class="stats-grid" style="margin-bottom: 24px">
+    <div class="stat-card">
+        <div class="stat-label">LDAP 用户总数</div>
+        <div class="stat-value" id="stat-users" style="color: #dc3023">—</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-label">运行中作业</div>
+        <div class="stat-value" id="stat-running" style="color: #10b981">—</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-label">排队中作业</div>
+        <div class="stat-value" id="stat-pending" style="color: #f59e0b">—</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-label">空闲节点</div>
+        <div class="stat-value" id="stat-idle" style="color: #6b7280">—</div>
+    </div>
+</div>
+
+{# ── 近期作业卡片 ── #}
+<div class="card" style="margin-bottom: 20px">
+    <div
+        style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        "
+    >
+        <h3 class="card-title" style="margin-bottom: 0">近期活动作业</h3>
+        <a
+            href="/jobs"
+            class="btn btn-secondary"
+            style="font-size: 13px; padding: 6px 14px"
+        >
+            查看全部 →
+        </a>
+    </div>
+    <div style="overflow-x: auto">
+        <table class="table" id="recentJobsTable">
+            <thead>
+                <tr>
+                    <th>作业 ID</th>
+                    <th>用户</th>
+                    <th>分区</th>
+                    <th>状态</th>
+                    <th>运行时间</th>
+                    <th>节点</th>
+                </tr>
+            </thead>
+            <tbody id="recentJobsBody">
+                <tr>
+                    <td colspan="6" class="text-center py-8 text-gray-500">
+                        加载中…
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{# ── 集群分区状态卡片 ── #}
+<div class="card">
+    <div
+        style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        "
+    >
+        <h3 class="card-title" style="margin-bottom: 0">集群分区状态</h3>
+        <a
+            href="/partitions"
+            class="btn btn-secondary"
+            style="font-size: 13px; padding: 6px 14px"
+        >
+            分区管理 →
+        </a>
+    </div>
+    <div style="overflow-x: auto">
+        <table class="table" id="clusterStatusTable">
+            <thead>
+                <tr>
+                    <th>分区名称</th>
+                    <th>总节点</th>
+                    <th>已分配</th>
+                    <th>空闲</th>
+                    <th>离线</th>
+                    <th>状态</th>
+                </tr>
+            </thead>
+            <tbody id="clusterStatusBody">
+                <tr>
+                    <td colspan="6" class="text-center py-8 text-gray-500">
+                        加载中…
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endblock %} {% block page_scripts %}
+<script>
+    const STATE_MAP = {
+        RUNNING: { text: "运行中", cls: "badge-success" },
+        PENDING: { text: "排队中", cls: "badge-warning" },
+        COMPLETED: { text: "已完成", cls: "badge-info" },
+        FAILED: { text: "失败", cls: "badge-error" },
+        CANCELLED: { text: "已取消", cls: "badge-error" },
+        TIMEOUT: { text: "超时", cls: "badge-error" },
+        OUT_OF_MEMORY: { text: "内存溢出", cls: "badge-error" },
+    };
+
+    /** 加载作业统计数字 */
+    async function loadJobStats() {
+        try {
+            const data = await (await fetch("/api/slurm/jobs/stats")).json();
+            document.getElementById("stat-running").textContent =
+                data.running ?? "—";
+            document.getElementById("stat-pending").textContent =
+                data.pending ?? "—";
+        } catch (e) {
+            console.warn("[dashboard] 作业统计加载失败", e);
+        }
+    }
+
+    /** 加载 LDAP 用户总数 */
+    async function loadUserCount() {
+        try {
+            const data = await (await fetch("/api/ldap/users")).json();
+            const count = Array.isArray(data)
+                ? data.length
+                : data.users
+                  ? data.users.length
+                  : "—";
+            document.getElementById("stat-users").textContent = count;
+        } catch (e) {
+            console.warn("[dashboard] 用户数量加载失败", e);
+        }
+    }
+
+    /** 加载近期活动作业（取前 8 条） */
+    async function loadRecentJobs() {
+        const tbody = document.getElementById("recentJobsBody");
+        try {
+            const data = await (await fetch("/api/slurm/jobs")).json();
+            const jobs = (data.jobs || []).slice(0, 8);
+
+            if (jobs.length === 0) {
+                tbody.innerHTML =
+                    '<tr><td colspan="6" class="text-center py-8 text-gray-500">暂无活动作业</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = jobs
+                .map((job) => {
+                    const st = STATE_MAP[job.state] || {
+                        text: job.state,
+                        cls: "badge-info",
+                    };
+                    return `
+                    <tr>
+                        <td><strong>${job.job_id}</strong></td>
+                        <td>${job.user}</td>
+                        <td>${job.partition}</td>
+                        <td><span class="badge ${st.cls}">${st.text}</span></td>
+                        <td>${job.time || "—"}</td>
+                        <td>${job.nodes || "—"}</td>
+                    </tr>`;
+                })
+                .join("");
+        } catch (e) {
+            console.warn("[dashboard] 近期作业加载失败", e);
+            tbody.innerHTML =
+                '<tr><td colspan="6" class="text-center text-gray-400 py-6">暂无数据</td></tr>';
+        }
+    }
+
+    /** 加载集群分区状态 */
+    async function loadClusterStatus() {
+        const tbody = document.getElementById("clusterStatusBody");
+        let idleTotal = 0;
+        try {
+            const data = await (await fetch("/api/slurm/partitions")).json();
+            const parts = data.partitions || [];
+
+            if (parts.length === 0) {
+                tbody.innerHTML =
+                    '<tr><td colspan="6" class="text-center py-8 text-gray-500">暂无分区数据</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = parts
+                .map((p) => {
+                    const total =
+                        (p.nodes_alloc || 0) +
+                        (p.nodes_idle || 0) +
+                        (p.nodes_other || 0);
+                    const isUp = (p.state || "").toUpperCase() === "UP";
+                    idleTotal += p.nodes_idle || 0;
+                    return `
+                    <tr>
+                        <td><strong>${p.name}</strong></td>
+                        <td>${total}</td>
+                        <td>${p.nodes_alloc ?? "—"}</td>
+                        <td>${p.nodes_idle ?? "—"}</td>
+                        <td>${p.nodes_other ?? "—"}</td>
+                        <td>
+                            <span class="badge ${isUp ? "badge-success" : "badge-error"}">
+                                ${isUp ? "正常" : "停用"}
+                            </span>
+                        </td>
+                    </tr>`;
+                })
+                .join("");
+
+            document.getElementById("stat-idle").textContent = idleTotal;
+        } catch (e) {
+            console.warn("[dashboard] 集群状态加载失败", e);
+            tbody.innerHTML =
+                '<tr><td colspan="6" class="text-center text-gray-400 py-6">暂无数据</td></tr>';
+        }
+    }
+
+    /** 刷新整个仪表盘 */
+    async function refreshDashboard(btn) {
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = "刷新中…";
+        }
+        await Promise.allSettled([
+            loadJobStats(),
+            loadUserCount(),
+            loadRecentJobs(),
+            loadClusterStatus(),
+        ]);
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `
+            <svg style="width:16px;height:16px;display:inline-block;margin-right:4px;vertical-align:-3px;"
+                 fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+            刷新`;
+        }
+        showToast("仪表盘已刷新", "success");
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+        loadJobStats();
+        loadUserCount();
+        loadRecentJobs();
+        loadClusterStatus();
+    });
+</script>
+{% endblock %}

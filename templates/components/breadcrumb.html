@@ -1,0 +1,46 @@
+{# ============================================================
+   组件: 面包屑导航宏
+   用法:
+     {% from "components/breadcrumb.html" import breadcrumb %}
+
+     {# 单级（最常用） #}
+     {{ breadcrumb("用户管理") }}
+
+     {# 多级（含中间层级） #}
+     {{ breadcrumb("创建用户", parents=[("用户管理", "/users")]) }}
+
+     {# 纯文本中间层（无链接） #}
+     {{ breadcrumb("详情", parents=[("作业管理", "/jobs"), ("活动作业", None)]) }}
+   ============================================================ #}
+
+{% macro breadcrumb(current, parents=[]) %}
+<nav class="breadcrumb" aria-label="面包屑导航">
+
+    {# 首页始终作为根节点 #}
+    <a href="/" class="breadcrumb-item breadcrumb-link" aria-label="返回首页">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"
+             style="width:14px;height:14px;display:inline-block;vertical-align:-2px;margin-right:3px;">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+        </svg>
+        首页
+    </a>
+
+    {# 中间层级（可选，支持多层） #}
+    {% for label, url in parents %}
+        <span class="breadcrumb-separator" aria-hidden="true">/</span>
+        {% if url %}
+            <a href="{{ url }}" class="breadcrumb-item breadcrumb-link">{{ label }}</a>
+        {% else %}
+            <span class="breadcrumb-item">{{ label }}</span>
+        {% endif %}
+    {% endfor %}
+
+    {# 当前页（不可点击，标记 aria-current） #}
+    <span class="breadcrumb-separator" aria-hidden="true">/</span>
+    <span class="breadcrumb-item breadcrumb-current" aria-current="page">
+        {{ current }}
+    </span>
+
+</nav>
+{% endmacro %}

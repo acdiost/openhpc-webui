@@ -1,0 +1,576 @@
+{# ============================================================
+   基础布局模板 base.html
+   所有业务页面通过 {% extends "base.html" %} 继承此模板。
+
+   可覆盖的 block 列表（按页面自上而下顺序）:
+     block title          ← <title> 中的页面名称（不含站点后缀）
+     block head_extra     ← <head> 内额外内容（如页面专属 CSS、meta）
+     block breadcrumb     ← 整个面包屑区域（默认使用 breadcrumb 宏渲染）
+     block breadcrumb_title ← 仅覆盖面包屑末级文字（与 block breadcrumb 二选一）
+     block content        ← <main> 内的主体内容
+     block modals         ← 弹窗/抽屉（渲染在 .layout 内、<main> 之外）
+     block extra_scripts  ← 页面专属 <script src> 标签（main</script>.js 之后加载）
+     block page_scripts   ← 页面专属内联 <script>（最后执行）
+   ============================================================ #}
+
+{# breadcrumb 宏可在子模板中按需导入：
+   {% from "components/breadcrumb.html" import breadcrumb %} #}
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+
+    <title>
+        {%- block title %}智算中心管理门户{% endblock %} — 智算中心管理门户
+    </title>
+
+    {# ── 核心样式（离线本地化，禁止引用外部 CDN） ── #}
+    <link rel="stylesheet" href="/static/all-tailwind-classes-full-min.css">
+    <link rel="stylesheet" href="/static/compat.css">
+    <link rel="stylesheet" href="/static/animations.css">
+
+    {# ── 侧边栏新增样式（头像、外部链接标签、分割线等） ── #}
+    <style>
+        /* ── 全局字体 ── */
+        body {
+            font-family: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC',
+                         'Source Han Sans CN', system-ui, sans-serif;
+        }
+
+        /* ── 侧边栏三段式布局（同时覆盖旧版静态样式缓存） ── */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .sidebar-header {
+            flex-shrink: 0;
+        }
+        .sidebar-nav {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+        }
+
+        /* ── 侧边栏副标题 ── */
+        .sidebar-subtitle {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.4);
+            margin-top: 4px;
+            line-height: 1.4;
+        }
+
+        /* ── 导航图标 ── */
+        .nav-icon {
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
+            display: inline-block;
+            vertical-align: -3px;
+            margin-right: 8px;
+            opacity: 0.75;
+            transition: opacity 0.2s;
+        }
+        .nav-item:hover .nav-icon,
+        .nav-item.active .nav-icon {
+            opacity: 1;
+        }
+
+        /* ── 导航分隔线 ── */
+        .nav-divider {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.08);
+            margin: 8px 16px;
+        }
+
+        /* ── 导航分组标签 ── */
+        .nav-section-label {
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            color: rgba(255, 255, 255, 0.3);
+            text-transform: uppercase;
+            padding: 4px 20px 6px;
+        }
+
+        /* ── 外部链接导航项：字号略小，带外链标识感 ── */
+        .nav-item-external {
+            font-size: 13px;
+            opacity: 0.85;
+        }
+        .nav-item-external:hover {
+            opacity: 1;
+        }
+
+        /* ── 侧边栏底部区域 ── */
+        .sidebar-footer {
+            flex-shrink: 0;
+            padding: 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            background: #151515;
+        }
+
+        /* ── 用户信息行 ── */
+        .sidebar-user {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-height: 52px;
+            padding: 8px;
+            margin-bottom: 8px;
+            color: inherit;
+            text-decoration: none;
+            border: 1px solid transparent;
+            border-radius: 6px;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .sidebar-user:hover,
+        .sidebar-user.active {
+            background: rgba(255, 255, 255, 0.06);
+            border-color: rgba(255, 255, 255, 0.08);
+        }
+
+        /* ── 用户头像（首字母） ── */
+        .sidebar-user-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 6px;
+            background: #dc3023;
+            color: #fff;
+            font-size: 14px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            letter-spacing: 0;
+        }
+
+        /* ── 用户文字信息 ── */
+        .sidebar-user-info {
+            min-width: 0;
+            flex: 1;
+        }
+        .sidebar-user-meta {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            min-width: 0;
+            margin-top: 3px;
+        }
+        .sidebar-username {
+            font-size: 10px;
+            color: rgba(255, 255, 255, 0.42);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .sidebar-user-name {
+            font-size: 13px;
+            color: #fff;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .sidebar-role {
+            flex-shrink: 0;
+            padding: 1px 5px;
+            border-radius: 4px;
+            font-size: 9px;
+            line-height: 1.5;
+            color: rgba(255, 255, 255, 0.55);
+            background: rgba(255, 255, 255, 0.08);
+        }
+        .sidebar-role.is-admin {
+            color: #fecaca;
+            background: rgba(220, 48, 35, 0.25);
+        }
+        .sidebar-user-chevron {
+            width: 14px;
+            height: 14px;
+            flex-shrink: 0;
+            color: rgba(255, 255, 255, 0.3);
+        }
+
+        /* ── 底部快捷操作 ── */
+        .sidebar-actions {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 4px;
+        }
+        .sidebar-action {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            min-width: 0;
+            height: 34px;
+            padding: 0 6px;
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.58);
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: 5px;
+            cursor: pointer;
+            text-decoration: none;
+            transition: background 0.15s, color 0.15s, border-color 0.15s;
+        }
+        .sidebar-action svg {
+            width: 15px;
+            height: 15px;
+            flex-shrink: 0;
+        }
+        .sidebar-action:hover {
+            background: rgba(255, 255, 255, 0.07);
+            color: #fff;
+            border-color: rgba(255, 255, 255, 0.08);
+        }
+        .sidebar-action-danger:hover {
+            color: #fecaca;
+            background: rgba(220, 48, 35, 0.18);
+            border-color: rgba(220, 48, 35, 0.25);
+        }
+
+        /* ── 关于弹窗 ── */
+        .about-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 1100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.52);
+        }
+        .about-backdrop[hidden] {
+            display: none;
+        }
+        .about-dialog {
+            width: min(100%, 480px);
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            box-shadow: 0 20px 45px rgba(0, 0, 0, 0.22);
+        }
+        .about-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+            padding: 22px 22px 18px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .about-mark {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 44px;
+            height: 44px;
+            flex-shrink: 0;
+            border-radius: 7px;
+            color: #fff;
+            background: #dc3023;
+        }
+        .about-mark svg {
+            width: 24px;
+            height: 24px;
+        }
+        .about-heading {
+            flex: 1;
+            min-width: 0;
+        }
+        .about-heading h2 {
+            margin: 0;
+            color: #111827;
+            font-size: 19px;
+            font-weight: 700;
+        }
+        .about-version {
+            margin-top: 4px;
+            color: #6b7280;
+            font-size: 12px;
+        }
+        .about-close {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            flex-shrink: 0;
+            color: #6b7280;
+            background: transparent;
+            border: 0;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .about-close:hover {
+            color: #111827;
+            background: #f3f4f6;
+        }
+        .about-close svg {
+            width: 18px;
+            height: 18px;
+        }
+        .about-body {
+            padding: 20px 22px 22px;
+        }
+        .about-description {
+            margin: 0;
+            color: #374151;
+            font-size: 14px;
+            line-height: 1.75;
+        }
+        .about-stack {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 16px;
+        }
+        .about-stack span {
+            padding: 4px 8px;
+            color: #4b5563;
+            background: #f3f4f6;
+            border: 1px solid #e5e7eb;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+        .about-source {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 18px;
+            padding: 12px;
+            color: #1f2937;
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            text-decoration: none;
+            transition: border-color 0.15s, background 0.15s;
+        }
+        .about-source:hover {
+            background: #fff;
+            border-color: #dc3023;
+        }
+        .about-source svg {
+            width: 20px;
+            height: 20px;
+            flex-shrink: 0;
+        }
+        .about-source-copy {
+            display: block;
+            flex: 1;
+            min-width: 0;
+        }
+        .about-source-label {
+            display: block;
+            color: #6b7280;
+            font-size: 11px;
+        }
+        .about-source-url {
+            display: block;
+            margin-top: 2px;
+            overflow: hidden;
+            color: #111827;
+            font-size: 12px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* ── 面包屑链接悬停 ── */
+        .breadcrumb-link {
+            transition: color 0.15s;
+        }
+        .breadcrumb-link:hover {
+            color: #dc3023;
+        }
+
+        /* ── 面包屑当前页（加粗） ── */
+        .breadcrumb-current {
+            font-weight: 600;
+            color: #1a1a1a;
+        }
+    </style>
+
+    {# ── 页面专属 head 内容 ── #}
+    {% block head_extra %}{% endblock %}
+</head>
+
+<body>
+<div class="layout">
+
+    {# ── 侧边栏（独立组件，自动处理 active 高亮） ── #}
+    {% include "components/sidebar.html" %}
+
+    {# ── 主内容区域 ── #}
+    <main class="main-content">
+
+        {# ── 面包屑导航 ──
+           子模板只需覆盖 block breadcrumb_title 提供当前页名称即可。
+           如需多级路径，可整体替换 block breadcrumb_nav。 #}
+        {% block breadcrumb_nav %}
+        <nav class="breadcrumb" aria-label="面包屑导航">
+            <a href="/" class="breadcrumb-item breadcrumb-link" aria-label="返回首页">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                     style="width:14px;height:14px;display:inline-block;vertical-align:-2px;margin-right:3px;">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+                </svg>
+                首页
+            </a>
+            <span class="breadcrumb-separator" aria-hidden="true">/</span>
+            <span class="breadcrumb-item breadcrumb-current" aria-current="page">
+                {% block breadcrumb_title %}{% endblock %}
+            </span>
+        </nav>
+        {% endblock %}
+
+        {# ── 页面主体内容 ── #}
+        {% block content %}{% endblock %}
+
+    </main>
+
+    {# ── 弹窗层（Modal / Drawer，渲染在 .layout 内但在 <main> 之外） ── #}
+    {% block modals %}{% endblock %}
+
+</div>{# /.layout #}
+
+<div
+    id="aboutModal"
+    class="about-backdrop"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="aboutModalTitle"
+    hidden
+    onclick="handleAboutBackdrop(event)"
+>
+    <div class="about-dialog">
+        <div class="about-header">
+            <div class="about-mark" aria-hidden="true">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <rect x="4" y="4" width="16" height="6" rx="1" stroke-width="2" />
+                    <rect x="4" y="14" width="16" height="6" rx="1" stroke-width="2" />
+                    <path stroke-linecap="round" stroke-width="2" d="M8 7h.01M8 17h.01M12 7h5M12 17h5" />
+                </svg>
+            </div>
+            <div class="about-heading">
+                <h2 id="aboutModalTitle">OpenHPC Web</h2>
+                <div class="about-version">智算中心管理门户 · v0.1.0</div>
+            </div>
+            <button type="button" class="about-close" onclick="closeAboutModal()" aria-label="关闭关于弹窗">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 6l12 12M18 6L6 18" />
+                </svg>
+            </button>
+        </div>
+        <div class="about-body">
+            <p class="about-description">
+                OpenHPC Web 是面向高校与科研机构智算中心的轻量化管理门户，统一管理 LDAP 身份、Slurm 集群资源、作业与账户关联，适用于离线内网部署环境。
+            </p>
+            <div class="about-stack" aria-label="技术栈">
+                <span>FastAPI</span>
+                <span>LDAP</span>
+                <span>Slurm</span>
+                <span>Jinja2</span>
+                <span>Offline Ready</span>
+            </div>
+            <a
+                class="about-source"
+                href="https://github.com/acdiost/openhpc-web-python"
+                target="_blank"
+                rel="noopener noreferrer"
+            >
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 17l-4-5 4-5m8 0l4 5-4 5M14 4l-4 16" />
+                </svg>
+                <span class="about-source-copy">
+                    <span class="about-source-label">项目源码</span>
+                    <span class="about-source-url">github.com/acdiost/openhpc-web-python</span>
+                </span>
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5h5v5m0-5L10 14M19 14v4a1 1 0 01-1 1H6a1 1 0 01-1-1V6a1 1 0 011-1h4" />
+                </svg>
+            </a>
+        </div>
+    </div>
+</div>
+
+{# ── 全局基础脚本 ── #}
+<script src="/static/main.js"></script>
+
+{# ── 服务端注入当前用户信息（只读，供所有页面 JS 使用） ── #}
+<script>
+    /**
+     * 当前登录用户的基本信息，由服务端在每次页面渲染时注入。
+     * 注意：此变量仅用于 UI 控制（如按钮显示/隐藏），
+     *       真正的权限校验在后端 API 层完成。
+     */
+    const __USER__ = Object.freeze({
+        username: "{{ user.get('username', '') | e }}",
+        cn:       "{{ user.get('cn', user.get('username', '')) | e }}",
+        isAdmin:  {{ 'true' if user.get('is_admin') else 'false' }},
+    });
+</script>
+
+{# ── 页面专属外部脚本（如 partitions.js、nodes.js） ── #}
+{% block extra_scripts %}{% endblock %}
+
+{# ── 全局共享函数（所有页面均可调用） ── #}
+<script>
+    /**
+     * 登出当前用户，调用后端接口并跳转登录页。
+     * 定义在 base.html，所有继承页面无需重复声明。
+     */
+    async function logout() {
+        try {
+            const res = await fetch('/api/auth/logout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+            });
+            if (res.ok) {
+                window.location.href = '/login';
+            } else {
+                alert('登出失败，请重试');
+            }
+        } catch (err) {
+            console.error('[logout]', err);
+            alert('登出失败，请重试');
+        }
+    }
+
+    function openAboutModal() {
+        const modal = document.getElementById('aboutModal');
+        window._aboutModalTrigger = document.activeElement;
+        modal.hidden = false;
+        document.body.style.overflow = 'hidden';
+        modal.querySelector('.about-close').focus();
+    }
+
+    function closeAboutModal() {
+        const modal = document.getElementById('aboutModal');
+        modal.hidden = true;
+        document.body.style.overflow = '';
+        if (window._aboutModalTrigger) window._aboutModalTrigger.focus();
+    }
+
+    function handleAboutBackdrop(event) {
+        if (event.target === event.currentTarget) closeAboutModal();
+    }
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && !document.getElementById('aboutModal').hidden) {
+            closeAboutModal();
+        }
+    });
+</script>
+
+{# ── 页面专属内联脚本（最后执行，可安全依赖 DOM 和全局函数） ── #}
+{% block page_scripts %}{% endblock %}
+
+</body>
+</html>

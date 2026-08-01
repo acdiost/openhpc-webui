@@ -1,0 +1,210 @@
+{% extends "base.html" %} {#
+============================================================ 分区管理页 路由:
+GET /partitions ============================================================ #}
+{% block title %}分区管理{% endblock %} {% block breadcrumb_title %}分区管理{%
+endblock %} {# ══════════════════════════════════════════════════════════
+主体内容 ══════════════════════════════════════════════════════════ #} {% block
+content %}
+
+<!-- 页面标题行 -->
+<div
+    style="
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 24px;
+    "
+>
+    <h2 style="font-size: 28px; font-weight: 700">Slurm 分区管理</h2>
+    <div style="display: flex; gap: 12px">
+        <button onclick="loadPartitions()" class="btn btn-secondary">
+            <svg
+                style="
+                    width: 16px;
+                    height: 16px;
+                    display: inline-block;
+                    margin-right: 4px;
+                    vertical-align: -3px;
+                "
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+            >
+                <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+            </svg>
+            刷新
+        </button>
+        <button
+            onclick="showCreatePartitionModal()"
+            class="btn"
+            style="background-color: #dc3023; color: white"
+        >
+            <svg
+                style="
+                    width: 16px;
+                    height: 16px;
+                    display: inline-block;
+                    margin-right: 4px;
+                    vertical-align: -3px;
+                "
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+            >
+                <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M12 4v16m8-8H4"
+                />
+            </svg>
+            创建分区
+        </button>
+    </div>
+</div>
+
+<!-- 分区列表卡片 -->
+<div class="card">
+    <div
+        style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        "
+    >
+        <h3 class="card-title">分区列表</h3>
+        <div style="font-size: 14px; color: #6b7280">
+            配置文件:
+            <code
+                style="
+                    background-color: #f3f4f6;
+                    padding: 2px 6px;
+                    border-radius: 4px;
+                "
+            >
+                /etc/slurm/partition.conf
+            </code>
+        </div>
+    </div>
+
+    <div style="overflow-x: auto">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>分区名称</th>
+                    <th>状态</th>
+                    <th>总节点</th>
+                    <th>已分配</th>
+                    <th>空闲</th>
+                    <th>离线</th>
+                    <th>节点状态</th>
+                    <th>最大时间</th>
+                    <th>默认</th>
+                    <th style="width: 180px">操作</th>
+                </tr>
+            </thead>
+            <tbody id="partitionsTableBody">
+                <tr>
+                    <td colspan="10" class="text-center text-gray-500 py-8">
+                        <svg
+                            class="inline-block w-8 h-8 animate-spin text-gray-400"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                        >
+                            <circle
+                                class="opacity-25"
+                                cx="12"
+                                cy="12"
+                                r="10"
+                                stroke="currentColor"
+                                stroke-width="4"
+                            ></circle>
+                            <path
+                                class="opacity-75"
+                                fill="currentColor"
+                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                            />
+                        </svg>
+                        <div style="margin-top: 8px">加载中…</div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 说明信息卡片 -->
+<div
+    class="card"
+    style="
+        margin-top: 20px;
+        background-color: #eff6ff;
+        border-left: 4px solid #3b82f6;
+    "
+>
+    <h3
+        style="
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #1e40af;
+        "
+    >
+        <svg
+            style="
+                width: 20px;
+                height: 20px;
+                display: inline-block;
+                margin-right: 8px;
+                vertical-align: -4px;
+            "
+            fill="currentColor"
+            viewBox="0 0 20 20"
+        >
+            <path
+                fill-rule="evenodd"
+                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+                clip-rule="evenodd"
+            />
+        </svg>
+        队列管理说明
+    </h3>
+    <ul
+        style="
+            list-style: disc;
+            margin-left: 24px;
+            color: #1e40af;
+            font-size: 14px;
+            line-height: 1.8;
+        "
+    >
+        <li>
+            所有分区配置存储在 <code>/etc/slurm/partition.conf</code> 文件中
+        </li>
+        <li>
+            创建、编辑或删除分区后会自动执行
+            <code>scontrol reconfigure</code> 重新加载配置
+        </li>
+        <li>
+            节点范围格式支持: <code>node[01-08]</code> 或
+            <code>node1,node2,node3</code>
+        </li>
+        <li>AllowGroups 限制只有指定用户组可以使用该分区（逗号分隔多个组）</li>
+        <li>
+            MaxTime 格式: <code>INFINITE</code> 或时间格式如
+            <code>24:00:00</code>（天-小时:分:秒）
+        </li>
+    </ul>
+</div>
+
+{% endblock %} {# ══════════════════════════════════════════════════════════
+页面专属外部脚本 ══════════════════════════════════════════════════════════ #}
+{% block extra_scripts %}
+<script src="/static/partitions.js?v=2"></script>
+{% endblock %}

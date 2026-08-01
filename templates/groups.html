@@ -1,0 +1,308 @@
+{% extends "base.html" %} {#
+============================================================ 组管理页 路由: GET
+/groups ============================================================ #} {% block
+title %}组管理{% endblock %} {% block breadcrumb_title %}组管理{% endblock %} {#
+══════════════════════════════════════════════════════════ 主体内容
+══════════════════════════════════════════════════════════ #} {% block content
+%}
+
+<!-- 页面标题行 -->
+<div class="flex justify-between items-center" style="margin-bottom: 24px">
+    <h2 style="font-size: 28px; font-weight: 700">LDAP 组管理</h2>
+    <button class="btn btn-primary" onclick="showCreateGroupModal()">
+        + 创建组
+    </button>
+</div>
+
+<!-- 组列表卡片 -->
+<div class="card">
+    <div class="flex justify-between items-center" style="margin-bottom: 16px">
+        <h3 class="card-title" style="margin-bottom: 0">系统组列表</h3>
+        <span style="color: #6b7280; font-size: 14px">
+            总计: <strong id="groupCount">—</strong> 个组
+        </span>
+    </div>
+    <div style="overflow-x: auto">
+        <table class="table" id="groupsTable">
+            <thead>
+                <tr>
+                    <th>组名</th>
+                    <th>GID</th>
+                    <th>成员数量</th>
+                    <th>成员列表</th>
+                    <th>描述</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="groupsTableBody">
+                <tr>
+                    <td colspan="6" class="text-center py-8 text-gray-500">
+                        加载中…
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endblock %} {# ══════════════════════════════════════════════════════════
+弹窗层 ══════════════════════════════════════════════════════════ #} {% block
+modals %}
+
+<!-- 创建组弹窗 -->
+<div id="createGroupModal" class="modal" style="display: none">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>创建新组</h3>
+            <button class="modal-close" onclick="closeCreateGroupModal()">
+                &times;
+            </button>
+        </div>
+        <form id="createGroupForm" onsubmit="handleCreateGroup(event)">
+            <div class="form-group">
+                <label for="create_group_name">组名</label>
+                <input
+                    type="text"
+                    id="create_group_name"
+                    name="name"
+                    required
+                    autocomplete="off"
+                />
+            </div>
+            <div class="form-group">
+                <label for="create_group_gid">GID</label>
+                <input
+                    type="number"
+                    id="create_group_gid"
+                    name="gid"
+                    required
+                    min="1000"
+                />
+            </div>
+            <div class="form-group">
+                <label for="create_group_description">描述</label>
+                <textarea
+                    id="create_group_description"
+                    name="description"
+                    rows="3"
+                    style="
+                        width: 100%;
+                        padding: 8px 12px;
+                        border: 1px solid #d1d5db;
+                        border-radius: 6px;
+                        font-size: 14px;
+                        font-family: inherit;
+                        resize: vertical;
+                    "
+                ></textarea>
+            </div>
+            <div class="modal-footer">
+                <button
+                    type="button"
+                    class="btn btn-secondary"
+                    onclick="closeCreateGroupModal()"
+                >
+                    取消
+                </button>
+                <button type="submit" class="btn btn-primary">创建</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 编辑组弹窗 -->
+<div id="editGroupModal" class="modal" style="display: none">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>编辑组</h3>
+            <button class="modal-close" onclick="closeEditGroupModal()">
+                &times;
+            </button>
+        </div>
+        <form id="editGroupForm" onsubmit="handleEditGroup(event)">
+            <input type="hidden" id="edit_group_name" name="name" />
+            <div class="form-group">
+                <label>组名</label>
+                <input
+                    type="text"
+                    id="edit_group_name_display"
+                    disabled
+                    style="background-color: #f3f4f6; cursor: not-allowed"
+                />
+            </div>
+            <div class="form-group">
+                <label for="edit_group_gid">GID</label>
+                <input
+                    type="number"
+                    id="edit_group_gid"
+                    name="gid"
+                    min="1000"
+                />
+            </div>
+            <div class="form-group">
+                <label for="edit_group_description">描述</label>
+                <textarea
+                    id="edit_group_description"
+                    name="description"
+                    rows="3"
+                    style="
+                        width: 100%;
+                        padding: 8px 12px;
+                        border: 1px solid #d1d5db;
+                        border-radius: 6px;
+                        font-size: 14px;
+                        font-family: inherit;
+                        resize: vertical;
+                    "
+                ></textarea>
+            </div>
+            <div class="modal-footer">
+                <button
+                    type="button"
+                    class="btn btn-secondary"
+                    onclick="closeEditGroupModal()"
+                >
+                    取消
+                </button>
+                <button type="submit" class="btn btn-primary">保存</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %} {# ══════════════════════════════════════════════════════════
+页面脚本（logout 已在 base.html 全局定义，此处无需重复）
+══════════════════════════════════════════════════════════ #} {% block
+page_scripts %}
+<script>
+    /* ── 数据加载 ─────────────────────────────────────────── */
+
+    async function loadGroups() {
+        const tbody = document.getElementById("groupsTableBody");
+        const groups = await fetchGroups();
+
+        if (!groups || groups.length === 0) {
+            tbody.innerHTML =
+                '<tr><td colspan="6" class="text-center py-8 text-gray-500">暂无组数据</td></tr>';
+            document.getElementById("groupCount").textContent = "0";
+            return;
+        }
+
+        tbody.innerHTML = groups
+            .map((group) => {
+                const memberPreview =
+                    group.members && group.members.length > 0
+                        ? group.members.slice(0, 3).join(", ") +
+                          (group.members.length > 3
+                              ? ` … 共 ${group.members.length} 人`
+                              : "")
+                        : "—";
+                return `
+                <tr>
+                    <td><strong>${group.name}</strong></td>
+                    <td>${group.gid}</td>
+                    <td>${group.members ? group.members.length : 0}</td>
+                    <td style="font-size: 13px; color: #6b7280;">${memberPreview}</td>
+                    <td>${group.description || "—"}</td>
+                    <td>
+                        <button class="btn btn-secondary"
+                                style="padding: 4px 12px; font-size: 12px; margin-right: 4px;"
+                                onclick="showEditGroupModal('${group.name}')">编辑</button>
+                        <button class="btn"
+                                style="padding: 4px 12px; font-size: 12px; background-color: #dc3023; color: white;"
+                                onclick="deleteGroupConfirm('${group.name}')">删除</button>
+                    </td>
+                </tr>`;
+            })
+            .join("");
+
+        document.getElementById("groupCount").textContent = groups.length;
+    }
+
+    /* ── 创建组 ───────────────────────────────────────────── */
+
+    function showCreateGroupModal() {
+        document.getElementById("createGroupForm").reset();
+        document.getElementById("createGroupModal").style.display = "flex";
+    }
+
+    function closeCreateGroupModal() {
+        document.getElementById("createGroupModal").style.display = "none";
+    }
+
+    async function handleCreateGroup(event) {
+        event.preventDefault();
+        const fd = new FormData(event.target);
+        const groupData = {
+            name: fd.get("name"),
+            gid: parseInt(fd.get("gid")),
+            description: fd.get("description") || "",
+        };
+
+        const success = await createGroup(groupData);
+        if (success) {
+            closeCreateGroupModal();
+            loadGroups();
+        }
+    }
+
+    /* ── 编辑组 ───────────────────────────────────────────── */
+
+    async function showEditGroupModal(groupName) {
+        const groups = await fetchGroups();
+        const target = groups.find((g) => g.name === groupName);
+        if (!target) {
+            showToast("获取组信息失败", "error");
+            return;
+        }
+
+        document.getElementById("edit_group_name").value = groupName;
+        document.getElementById("edit_group_name_display").value = groupName;
+        document.getElementById("edit_group_gid").value = target.gid || "";
+        document.getElementById("edit_group_description").value =
+            target.description || "";
+        document.getElementById("editGroupModal").style.display = "flex";
+    }
+
+    function closeEditGroupModal() {
+        document.getElementById("editGroupModal").style.display = "none";
+    }
+
+    async function handleEditGroup(event) {
+        event.preventDefault();
+        const fd = new FormData(event.target);
+        const groupName = fd.get("name");
+        const groupData = {};
+
+        const gid = fd.get("gid");
+        if (gid) groupData.gid = parseInt(gid);
+
+        const description = fd.get("description");
+        if (description !== null && description !== undefined) {
+            groupData.description = description;
+        }
+
+        const success = await updateGroup(groupName, groupData);
+        if (success) {
+            closeEditGroupModal();
+            loadGroups();
+        }
+    }
+
+    /* ── 删除组 ───────────────────────────────────────────── */
+
+    async function deleteGroupConfirm(groupName) {
+        if (!confirm(`确定要删除组 "${groupName}" 吗？此操作无法撤销！`))
+            return;
+        const success = await deleteGroup(groupName);
+        if (success) loadGroups();
+    }
+
+    /* ── 页面初始化 ───────────────────────────────────────── */
+
+    document.addEventListener("DOMContentLoaded", () => {
+        loadGroups();
+        enableTableSorting("groupsTable");
+    });
+</script>
+{% endblock %}
