@@ -117,6 +117,21 @@ class SlurmCreditManagerTests(unittest.TestCase):
         self.assertEqual(usage, {"cpu": 2, "gres/gpu": 1})
 
     @patch("slurm_manager.subprocess.run")
+    def test_lists_user_tres_limits_preferring_global_association(self, run):
+        run.return_value = Mock(
+            stdout=(
+                "dawn|dawn|CPU|cpu=600,gres/gpu=0\n"
+                "dawn|dawn||cpu=1200\n"
+                "alice|research||cpu=0,gres/gpu=30\n"
+            )
+        )
+
+        limits = self.manager.get_users_tres_limits()
+
+        self.assertEqual(limits["dawn"], {"cpu_minutes": 1200, "gpu_minutes": None})
+        self.assertEqual(limits["alice"], {"cpu_minutes": 0, "gpu_minutes": 30})
+
+    @patch("slurm_manager.subprocess.run")
     def test_absolute_limit_write_rejects_invalid_names(self, run):
         success = self.manager.set_association_tres_minutes(
             "dawn where account=root", "dawn", cpu_minutes=60
@@ -184,6 +199,10 @@ class SlurmCreditTemplateTests(unittest.TestCase):
         self.assertIn('name="cpu_hours"', template)
         self.assertIn('name="gpu_hours"', template)
         self.assertIn("核时/卡时拨付", template)
+        self.assertIn("核时限额 (h)", template)
+        self.assertIn("卡时限额 (h)", template)
+        self.assertIn("user.cpu_minutes", template)
+        self.assertIn("user.gpu_minutes", template)
 
     def test_association_credit_form_submits_incremental_hours(self):
         template = (

@@ -537,8 +537,12 @@ async def get_users(user: dict = Depends(get_current_user)):
     _require_admin(user)
     users = ldap_mgr.list_users()
     admin_list = admin_mgr.get_admin_list()
+    tres_limits = slurm_mgr.get_users_tres_limits()
     for u in users:
         u["is_admin"] = u.get("username", "") in admin_list
+        user_limits = tres_limits.get(u.get("username", ""), {})
+        u["cpu_minutes"] = user_limits.get("cpu_minutes")
+        u["gpu_minutes"] = user_limits.get("gpu_minutes")
         quota = quota_mgr.get_user_quota(u.get("username", "")) if quota_mgr else None
         if quota:
             u["storage_used_gb"] = quota.get("used_gb")

@@ -44,6 +44,8 @@ content %}
                     <th>GID</th>
                     <th>家目录</th>
                     <th>存储配额</th>
+                    <th>核时限额 (h)</th>
+                    <th>卡时限额 (h)</th>
                     <th>Shell</th>
                     <th>所属组</th>
                     <th>状态</th>
@@ -52,7 +54,7 @@ content %}
             </thead>
             <tbody id="usersTableBody">
                 <tr>
-                    <td colspan="9" class="text-center py-8 text-gray-500">
+                    <td colspan="11" class="text-center py-8 text-gray-500">
                         加载中…
                     </td>
                 </tr>
@@ -666,7 +668,7 @@ page_scripts %}
 
         if (!users || users.length === 0) {
             tbody.innerHTML =
-                '<tr><td colspan="9" class="text-center py-8 text-gray-500">暂无用户数据</td></tr>';
+                '<tr><td colspan="11" class="text-center py-8 text-gray-500">暂无用户数据</td></tr>';
             document.getElementById("userCount").textContent = "0";
             return;
         }
@@ -695,6 +697,8 @@ page_scripts %}
                             : "不限制"
                     }
                 </td>
+                <td>${user.cpu_minutes == null ? "无限" : `${(user.cpu_minutes / 60).toFixed(2)} h`}</td>
+                <td>${user.gpu_minutes == null ? "无限" : `${(user.gpu_minutes / 60).toFixed(2)} h`}</td>
                 <td style="font-family: monospace; font-size: 12px;">${user.shell}</td>
                 <td>${user.groups && user.groups.length > 0 ? user.groups.join(", ") : "—"}</td>
                 <td><span class="badge badge-success">活跃</span></td>

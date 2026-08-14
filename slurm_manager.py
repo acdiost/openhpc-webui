@@ -1014,6 +1014,50 @@ class SlurmManager:
             print(f"获取 Slurm 关联失败: {e}")
             return []
 
+    def get_users_tres_limits(self) -> Dict[str, Dict[str, Optional[int]]]:
+        """批量读取用户关联的 CPU/GPU GrpTRESMins，优先使用全局关联。"""
+        try:
+            result = subprocess.run(
+                [
+                    "sacctmgr",
+                    "show",
+                    "assoc",
+                    "format=User,Account,Partition,GrpTRESMins",
+                    "-n",
+                    "-P",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            candidates: Dict[str, List[tuple[str, Dict[str, Optional[int]]]]] = {}
+            for line in result.stdout.splitlines():
+                parts = line.strip().split("|")
+                if len(parts) < 4:
+                    continue
+                username = parts[0].strip()
+                if not self._is_valid_slurm_name(username):
+                    continue
+                candidates.setdefault(username, []).append(
+                    (parts[2].strip(), self._parse_tres_minutes(parts[3]))
+                )
+
+            limits: Dict[str, Dict[str, Optional[int]]] = {}
+            for username, records in candidates.items():
+                partition, selected = next(
+                    ((partition, values) for partition, values in records if not partition),
+                    records[0],
+                )
+                del partition
+                limits[username] = {
+                    "cpu_minutes": selected.get("cpu"),
+                    "gpu_minutes": selected.get("gres/gpu"),
+                }
+            return limits
+        except Exception as e:
+            print(f"获取用户核时/卡时限额失败: {e}")
+            return {}
+
     def create_association(
         self,
         username: str,
