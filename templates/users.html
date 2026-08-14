@@ -2,7 +2,40 @@
 ============================================================ 用户管理页 路由:
 GET /users ============================================================ #} {%
 block title %}用户管理{% endblock %} {% block breadcrumb_title %}用户管理{%
-endblock %} {# ══════════════════════════════════════════════════════════
+endblock %} {% block head_extra %}
+<style>
+    .user-actions-cell { display: flex; align-items: center; gap: 6px; min-width: 174px; }
+    .user-action-primary,
+    .user-action-more {
+        height: 30px; border: 1px solid #d1d5db; border-radius: 6px;
+        background: #fff; color: #374151; cursor: pointer;
+    }
+    .user-action-primary {
+        padding: 0 11px; font-size: 12px; font-weight: 600; white-space: nowrap;
+    }
+    .user-action-more { width: 30px; padding: 0; font-size: 20px; line-height: 1; }
+    .user-action-primary:hover,
+    .user-action-more:hover,
+    .user-action-more[aria-expanded="true"] { border-color: #9ca3af; background: #f3f4f6; }
+    .user-action-menu {
+        position: fixed; z-index: 1200; width: 190px; padding: 5px;
+        border: 1px solid #e5e7eb; border-radius: 7px; background: #fff;
+        box-shadow: 0 12px 28px rgba(17, 24, 39, 0.18);
+    }
+    .user-action-menu[hidden] { display: none; }
+    .user-action-menu-item {
+        display: flex; width: 100%; min-height: 34px; align-items: center;
+        padding: 7px 10px; border: 0; border-radius: 5px; background: transparent;
+        color: #374151; font-size: 13px; text-align: left; cursor: pointer;
+    }
+    .user-action-menu-item:hover,
+    .user-action-menu-item:focus-visible { outline: none; background: #f3f4f6; }
+    .user-action-menu-item.danger { color: #b91c1c; }
+    .user-action-menu-item.danger:hover,
+    .user-action-menu-item.danger:focus-visible { background: #fef2f2; }
+    .user-action-menu-separator { height: 1px; margin: 5px 4px; background: #e5e7eb; }
+</style>
+{% endblock %} {# ══════════════════════════════════════════════════════════
 主体内容 ══════════════════════════════════════════════════════════ #} {% block
 content %}
 
@@ -77,6 +110,8 @@ content %}
 {% endblock %} {# ══════════════════════════════════════════════════════════
 弹窗层 ══════════════════════════════════════════════════════════ #} {% block
 modals %}
+
+<div id="userActionsMenu" class="user-action-menu" role="menu" hidden></div>
 
 <!-- 创建用户弹窗 -->
 <div id="createUserModal" class="modal" style="display: none">
@@ -166,7 +201,7 @@ modals %}
                 <select id="create_shell" name="shell">
                     <option value="/bin/bash">/bin/bash</option>
                     <option value="/bin/sh">/bin/sh</option>
-                    <option value="/usr/sbin/nologin">/usr/sbin/nologin</option>
+                    <option value="/sbin/nologin">/sbin/nologin</option>
                 </select>
             </div>
             <div class="form-group">
@@ -307,7 +342,7 @@ modals %}
                 <select id="edit_shell" name="shell">
                     <option value="/bin/bash">/bin/bash</option>
                     <option value="/bin/sh">/bin/sh</option>
-                    <option value="/usr/sbin/nologin">/usr/sbin/nologin</option>
+                    <option value="/sbin/nologin">/sbin/nologin</option>
                 </select>
             </div>
             <div class="form-group">
@@ -668,20 +703,115 @@ page_scripts %}
 <script>
     /* ── 数据加载 ─────────────────────────────────────────── */
 
+    let loadedUsers = [];
+
+    function isDisabledShell(shell) {
+        return ["/bin/false", "/sbin/nologin", "/usr/sbin/nologin"].includes(
+            (shell || "").trim(),
+        );
+    }
+
+    let activeUserActionTrigger = null;
+    let userActionScrollTimer = null;
+
+    function closeUserActionsMenuOnScroll() {
+        closeUserActionsMenu();
+    }
+
+    function closeUserActionsMenu() {
+        const menu = document.getElementById("userActionsMenu");
+        window.clearTimeout(userActionScrollTimer);
+        userActionScrollTimer = null;
+        window.removeEventListener("scroll", closeUserActionsMenuOnScroll, true);
+        menu.hidden = true;
+        menu.replaceChildren();
+        if (activeUserActionTrigger) {
+            activeUserActionTrigger.setAttribute("aria-expanded", "false");
+            activeUserActionTrigger = null;
+        }
+    }
+
+    function appendUserAction(menu, label, handler, danger = false) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.role = "menuitem";
+        button.className = danger
+            ? "user-action-menu-item danger"
+            : "user-action-menu-item";
+        button.textContent = label;
+        button.addEventListener("click", () => {
+            closeUserActionsMenu();
+            handler();
+        });
+        menu.appendChild(button);
+    }
+
+    function openUserActionsMenu(event, userIndex) {
+        event.stopPropagation();
+        const user = loadedUsers[userIndex];
+        if (!user) return;
+
+        const trigger = event.currentTarget;
+        const menu = document.getElementById("userActionsMenu");
+        closeUserActionsMenu();
+        activeUserActionTrigger = trigger;
+        trigger.setAttribute("aria-expanded", "true");
+
+        appendUserAction(menu, "编辑用户", () => showEditUserModal(user.username));
+        appendUserAction(menu, "生成 / 重置 SSH 密钥", () => resetUserSshKey(user.username));
+
+        const separator = document.createElement("div");
+        separator.className = "user-action-menu-separator";
+        separator.role = "separator";
+        menu.appendChild(separator);
+
+        if (!isDisabledShell(user.shell)) {
+            appendUserAction(menu, "禁用用户", () => disableUser(user.username), true);
+        }
+        appendUserAction(menu, "删除用户", () => deleteUser(user.username), true);
+
+        menu.hidden = false;
+        const triggerRect = trigger.getBoundingClientRect();
+        const menuRect = menu.getBoundingClientRect();
+        const viewportPadding = 8;
+        const belowTop = triggerRect.bottom + 6;
+        const aboveTop = triggerRect.top - menuRect.height - 6;
+        menu.style.top = `${
+            belowTop + menuRect.height <= window.innerHeight - viewportPadding
+                ? belowTop
+                : Math.max(viewportPadding, aboveTop)
+        }px`;
+        menu.style.left = `${Math.min(
+            window.innerWidth - menuRect.width - viewportPadding,
+            Math.max(viewportPadding, triggerRect.right - menuRect.width),
+        )}px`;
+        menu.querySelector('[role="menuitem"]')?.focus();
+        userActionScrollTimer = window.setTimeout(() => {
+            window.addEventListener("scroll", closeUserActionsMenuOnScroll, {
+                capture: true,
+                once: true,
+            });
+        }, 150);
+    }
+
     async function loadUsers() {
         const tbody = document.getElementById("usersTableBody");
+        closeUserActionsMenu();
         const users = await fetchUsers();
 
         if (!users || users.length === 0) {
             tbody.innerHTML =
                 '<tr><td colspan="11" class="text-center py-8 text-gray-500">暂无用户数据</td></tr>';
             document.getElementById("userCount").textContent = "0";
+            loadedUsers = [];
             return;
         }
 
+        loadedUsers = users;
+
         tbody.innerHTML = users
             .map(
-                (user) => `
+                (user, userIndex) => `
             <tr>
                 <td>
                     <div style="display:flex; align-items:center; gap:8px;">
@@ -709,34 +839,22 @@ page_scripts %}
                 <td>${user.groups && user.groups.length > 0 ? user.groups.join(", ") : "—"}</td>
                 <td>
                     ${
-                        user.shell === "/usr/sbin/nologin"
+                        isDisabledShell(user.shell)
                             ? '<span class="badge badge-error">已禁用</span>'
                             : '<span class="badge badge-success">活跃</span>'
                     }
                 </td>
                 <td>
-                    <button class="btn btn-secondary"
-                            style="padding: 4px 12px; font-size: 12px; margin-right: 4px; background-color: #2563eb; color: #ffffff;"
-                            onclick="showEditUserModal('${user.username}')">编辑</button>
-                    <button class="btn btn-secondary"
-                            style="padding: 4px 12px; font-size: 12px; margin-right: 4px; background-color: #7c3aed; color: #ffffff;"
-                            onclick="showUserReportModal('${user.username}')">报表</button>
-                    <button class="btn btn-secondary"
-                            style="padding: 4px 12px; font-size: 12px; margin-right: 4px; background-color: #10b981; color: #ffffff;"
-                            onclick="resetUserSshKey('${user.username}')">生成/重置密钥</button>
-                    <button class="btn btn-secondary"
-                            style="padding: 4px 12px; font-size: 12px; margin-right: 4px; background-color: #f59e0b; color: #111827;"
-                            onclick="showCreditModal('${user.username}')">核时/卡时拨付</button>
-                    ${
-                        user.shell === "/usr/sbin/nologin"
-                            ? ""
-                            : `<button class="btn btn-secondary"
-                                      style="padding: 4px 12px; font-size: 12px; margin-right: 4px; background-color: #6b7280; color: #ffffff;"
-                                      onclick="disableUser('${user.username}')">禁用</button>`
-                    }
-                    <button class="btn"
-                            style="padding: 4px 12px; font-size: 12px; background-color: #dc3023; color: white;"
-                            onclick="deleteUser('${user.username}')">删除</button>
+                    <div class="user-actions-cell">
+                        <button type="button" class="user-action-primary"
+                                onclick="showUserReportModal(loadedUsers[${userIndex}].username)">报表</button>
+                        <button type="button" class="user-action-primary"
+                                onclick="showCreditModal(loadedUsers[${userIndex}].username)">拨付</button>
+                        <button type="button" class="user-action-more"
+                                aria-label="更多操作" aria-haspopup="menu" aria-expanded="false"
+                                title="更多操作"
+                                onclick="openUserActionsMenu(event, ${userIndex})">&#8942;</button>
+                    </div>
                 </td>
             </tr>
         `,
@@ -851,7 +969,9 @@ page_scripts %}
         const hasQuota = user.storage_quota_gb && user.storage_quota_gb > 0;
         if (editQuotaInput) editQuotaInput.value = hasQuota ? user.storage_quota_gb : "";
         if (editQuotaUnlimited) editQuotaUnlimited.checked = !hasQuota;
-        document.getElementById("edit_shell").value = user.shell || "/bin/bash";
+        document.getElementById("edit_shell").value = isDisabledShell(user.shell)
+            ? "/sbin/nologin"
+            : user.shell || "/bin/bash";
         document.getElementById("edit_password").value = "";
         const isAdminCheckbox = document.getElementById("edit_is_admin");
         isAdminCheckbox.checked = !!user.is_admin;
@@ -1110,6 +1230,11 @@ page_scripts %}
         loadLDAPStatus();
         setupTableSearch("userSearch", "usersTable");
         enableTableSorting("usersTable");
+        document.addEventListener("click", closeUserActionsMenu);
+        document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape") closeUserActionsMenu();
+        });
+        window.addEventListener("resize", closeUserActionsMenu);
     });
 </script>
 {% endblock %}

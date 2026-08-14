@@ -3,11 +3,14 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key-0123456789abcdef")
 
 import main
+import auth_manager
+from auth_manager import AuthManager
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
@@ -17,6 +20,31 @@ from slurm_manager import SlurmManager
 
 
 class SessionSecurityTests(unittest.TestCase):
+    def test_disabled_shell_variants_are_recognized(self):
+        for shell in ("/sbin/nologin", "/usr/sbin/nologin", "/bin/false"):
+            with self.subTest(shell=shell):
+                self.assertTrue(main._is_disabled_login_shell(shell))
+
+        self.assertFalse(main._is_disabled_login_shell("/bin/bash"))
+
+    def test_ldap_authentication_returns_login_shell(self):
+        entry = SimpleNamespace(
+            uid="alice",
+            cn="Alice",
+            mail="alice@example.test",
+            uidNumber="1001",
+            gidNumber="1001",
+            loginShell=SimpleNamespace(value="/sbin/nologin"),
+        )
+        connection = Mock(bound=True, entries=[entry])
+        with patch.object(auth_manager, "Server"), patch.object(
+            auth_manager, "Connection", return_value=connection
+        ):
+            result = AuthManager().authenticate_user("alice", "secret")
+
+        self.assertEqual(result["shell"], "/sbin/nologin")
+        connection.unbind.assert_called_once()
+
     def test_authenticated_mode_rejects_short_secret(self):
         with patch.object(main, "AUTH_ENABLED", True), patch.dict(
             os.environ, {"SECRET_KEY": "too-short"}
@@ -38,6 +66,8 @@ class SessionSecurityTests(unittest.TestCase):
             main.auth_mgr,
             "authenticate_user",
             return_value={"username": "alice", "cn": "Alice"},
+        ), patch.object(
+            main.ldap_mgr, "get_user_login_shell", return_value="/bin/bash"
         ), patch.object(main.admin_mgr, "is_admin", return_value=True):
             client = TestClient(main.app, base_url="http://testserver")
             response = client.post(
@@ -49,6 +79,43 @@ class SessionSecurityTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotIn("secure", response.headers["set-cookie"].lower())
         self.assertEqual(dashboard.status_code, 200)
+
+    def test_login_rejects_user_with_nologin_shell(self):
+        request = Mock()
+        request.session = {}
+        with patch.object(
+            main.auth_mgr,
+            "authenticate_user",
+            return_value={
+                "username": "alice",
+                "cn": "Alice",
+                "shell": "/sbin/nologin",
+            },
+        ):
+            with self.assertRaises(HTTPException) as context:
+                asyncio.run(
+                    main.login(
+                        request,
+                        main.LoginRequest(username="alice", password="secret"),
+                    )
+                )
+
+        self.assertEqual(context.exception.status_code, 401)
+        self.assertEqual(request.session, {})
+
+    def test_existing_session_is_cleared_after_user_is_disabled(self):
+        request = Mock()
+        request.session = {"user": {"username": "alice", "cn": "Alice"}}
+        with patch.object(main, "AUTH_ENABLED", True), patch.object(
+            main.ldap_mgr,
+            "get_user_login_shell",
+            return_value="/usr/sbin/nologin",
+        ):
+            with self.assertRaises(HTTPException) as context:
+                asyncio.run(main.get_current_user(request))
+
+        self.assertEqual(context.exception.status_code, 401)
+        self.assertEqual(request.session, {})
 
 
 class JobOutputSecurityTests(unittest.TestCase):
@@ -210,7 +277,7 @@ class UserDisableTests(unittest.TestCase):
             )
 
         update_user.assert_called_once_with(
-            username="alice", shell="/usr/sbin/nologin"
+            username="alice", shell="/sbin/nologin"
         )
         self.assertEqual(result["message"], "用户 alice 已禁用")
 
@@ -271,7 +338,7 @@ class UserDisableTests(unittest.TestCase):
 
 
 class UserDisableFrontendTests(unittest.TestCase):
-    def test_users_page_exposes_disable_action_and_disabled_status(self):
+    def test_users_page_groups_secondary_and_dangerous_actions_in_more_menu(self):
         template = (
             Path(__file__).parents[1] / "templates" / "users.html"
         ).read_text(encoding="utf-8")
@@ -279,8 +346,11 @@ class UserDisableFrontendTests(unittest.TestCase):
             Path(__file__).parents[1] / "static" / "main.js"
         ).read_text(encoding="utf-8")
 
-        self.assertIn('onclick="disableUser(\'${user.username}\')"', template)
-        self.assertIn('user.shell === "/usr/sbin/nologin"', template)
+        self.assertIn('aria-label="更多操作"', template)
+        self.assertIn("function openUserActionsMenu(", template)
+        self.assertIn('"user-action-menu-item danger"', template)
+        self.assertNotIn('onclick="deleteUser(\'${user.username}\')"', template)
+        self.assertIn("isDisabledShell(user.shell)", template)
         self.assertIn("async function disableUserAPI(username)", script)
         self.assertIn("/disable`", script)
 

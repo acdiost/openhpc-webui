@@ -54,7 +54,9 @@ class AuthManager:
                 conn.search(
                     search_base=user_dn,
                     search_filter='(objectClass=*)',
-                    attributes=['uid', 'cn', 'mail', 'uidNumber', 'gidNumber']
+                    attributes=[
+                        'uid', 'cn', 'mail', 'uidNumber', 'gidNumber', 'loginShell'
+                    ]
                 )
 
                 if conn.entries:
@@ -64,7 +66,10 @@ class AuthManager:
                         'cn': str(entry.cn) if hasattr(entry, 'cn') else username,
                         'mail': str(entry.mail) if hasattr(entry, 'mail') else '',
                         'uid_number': str(entry.uidNumber) if hasattr(entry, 'uidNumber') else '',
-                        'gid_number': str(entry.gidNumber) if hasattr(entry, 'gidNumber') else ''
+                        'gid_number': str(entry.gidNumber) if hasattr(entry, 'gidNumber') else '',
+                        'shell': str(entry.loginShell.value)
+                        if hasattr(entry, 'loginShell') and entry.loginShell
+                        else ''
                     }
                     conn.unbind()
                     return user_info

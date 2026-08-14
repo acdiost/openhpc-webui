@@ -33,6 +33,16 @@ _INSECURE_SECRET_KEYS = {
     "your-secret-key-change-in-production",
 }
 
+_DISABLED_LOGIN_SHELLS = {
+    "/bin/false",
+    "/sbin/nologin",
+    "/usr/sbin/nologin",
+}
+
+
+def _is_disabled_login_shell(shell: Optional[str]) -> bool:
+    return (shell or "").strip() in _DISABLED_LOGIN_SHELLS
+
 
 def _get_session_secret() -> str:
     secret_key = os.getenv("SECRET_KEY", "").strip()
@@ -120,9 +130,17 @@ async def get_current_user(request: Request) -> dict:
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未登录")
 
+    username = user.get("username", "")
+    current_shell = ldap_mgr.get_user_login_shell(username)
+    if _is_disabled_login_shell(current_shell):
+        request.session.clear()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="账户已禁用"
+        )
+
     # 每次请求动态刷新 is_admin（管理员变更立即生效，无需重新登录）
     user = dict(user)
-    user["is_admin"] = admin_mgr.is_admin(user.get("username", ""))
+    user["is_admin"] = admin_mgr.is_admin(username)
     return user
 
 
@@ -134,6 +152,10 @@ async def get_current_user_optional(request: Request) -> Optional[dict]:
         return user
     user = request.session.get("user")
     if user:
+        current_shell = ldap_mgr.get_user_login_shell(user.get("username", ""))
+        if _is_disabled_login_shell(current_shell):
+            request.session.clear()
+            return None
         user = dict(user)
         user["is_admin"] = admin_mgr.is_admin(user.get("username", ""))
     return user
@@ -339,6 +361,13 @@ async def login(request: Request, login_data: LoginRequest):
     """处理登录请求，成功后将用户信息写入 session。"""
     user_info = auth_mgr.authenticate_user(login_data.username, login_data.password)
     if not user_info:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误"
+        )
+    login_shell = user_info.get("shell")
+    if login_shell is None:
+        login_shell = ldap_mgr.get_user_login_shell(login_data.username)
+    if _is_disabled_login_shell(login_shell):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误"
         )
@@ -636,9 +665,7 @@ async def disable_user(username: str, user: dict = Depends(get_current_user)):
     if not ldap_mgr.get_user(username):
         raise HTTPException(status_code=404, detail="用户不存在")
 
-    success = ldap_mgr.update_user(
-        username=username, shell="/usr/sbin/nologin"
-    )
+    success = ldap_mgr.update_user(username=username, shell="/sbin/nologin")
     if not success:
         raise HTTPException(status_code=500, detail="禁用用户失败")
 

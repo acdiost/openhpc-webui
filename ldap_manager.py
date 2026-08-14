@@ -1,4 +1,5 @@
 from ldap3 import Server, Connection, ALL, BASE, MODIFY_ADD, MODIFY_DELETE, MODIFY_REPLACE
+from ldap3.utils.dn import escape_rdn
 import os
 import hashlib
 import base64
@@ -146,6 +147,32 @@ class LDAPManager:
         """获取单个用户信息"""
         users = self.list_users(f"(uid={username})")
         return users[0] if users else None
+
+    def get_user_login_shell(self, username: str) -> Optional[str]:
+        """轻量读取用户 loginShell；查询失败或用户不存在时返回 None。"""
+        conn = self.connect()
+        if not conn:
+            return None
+
+        try:
+            user_dn = f"uid={escape_rdn(username)},ou=People,{self.base_dn}"
+            success = conn.search(
+                search_base=user_dn,
+                search_filter="(objectClass=posixAccount)",
+                search_scope=BASE,
+                attributes=["loginShell"],
+            )
+            if not success or not conn.entries:
+                return None
+            entry = conn.entries[0]
+            if not hasattr(entry, "loginShell") or not entry.loginShell:
+                return ""
+            return str(entry.loginShell.value or "")
+        except Exception as e:
+            print(f"查询用户登录 Shell 失败: {e}")
+            return None
+        finally:
+            conn.unbind()
 
     def create_user(self, username: str, uid: int, gid: int, home: str, shell: str = "/bin/bash", password: str = None) -> bool:
         """创建新用户"""
