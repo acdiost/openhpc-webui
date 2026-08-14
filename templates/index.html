@@ -239,19 +239,19 @@ breadcrumb_title %}系统概览{% endblock %} {% block content %} {# ── 页�
 
             tbody.innerHTML = parts
                 .map((p) => {
-                    const total =
-                        (p.nodes_alloc || 0) +
-                        (p.nodes_idle || 0) +
-                        (p.nodes_other || 0);
+                    const total = p.total_nodes ?? 0;
+                    const allocated = p.alloc_nodes ?? 0;
+                    const idle = p.idle_nodes ?? 0;
+                    const offline = p.offline_nodes ?? 0;
                     const isUp = (p.state || "").toUpperCase() === "UP";
-                    idleTotal += p.nodes_idle || 0;
+                    idleTotal += idle;
                     return `
                     <tr>
                         <td><strong>${p.name}</strong></td>
                         <td>${total}</td>
-                        <td>${p.nodes_alloc ?? "—"}</td>
-                        <td>${p.nodes_idle ?? "—"}</td>
-                        <td>${p.nodes_other ?? "—"}</td>
+                        <td>${allocated}</td>
+                        <td>${idle}</td>
+                        <td>${offline}</td>
                         <td>
                             <span class="badge ${isUp ? "badge-success" : "badge-error"}">
                                 ${isUp ? "正常" : "停用"}

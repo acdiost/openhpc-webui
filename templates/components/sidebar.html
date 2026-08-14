@@ -18,6 +18,27 @@
         user.get('is_admin') %}
 
         <a
+            href="/"
+            class="nav-item{% if request.url.path == '/' %} active{% endif %}"
+        >
+            <svg
+                class="nav-icon"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+            >
+                <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M3 11l9-8 9 8M5 10v10h14V10M9 20v-6h6v6"
+                />
+            </svg>
+            总览
+        </a>
+
+        <a
             href="/users"
             class="nav-item{% if request.url.path == '/users' %} active{% endif %}"
         >
