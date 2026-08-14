@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -622,6 +623,26 @@ async def delete_user(username: str, user: dict = Depends(get_current_user)):
     admin_mgr.remove_admin(username)
 
     return {"message": f"用户 {username} 已删除"}
+
+
+@app.post("/api/ldap/users/{username}/disable")
+async def disable_user(username: str, user: dict = Depends(get_current_user)):
+    """通过将登录 Shell 改为 nologin 禁用用户。"""
+    _require_admin(user)
+
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", username):
+        raise HTTPException(status_code=400, detail="用户名格式无效")
+
+    if not ldap_mgr.get_user(username):
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    success = ldap_mgr.update_user(
+        username=username, shell="/usr/sbin/nologin"
+    )
+    if not success:
+        raise HTTPException(status_code=500, detail="禁用用户失败")
+
+    return {"message": f"用户 {username} 已禁用"}
 
 
 @app.put("/api/ldap/users/{username}")

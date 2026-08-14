@@ -497,6 +497,27 @@ async function deleteUserAPI(username) {
     }
 }
 
+// Disable user login by setting the LDAP login shell to nologin
+async function disableUserAPI(username) {
+    try {
+        const encodedUsername = encodeURIComponent(username);
+        const response = await fetch(
+            `${config.apiBase}/users/${encodedUsername}/disable`,
+            { method: 'POST' }
+        );
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.detail || 'Failed to disable user');
+        }
+        showToast(data.message || `用户 "${username}" 已禁用`, 'success');
+        return true;
+    } catch (error) {
+        console.error('Failed to disable user:', error);
+        showToast(error.message, 'error');
+        return false;
+    }
+}
+
 // Update user
 async function updateUser(username, userData) {
     try {
@@ -1127,6 +1148,7 @@ window.fetchUsers = fetchUsers;
 window.fetchUser = fetchUser;
 window.createUser = createUser;
 window.deleteUserAPI = deleteUserAPI;
+window.disableUserAPI = disableUserAPI;
 window.resetUserSshKey = resetUserSshKey;
 window.fetchGroups = fetchGroups;
 window.addUserToGroup = addUserToGroup;

@@ -195,6 +195,96 @@ class UserUpdateValidationTests(unittest.TestCase):
         update_user.assert_not_called()
 
 
+class UserDisableTests(unittest.TestCase):
+    def test_disable_user_sets_nologin_shell(self):
+        with patch.object(
+            main.ldap_mgr,
+            "get_user",
+            return_value={"username": "alice", "shell": "/bin/bash"},
+        ), patch.object(main.ldap_mgr, "update_user", return_value=True) as update_user:
+            result = asyncio.run(
+                main.disable_user(
+                    "alice",
+                    {"username": "admin", "is_admin": True},
+                )
+            )
+
+        update_user.assert_called_once_with(
+            username="alice", shell="/usr/sbin/nologin"
+        )
+        self.assertEqual(result["message"], "用户 alice 已禁用")
+
+    def test_disable_missing_user_returns_not_found_without_ldap_write(self):
+        with patch.object(main.ldap_mgr, "get_user", return_value=None), patch.object(
+            main.ldap_mgr, "update_user"
+        ) as update_user:
+            with self.assertRaises(HTTPException) as context:
+                asyncio.run(
+                    main.disable_user(
+                        "missing",
+                        {"username": "admin", "is_admin": True},
+                    )
+                )
+
+        self.assertEqual(context.exception.status_code, 404)
+        update_user.assert_not_called()
+
+    def test_disable_user_requires_admin(self):
+        with patch.object(main.ldap_mgr, "get_user") as get_user:
+            with self.assertRaises(HTTPException) as context:
+                asyncio.run(
+                    main.disable_user(
+                        "alice",
+                        {"username": "bob", "is_admin": False},
+                    )
+                )
+
+        self.assertEqual(context.exception.status_code, 403)
+        get_user.assert_not_called()
+
+    def test_disable_user_rejects_invalid_username_before_ldap_query(self):
+        with patch.object(main.ldap_mgr, "get_user") as get_user:
+            with self.assertRaises(HTTPException) as context:
+                asyncio.run(
+                    main.disable_user(
+                        "alice)(uid=*)",
+                        {"username": "admin", "is_admin": True},
+                    )
+                )
+
+        self.assertEqual(context.exception.status_code, 400)
+        get_user.assert_not_called()
+
+    def test_disable_user_reports_ldap_failure(self):
+        with patch.object(
+            main.ldap_mgr, "get_user", return_value={"username": "alice"}
+        ), patch.object(main.ldap_mgr, "update_user", return_value=False):
+            with self.assertRaises(HTTPException) as context:
+                asyncio.run(
+                    main.disable_user(
+                        "alice",
+                        {"username": "admin", "is_admin": True},
+                    )
+                )
+
+        self.assertEqual(context.exception.status_code, 500)
+
+
+class UserDisableFrontendTests(unittest.TestCase):
+    def test_users_page_exposes_disable_action_and_disabled_status(self):
+        template = (
+            Path(__file__).parents[1] / "templates" / "users.html"
+        ).read_text(encoding="utf-8")
+        script = (
+            Path(__file__).parents[1] / "static" / "main.js"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('onclick="disableUser(\'${user.username}\')"', template)
+        self.assertIn('user.shell === "/usr/sbin/nologin"', template)
+        self.assertIn("async function disableUserAPI(username)", script)
+        self.assertIn("/disable`", script)
+
+
 class FrontendSecurityTests(unittest.TestCase):
     def test_job_rows_do_not_interpolate_slurm_values_into_inner_html(self):
         template = (

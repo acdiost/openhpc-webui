@@ -707,7 +707,13 @@ page_scripts %}
                 <td>${user.gpu_minutes == null ? "无限" : `${(user.gpu_minutes / 60).toFixed(2)} h`}</td>
                 <td style="font-family: monospace; font-size: 12px;">${user.shell}</td>
                 <td>${user.groups && user.groups.length > 0 ? user.groups.join(", ") : "—"}</td>
-                <td><span class="badge badge-success">活跃</span></td>
+                <td>
+                    ${
+                        user.shell === "/usr/sbin/nologin"
+                            ? '<span class="badge badge-error">已禁用</span>'
+                            : '<span class="badge badge-success">活跃</span>'
+                    }
+                </td>
                 <td>
                     <button class="btn btn-secondary"
                             style="padding: 4px 12px; font-size: 12px; margin-right: 4px; background-color: #2563eb; color: #ffffff;"
@@ -721,6 +727,13 @@ page_scripts %}
                     <button class="btn btn-secondary"
                             style="padding: 4px 12px; font-size: 12px; margin-right: 4px; background-color: #f59e0b; color: #111827;"
                             onclick="showCreditModal('${user.username}')">核时/卡时拨付</button>
+                    ${
+                        user.shell === "/usr/sbin/nologin"
+                            ? ""
+                            : `<button class="btn btn-secondary"
+                                      style="padding: 4px 12px; font-size: 12px; margin-right: 4px; background-color: #6b7280; color: #ffffff;"
+                                      onclick="disableUser('${user.username}')">禁用</button>`
+                    }
                     <button class="btn"
                             style="padding: 4px 12px; font-size: 12px; background-color: #dc3023; color: white;"
                             onclick="deleteUser('${user.username}')">删除</button>
@@ -1060,7 +1073,14 @@ page_scripts %}
         }
     }
 
-    /* ── 删除用户 ─────────────────────────────────────────── */
+    /* ── 禁用/删除用户 ───────────────────────────────────── */
+
+    async function disableUser(username) {
+        if (!confirm(`确定要禁用用户 "${username}" 吗？该用户将无法登录系统。`))
+            return;
+        const success = await disableUserAPI(username);
+        if (success) loadUsers();
+    }
 
     async function deleteUser(username) {
         if (!confirm(`确定要删除用户 "${username}" 吗？此操作无法撤销！`))
