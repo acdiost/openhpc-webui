@@ -1231,16 +1231,15 @@ async def allocate_user_credits(
     cpu_hours = payload.cpu_hours if payload.cpu_hours is not None else payload.hours
     gpu_hours = payload.gpu_hours
     amounts = [value for value in (cpu_hours, gpu_hours) if value is not None]
-    if not amounts or any(value < 0 for value in amounts) or not any(
-        value > 0 for value in amounts
-    ):
-        raise HTTPException(status_code=400, detail="核时或卡时至少一项必须大于 0")
-    if any(value > 1_000_000 for value in amounts):
-        raise HTTPException(status_code=400, detail="单次拨付不能超过 1000000 小时")
+    if not amounts or all(value == 0 for value in amounts):
+        raise HTTPException(status_code=400, detail="核时或卡时至少一项不能为 0")
+    if any(abs(value) > 1_000_000 for value in amounts):
+        raise HTTPException(status_code=400, detail="单次调整不能超过 1000000 小时")
     if payload.reason and payload.reason not in {
         "project",
         "compensation",
         "grant",
+        "correction",
         "other",
     }:
         raise HTTPException(status_code=400, detail="拨付原因无效")
@@ -1276,7 +1275,7 @@ async def allocate_user_credits(
 
     return {
         "message": (
-            f"已为 {username} 增加额度，剩余核时 "
+            f"已为 {username} 调整额度，剩余核时 "
             f"{round(grant['remaining_cpu_minutes'] / 60, 2)} h，剩余卡时 "
             f"{round(grant['remaining_gpu_minutes'] / 60, 2)} h"
         ),

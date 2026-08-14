@@ -1317,7 +1317,7 @@ class SlurmManager:
             return 0
         try:
             value = Decimal(str(hours))
-            if not value.is_finite() or value <= 0:
+            if not value.is_finite() or value == 0:
                 return 0
             return int((value * 60).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
         except (InvalidOperation, TypeError, ValueError):
@@ -1331,7 +1331,7 @@ class SlurmManager:
         account: Optional[str] = None,
         partition: Optional[str] = None,
     ) -> Optional[Dict]:
-        """增加用户可用核时/卡时，并回读验证关联的 GrpTRESMins。"""
+        """增加或扣除用户核时/卡时，并回读验证关联的 GrpTRESMins。"""
         if not self._is_valid_slurm_name(username):
             return None
         if account is not None and not self._is_valid_slurm_name(account):
@@ -1341,7 +1341,7 @@ class SlurmManager:
 
         cpu_grant = self._hours_to_minutes(cpu_hours)
         gpu_grant = self._hours_to_minutes(gpu_hours)
-        if cpu_grant <= 0 and gpu_grant <= 0:
+        if cpu_grant == 0 and gpu_grant == 0:
             return None
 
         with self._tres_grant_lock:
@@ -1365,8 +1365,16 @@ class SlurmManager:
             new_gpu_limit = gpu_limit
             if cpu_grant > 0:
                 new_cpu_limit = max(cpu_limit or 0, usage["cpu"]) + cpu_grant
+            elif cpu_grant < 0:
+                if cpu_limit is None:
+                    return None
+                new_cpu_limit = max(usage["cpu"], cpu_limit + cpu_grant)
             if gpu_grant > 0:
                 new_gpu_limit = max(gpu_limit or 0, usage["gres/gpu"]) + gpu_grant
+            elif gpu_grant < 0:
+                if gpu_limit is None:
+                    return None
+                new_gpu_limit = max(usage["gres/gpu"], gpu_limit + gpu_grant)
 
             if not self.set_association_tres_minutes(
                 username=username,

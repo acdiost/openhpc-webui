@@ -602,26 +602,31 @@ modals %}
         <form id="creditForm" onsubmit="handleCreditSubmit(event)">
             <input type="hidden" id="credit_username" name="username" />
             <div class="form-group">
-                <label for="credit_cpu_hours">增加 CPU 核时</label>
+                <label for="credit_cpu_hours">调整 CPU 核时（负数表示扣除）</label>
                 <input
                     type="number"
                     id="credit_cpu_hours"
                     name="cpu_hours"
-                    min="0.1"
+                    min="-1000000"
+                    max="1000000"
                     step="0.1"
                     placeholder="如 120"
                 />
             </div>
             <div class="form-group">
-                <label for="credit_gpu_hours">增加 GPU 卡时</label>
+                <label for="credit_gpu_hours">调整 GPU 卡时（负数表示扣除）</label>
                 <input
                     type="number"
                     id="credit_gpu_hours"
                     name="gpu_hours"
-                    min="0.1"
+                    min="-1000000"
+                    max="1000000"
                     step="0.1"
                     placeholder="如 24"
                 />
+            </div>
+            <div class="form-group">
+                <div style="font-size: 12px; color: #6b7280;">正数拨付，负数表示扣除；扣除后不会低于历史已用量。</div>
             </div>
             <div class="form-group">
                 <label for="credit_reason">拨付原因</label>
@@ -629,6 +634,7 @@ modals %}
                     <option value="project">项目追加</option>
                     <option value="compensation">资源补偿</option>
                     <option value="grant">专项拨付</option>
+                    <option value="correction">拨付纠错</option>
                     <option value="other">其他</option>
                 </select>
             </div>

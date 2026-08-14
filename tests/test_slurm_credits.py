@@ -62,6 +62,27 @@ class SlurmCreditManagerTests(unittest.TestCase):
         self.assertEqual(result["cpu_limit_minutes"], 7493)
         self.assertEqual(result["remaining_cpu_minutes"], 60)
 
+    def test_grant_negative_hours_deducts_without_crossing_usage(self):
+        self.manager.get_user_default_account = Mock(return_value="dawn")
+        self.manager.get_association_tres_minutes = Mock(
+            side_effect=[
+                {"cpu": 600, "gres/gpu": None},
+                {"cpu": 500, "gres/gpu": None},
+            ]
+        )
+        self.manager.get_user_tres_usage_minutes = Mock(
+            return_value={"cpu": 500, "gres/gpu": 0}
+        )
+        self.manager.set_association_tres_minutes = Mock(return_value=True)
+
+        result = self.manager.grant_user_tres_hours("dawn", cpu_hours=-2)
+
+        self.manager.set_association_tres_minutes.assert_called_once_with(
+            username="dawn", account="dawn", cpu_minutes=500, gpu_minutes=None
+        )
+        self.assertEqual(result["cpu_granted_minutes"], -120)
+        self.assertEqual(result["remaining_cpu_minutes"], 0)
+
     def test_grant_rejects_invalid_slurm_names_before_commands(self):
         with patch("slurm_manager.subprocess.run") as run:
             result = self.manager.grant_user_tres_hours(
@@ -177,7 +198,7 @@ class SlurmCreditApiTests(unittest.TestCase):
         )
         self.assertEqual(result["remaining_gpu_hours"], 1.5)
 
-    def test_credit_endpoint_requires_at_least_one_positive_amount(self):
+    def test_credit_endpoint_rejects_all_zero_amounts(self):
         payload = main.UserCreditRequest(cpu_hours=0, gpu_hours=0)
 
         with self.assertRaises(HTTPException) as context:
@@ -188,6 +209,31 @@ class SlurmCreditApiTests(unittest.TestCase):
             )
 
         self.assertEqual(context.exception.status_code, 400)
+
+    def test_credit_endpoint_accepts_negative_deduction(self):
+        payload = main.UserCreditRequest(account="dawn", cpu_hours=-1)
+        grant_result = {
+            "account": "dawn",
+            "cpu_granted_minutes": -60,
+            "gpu_granted_minutes": 0,
+            "cpu_limit_minutes": 540,
+            "gpu_limit_minutes": None,
+            "remaining_cpu_minutes": 0,
+            "remaining_gpu_minutes": 0,
+        }
+        with patch.object(
+            main.slurm_mgr, "grant_user_tres_hours", return_value=grant_result
+        ) as grant:
+            result = asyncio.run(
+                main.allocate_user_credits(
+                    "dawn", payload, {"username": "admin", "is_admin": True}
+                )
+            )
+
+        grant.assert_called_once_with(
+            username="dawn", account="dawn", cpu_hours=-1, gpu_hours=None
+        )
+        self.assertEqual(result["cpu_granted_hours"], -1.0)
 
 
 class SlurmCreditTemplateTests(unittest.TestCase):
@@ -203,6 +249,8 @@ class SlurmCreditTemplateTests(unittest.TestCase):
         self.assertIn("卡时限额 (h)", template)
         self.assertIn("user.cpu_minutes", template)
         self.assertIn("user.gpu_minutes", template)
+        self.assertIn('min="-1000000"', template)
+        self.assertIn("负数表示扣除", template)
 
     def test_association_credit_form_submits_incremental_hours(self):
         template = (
