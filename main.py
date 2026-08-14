@@ -569,10 +569,19 @@ async def get_users(user: dict = Depends(get_current_user)):
     admin_list = admin_mgr.get_admin_list()
     tres_limits = slurm_mgr.get_users_tres_limits()
     for u in users:
-        u["is_admin"] = u.get("username", "") in admin_list
-        user_limits = tres_limits.get(u.get("username", ""), {})
-        u["cpu_minutes"] = user_limits.get("cpu_minutes")
-        u["gpu_minutes"] = user_limits.get("gpu_minutes")
+        username = u.get("username", "")
+        u["is_admin"] = username in admin_list
+        user_limits = tres_limits.get(username)
+        u["has_tres_association"] = user_limits is not None
+        for field in (
+            "cpu_minutes",
+            "gpu_minutes",
+            "cpu_used_minutes",
+            "gpu_used_minutes",
+            "cpu_remaining_minutes",
+            "gpu_remaining_minutes",
+        ):
+            u[field] = user_limits.get(field) if user_limits else None
         quota = quota_mgr.get_user_quota(u.get("username", "")) if quota_mgr else None
         if quota:
             u["storage_used_gb"] = quota.get("used_gb")

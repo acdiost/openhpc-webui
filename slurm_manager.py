@@ -1015,48 +1015,83 @@ class SlurmManager:
             return []
 
     def get_users_tres_limits(self) -> Dict[str, Dict[str, Optional[int]]]:
-        """批量读取用户关联的 CPU/GPU GrpTRESMins，优先使用全局关联。"""
+        """批量读取用户 TRES 限额、有效用量和剩余量，优先使用全局关联。"""
         try:
             result = subprocess.run(
-                [
-                    "sacctmgr",
-                    "show",
-                    "assoc",
-                    "format=User,Account,Partition,GrpTRESMins",
-                    "-n",
-                    "-P",
-                ],
+                ["scontrol", "show", "assoc_mgr", "flags=assoc"],
                 capture_output=True,
                 text=True,
                 check=True,
             )
-            candidates: Dict[str, List[tuple[str, Dict[str, Optional[int]]]]] = {}
-            for line in result.stdout.splitlines():
-                parts = line.strip().split("|")
-                if len(parts) < 4:
-                    continue
-                username = parts[0].strip()
-                if not self._is_valid_slurm_name(username):
-                    continue
-                candidates.setdefault(username, []).append(
-                    (parts[2].strip(), self._parse_tres_minutes(parts[3]))
-                )
+            candidates: Dict[str, List[Dict]] = {}
+            for record in self._parse_assoc_mgr_tres_records(result.stdout):
+                candidates.setdefault(record["username"], []).append(record)
 
-            limits: Dict[str, Dict[str, Optional[int]]] = {}
+            values_by_user: Dict[str, Dict[str, Optional[int]]] = {}
             for username, records in candidates.items():
-                partition, selected = next(
-                    ((partition, values) for partition, values in records if not partition),
+                selected = next(
+                    (record for record in records if not record["partition"]),
                     records[0],
                 )
-                del partition
-                limits[username] = {
-                    "cpu_minutes": selected.get("cpu"),
-                    "gpu_minutes": selected.get("gres/gpu"),
+                cpu_limit = selected["cpu_minutes"]
+                gpu_limit = selected["gpu_minutes"]
+                cpu_used = selected["cpu_used_minutes"]
+                gpu_used = selected["gpu_used_minutes"]
+                values_by_user[username] = {
+                    "cpu_minutes": cpu_limit,
+                    "gpu_minutes": gpu_limit,
+                    "cpu_used_minutes": cpu_used,
+                    "gpu_used_minutes": gpu_used,
+                    "cpu_remaining_minutes": (
+                        None if cpu_limit is None else max(cpu_limit - cpu_used, 0)
+                    ),
+                    "gpu_remaining_minutes": (
+                        None if gpu_limit is None else max(gpu_limit - gpu_used, 0)
+                    ),
                 }
-            return limits
+            return values_by_user
         except Exception as e:
-            print(f"获取用户核时/卡时限额失败: {e}")
+            print(f"获取用户核时/卡时限额和用量失败: {e}")
             return {}
+
+    @classmethod
+    def _parse_assoc_mgr_tres_records(cls, output: str) -> List[Dict]:
+        records: List[Dict] = []
+        blocks = re.split(r"(?=^ClusterName=)", output, flags=re.MULTILINE)
+        header_pattern = re.compile(
+            r"^ClusterName=\S+\s+Account=(\S*)\s+"
+            r"UserName=([^\s(]*)(?:\([^)]*\))?\s+Partition=(\S*)\s+"
+        )
+        for block in blocks:
+            header = header_pattern.search(block)
+            if not header:
+                continue
+            account, username, partition = header.groups()
+            if not cls._is_valid_slurm_name(username):
+                continue
+            tres_line = re.search(
+                r"^\s*GrpTRESMins=(.+)$", block, flags=re.MULTILINE
+            )
+            if not tres_line:
+                continue
+
+            record = {
+                "account": account,
+                "username": username,
+                "partition": partition,
+            }
+            for tres, prefix in (("cpu", "cpu"), ("gres/gpu", "gpu")):
+                match = re.search(
+                    rf"(?:^|,){re.escape(tres)}=([^,(]+)\((\d+)\)",
+                    tres_line.group(1),
+                )
+                raw_limit, raw_used = match.groups() if match else ("N", "0")
+                record[f"{prefix}_minutes"] = (
+                    None if raw_limit == "N" else int(raw_limit)
+                )
+                record[f"{prefix}_used_minutes"] = int(raw_used)
+            records.append(record)
+        return records
 
     def create_association(
         self,
@@ -1291,36 +1326,17 @@ class SlurmManager:
             return None
 
         expected_partition = partition or ""
-        blocks = re.split(r"(?=^ClusterName=)", result.stdout, flags=re.MULTILINE)
-        header_pattern = re.compile(
-            r"^ClusterName=\S+\s+Account=(\S*)\s+"
-            r"UserName=([^\s(]*)(?:\([^)]*\))?\s+Partition=(\S*)\s+"
-        )
-        for block in blocks:
-            header = header_pattern.search(block)
-            if not header:
-                continue
-            block_account, block_user, block_partition = header.groups()
+        for record in self._parse_assoc_mgr_tres_records(result.stdout):
             if (
-                block_account != account
-                or block_user != username
-                or block_partition != expected_partition
+                record["account"] != account
+                or record["username"] != username
+                or record["partition"] != expected_partition
             ):
                 continue
-
-            tres_line = re.search(
-                r"^\s*GrpTRESMins=(.+)$", block, flags=re.MULTILINE
-            )
-            if not tres_line:
-                return None
-            usage = {}
-            for tres in ("cpu", "gres/gpu"):
-                match = re.search(
-                    rf"(?:^|,){re.escape(tres)}=[^,(]*\((\d+)\)",
-                    tres_line.group(1),
-                )
-                usage[tres] = int(match.group(1)) if match else 0
-            return usage
+            return {
+                "cpu": record["cpu_used_minutes"],
+                "gres/gpu": record["gpu_used_minutes"],
+            }
         return None
 
     @staticmethod

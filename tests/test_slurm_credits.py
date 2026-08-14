@@ -165,17 +165,35 @@ ClusterName=cluster Account=research UserName=alice(1001) Partition=GPU Priority
     @patch("slurm_manager.subprocess.run")
     def test_lists_user_tres_limits_preferring_global_association(self, run):
         run.return_value = Mock(
-            stdout=(
-                "dawn|dawn|CPU|cpu=600,gres/gpu=0\n"
-                "dawn|dawn||cpu=1200\n"
-                "alice|research||cpu=0,gres/gpu=30\n"
-            )
+            stdout="""
+ClusterName=cluster Account=dawn UserName=dawn(1000) Partition=GPU Priority=0 ID=17
+    GrpTRESMins=cpu=600(250),gres/gpu=0(0)
+ClusterName=cluster Account=dawn UserName=dawn(1000) Partition= Priority=0 ID=18
+    GrpTRESMins=cpu=1200(300),gres/gpu=N(5)
+ClusterName=cluster Account=research UserName=alice(1001) Partition= Priority=0 ID=19
+    GrpTRESMins=cpu=0(0),gres/gpu=30(7)
+"""
         )
 
         limits = self.manager.get_users_tres_limits()
 
-        self.assertEqual(limits["dawn"], {"cpu_minutes": 1200, "gpu_minutes": None})
-        self.assertEqual(limits["alice"], {"cpu_minutes": 0, "gpu_minutes": 30})
+        self.assertEqual(
+            limits["dawn"],
+            {
+                "cpu_minutes": 1200,
+                "gpu_minutes": None,
+                "cpu_used_minutes": 300,
+                "gpu_used_minutes": 5,
+                "cpu_remaining_minutes": 900,
+                "gpu_remaining_minutes": None,
+            },
+        )
+        self.assertEqual(limits["alice"]["cpu_remaining_minutes"], 0)
+        self.assertEqual(limits["alice"]["gpu_remaining_minutes"], 23)
+        self.assertEqual(
+            run.call_args.args[0],
+            ["scontrol", "show", "assoc_mgr", "flags=assoc"],
+        )
 
     @patch("slurm_manager.subprocess.run")
     def test_absolute_limit_write_rejects_invalid_names(self, run):
@@ -188,6 +206,32 @@ ClusterName=cluster Account=research UserName=alice(1001) Partition=GPU Priority
 
 
 class SlurmCreditApiTests(unittest.TestCase):
+    def test_users_endpoint_includes_tres_usage_and_remaining(self):
+        tres_values = {
+            "dawn": {
+                "cpu_minutes": 8488,
+                "gpu_minutes": 0,
+                "cpu_used_minutes": 1529,
+                "gpu_used_minutes": 0,
+                "cpu_remaining_minutes": 6959,
+                "gpu_remaining_minutes": 0,
+            }
+        }
+        with patch.object(
+            main.ldap_mgr, "list_users", return_value=[{"username": "dawn"}]
+        ), patch.object(main.admin_mgr, "get_admin_list", return_value=[]), patch.object(
+            main.slurm_mgr, "get_users_tres_limits", return_value=tres_values
+        ), patch.object(main, "quota_mgr", None):
+            result = asyncio.run(
+                main.get_users({"username": "admin", "is_admin": True})
+            )
+
+        user = result["users"][0]
+        self.assertTrue(user["has_tres_association"])
+        self.assertEqual(user["cpu_used_minutes"], 1529)
+        self.assertEqual(user["cpu_remaining_minutes"], 6959)
+        self.assertEqual(user["gpu_remaining_minutes"], 0)
+
     def test_credit_endpoint_grants_cpu_and_gpu_hours(self):
         payload = main.UserCreditRequest(
             account="dawn",
@@ -274,6 +318,14 @@ class SlurmCreditTemplateTests(unittest.TestCase):
         self.assertIn("卡时限额 (h)", template)
         self.assertIn("user.cpu_minutes", template)
         self.assertIn("user.gpu_minutes", template)
+        self.assertIn("user.cpu_used_minutes", template)
+        self.assertIn("user.gpu_used_minutes", template)
+        self.assertIn("user.cpu_remaining_minutes", template)
+        self.assertIn("user.gpu_remaining_minutes", template)
+        self.assertIn("核时已用 (h)", template)
+        self.assertIn("核时剩余 (h)", template)
+        self.assertIn("卡时已用 (h)", template)
+        self.assertIn("卡时剩余 (h)", template)
         self.assertIn('min="-1000000"', template)
         self.assertIn("负数表示扣除", template)
 
