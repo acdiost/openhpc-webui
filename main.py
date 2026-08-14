@@ -252,6 +252,7 @@ class AssocUpdate(BaseModel):
 class AssocTRESMinutesUpdate(BaseModel):
     cpu_minutes: Optional[int] = None
     gpu_minutes: Optional[int] = None
+    partition: Optional[str] = None
 
 
 class PartitionCreate(BaseModel):
@@ -302,7 +303,11 @@ class AdminUserRequest(BaseModel):
 
 
 class UserCreditRequest(BaseModel):
-    hours: float
+    account: Optional[str] = None
+    partition: Optional[str] = None
+    cpu_hours: Optional[float] = None
+    gpu_hours: Optional[float] = None
+    hours: Optional[float] = None  # 兼容旧版仅 CPU 核时请求
     reason: Optional[str] = None
     note: Optional[str] = None
     effective_date: Optional[str] = None
@@ -908,12 +913,17 @@ async def set_association_tres_minutes(
         raise HTTPException(status_code=400, detail="cpu_minutes 不能小于 0")
     if payload.gpu_minutes is not None and payload.gpu_minutes < 0:
         raise HTTPException(status_code=400, detail="gpu_minutes 不能小于 0")
+    if payload.partition is not None and not slurm_mgr._is_valid_slurm_name(
+        payload.partition
+    ):
+        raise HTTPException(status_code=400, detail="分区名称无效")
 
     success = slurm_mgr.set_association_tres_minutes(
         username=username,
         account=account_name,
         cpu_minutes=payload.cpu_minutes,
         gpu_minutes=payload.gpu_minutes,
+        partition=payload.partition,
     )
     if not success:
         raise HTTPException(status_code=500, detail="设置核时/卡时失败")
@@ -1204,30 +1214,77 @@ async def allocate_user_credits(
     payload: UserCreditRequest,
     user: dict = Depends(get_current_user),
 ):
-    """核时拨付（仅管理员）。"""
+    """为用户增加核时/卡时额度（仅管理员）。"""
     _require_admin(user)
-    if payload.hours <= 0:
-        raise HTTPException(status_code=400, detail="核时必须大于 0")
+    if not slurm_mgr._is_valid_slurm_name(username) or (
+        payload.account is not None
+        and not slurm_mgr._is_valid_slurm_name(payload.account)
+    ) or (
+        payload.partition is not None
+        and not slurm_mgr._is_valid_slurm_name(payload.partition)
+    ):
+        raise HTTPException(status_code=400, detail="用户名或 Slurm 账户名无效")
+    cpu_hours = payload.cpu_hours if payload.cpu_hours is not None else payload.hours
+    gpu_hours = payload.gpu_hours
+    amounts = [value for value in (cpu_hours, gpu_hours) if value is not None]
+    if not amounts or any(value < 0 for value in amounts) or not any(
+        value > 0 for value in amounts
+    ):
+        raise HTTPException(status_code=400, detail="核时或卡时至少一项必须大于 0")
+    if any(value > 1_000_000 for value in amounts):
+        raise HTTPException(status_code=400, detail="单次拨付不能超过 1000000 小时")
+    if payload.reason and payload.reason not in {
+        "project",
+        "compensation",
+        "grant",
+        "other",
+    }:
+        raise HTTPException(status_code=400, detail="拨付原因无效")
+    if payload.note and len(payload.note) > 500:
+        raise HTTPException(status_code=400, detail="备注不能超过 500 个字符")
+
+    grant_kwargs = {
+        "username": username,
+        "account": payload.account,
+        "cpu_hours": cpu_hours,
+        "gpu_hours": gpu_hours,
+    }
+    if payload.partition is not None:
+        grant_kwargs["partition"] = payload.partition
+    grant = slurm_mgr.grant_user_tres_hours(
+        **grant_kwargs
+    )
+    if grant is None:
+        raise HTTPException(status_code=500, detail="核时/卡时拨付失败")
 
     print(
-        "核时拨付",
+        "核时/卡时拨付",
         {
             "username": username,
-            "hours": payload.hours,
+            "account": grant["account"],
+            "cpu_hours": cpu_hours,
+            "gpu_hours": gpu_hours,
             "reason": payload.reason,
             "note": payload.note,
-            "effective_date": payload.effective_date,
             "operator": user.get("username"),
         },
     )
 
     return {
-        "message": f"已为 {username} 拨付 {payload.hours} CPU 小时",
+        "message": (
+            f"已为 {username} 增加额度，剩余核时 "
+            f"{round(grant['remaining_cpu_minutes'] / 60, 2)} h，剩余卡时 "
+            f"{round(grant['remaining_gpu_minutes'] / 60, 2)} h"
+        ),
         "username": username,
-        "hours": payload.hours,
+        "account": grant["account"],
+        "partition": grant.get("partition"),
+        "cpu_granted_hours": round(grant["cpu_granted_minutes"] / 60, 2),
+        "gpu_granted_hours": round(grant["gpu_granted_minutes"] / 60, 2),
+        "remaining_cpu_hours": round(grant["remaining_cpu_minutes"] / 60, 2),
+        "remaining_gpu_hours": round(grant["remaining_gpu_minutes"] / 60, 2),
         "reason": payload.reason,
         "note": payload.note,
-        "effective_date": payload.effective_date,
     }
 
 

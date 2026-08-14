@@ -193,6 +193,30 @@ async function setAssociationTRESMinutes(accountName, username, payload) {
     }
 }
 
+// Increment a user's CPU/GPU hour balance on a Slurm association.
+async function grantUserCredits(username, payload) {
+    try {
+        const response = await fetch(
+            `/api/slurm/users/${encodeURIComponent(username)}/credit`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            }
+        );
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.detail || 'Failed to grant TRES credits');
+        }
+        showToast(data.message || '核时/卡时拨付成功', 'success');
+        return true;
+    } catch (error) {
+        console.error('Failed to grant TRES credits:', error);
+        showToast(error.message, 'error');
+        return false;
+    }
+}
+
 // Fetch all partitions
 async function fetchPartitions() {
     try {

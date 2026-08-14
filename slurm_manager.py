@@ -1,6 +1,8 @@
 import subprocess
 import re
 import json
+import threading
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from partition_config import PartitionConfigManager
@@ -12,6 +14,9 @@ from pathlib import Path
 
 class SlurmManager:
     """Slurm 管理器 - 处理 Slurm 分区和作业操作"""
+
+    _tres_grant_lock = threading.Lock()
+    _slurm_name_pattern = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
     def __init__(self):
         self.config_mgr = PartitionConfigManager()
@@ -1000,8 +1005,8 @@ class SlurmManager:
                         "shares_raw": assoc.get("shares_raw"),
                         "parent_account": assoc.get("parent_account") or "",
                         "grp_tres_mins": grp_tres_mins,
-                        "cpu_minutes": grp_tres_mins.get("cpu", 0),
-                        "gpu_minutes": grp_tres_mins.get("gres/gpu", 0),
+                        "cpu_minutes": grp_tres_mins.get("cpu"),
+                        "gpu_minutes": grp_tres_mins.get("gres/gpu"),
                     }
                 )
             return items
@@ -1086,9 +1091,18 @@ class SlurmManager:
             return False
 
     def set_association_tres_minutes(
-        self, username: str, account: str, cpu_minutes: Optional[int] = None, gpu_minutes: Optional[int] = None
+        self,
+        username: str,
+        account: str,
+        cpu_minutes: Optional[int] = None,
+        gpu_minutes: Optional[int] = None,
+        partition: Optional[str] = None,
     ) -> bool:
         """设置关联的 GrpTRESMins（核时/卡时）。"""
+        if not self._is_valid_slurm_name(username) or not self._is_valid_slurm_name(
+            account
+        ) or (partition is not None and not self._is_valid_slurm_name(partition)):
+            return False
         try:
             parts = []
             if cpu_minutes is not None:
@@ -1107,15 +1121,244 @@ class SlurmManager:
                 username,
                 "where",
                 f"account={account}",
-                "set",
-                f"GrpTRESMins={value}",
             ]
+            if partition is not None:
+                args.append(f"partition={partition}")
+            args.extend(["set", f"GrpTRESMins={value}"])
             result = subprocess.run(args, capture_output=True, text=True, check=True)
             print(f"Slurm 设置 GrpTRESMins {username}/{account} 成功: {result.stdout}")
             return True
         except Exception as e:
             print(f"Slurm 设置 GrpTRESMins 失败: {e}")
             return False
+
+    @classmethod
+    def _is_valid_slurm_name(cls, value: Optional[str]) -> bool:
+        return bool(value and cls._slurm_name_pattern.fullmatch(value))
+
+    @staticmethod
+    def _parse_tres_minutes(value: str) -> Dict[str, Optional[int]]:
+        limits: Dict[str, Optional[int]] = {"cpu": None, "gres/gpu": None}
+        for item in (value or "").split(","):
+            if "=" not in item:
+                continue
+            name, raw_count = item.split("=", 1)
+            name = name.strip()
+            if name not in limits:
+                continue
+            try:
+                limits[name] = int(raw_count)
+            except (TypeError, ValueError):
+                continue
+        return limits
+
+    def get_user_default_account(self, username: str) -> Optional[str]:
+        if not self._is_valid_slurm_name(username):
+            return None
+        try:
+            result = subprocess.run(
+                [
+                    "sacctmgr",
+                    "show",
+                    "user",
+                    f"name={username}",
+                    "format=User,DefaultAccount",
+                    "-n",
+                    "-P",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            for line in result.stdout.splitlines():
+                parts = line.strip().split("|")
+                if len(parts) >= 2 and parts[0] == username:
+                    account = parts[1].strip()
+                    return account if self._is_valid_slurm_name(account) else None
+        except Exception as e:
+            print(f"获取 Slurm 用户默认账户失败: {e}")
+        return None
+
+    def get_association_tres_minutes(
+        self, username: str, account: str, partition: Optional[str] = None
+    ) -> Optional[Dict[str, Optional[int]]]:
+        if not self._is_valid_slurm_name(username) or not self._is_valid_slurm_name(
+            account
+        ) or (partition is not None and not self._is_valid_slurm_name(partition)):
+            return None
+        try:
+            args = [
+                "sacctmgr",
+                "show",
+                "assoc",
+                "where",
+                f"user={username}",
+                f"account={account}",
+            ]
+            if partition is not None:
+                args.append(f"partition={partition}")
+            args.extend(
+                ["format=User,Account,Partition,GrpTRESMins", "-n", "-P"]
+            )
+            result = subprocess.run(
+                args,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            for line in result.stdout.splitlines():
+                parts = line.strip().split("|")
+                if len(parts) < 4 or parts[0] != username or parts[1] != account:
+                    continue
+                association_partition = parts[2].strip()
+                expected_partition = partition or ""
+                if association_partition == expected_partition:
+                    return self._parse_tres_minutes(parts[3])
+            return None
+        except Exception as e:
+            print(f"获取 Slurm 关联 TRES 限额失败: {e}")
+            return None
+
+    def get_user_tres_usage_minutes(
+        self, username: str, account: str
+    ) -> Optional[Dict[str, int]]:
+        if not self._is_valid_slurm_name(username) or not self._is_valid_slurm_name(
+            account
+        ):
+            return None
+
+        usage = {}
+        for tres in ("cpu", "gres/gpu"):
+            try:
+                result = subprocess.run(
+                    [
+                        "sreport",
+                        "-T",
+                        tres,
+                        "-t",
+                        "Seconds",
+                        "cluster",
+                        "UserUtilizationByAccount",
+                        f"Users={username}",
+                        f"Accounts={account}",
+                        "Start=1970-01-01T00:00:00",
+                        "End=now",
+                        "-n",
+                        "-P",
+                        "format=Account,Login,Used",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+            except Exception as e:
+                print(f"获取用户 {tres} 累计用量失败: {e}")
+                return None
+
+            used_seconds = 0
+            for line in result.stdout.splitlines():
+                parts = line.strip().split("|")
+                if (
+                    len(parts) >= 3
+                    and parts[0] == account
+                    and parts[1] == username
+                ):
+                    used_seconds += self._safe_int(parts[2])
+            usage[tres] = (used_seconds + 59) // 60
+        return usage
+
+    @staticmethod
+    def _hours_to_minutes(hours: Optional[float]) -> int:
+        if hours is None:
+            return 0
+        try:
+            value = Decimal(str(hours))
+            if not value.is_finite() or value <= 0:
+                return 0
+            return int((value * 60).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        except (InvalidOperation, TypeError, ValueError):
+            return 0
+
+    def grant_user_tres_hours(
+        self,
+        username: str,
+        cpu_hours: Optional[float] = None,
+        gpu_hours: Optional[float] = None,
+        account: Optional[str] = None,
+        partition: Optional[str] = None,
+    ) -> Optional[Dict]:
+        """增加用户可用核时/卡时，并回读验证关联的 GrpTRESMins。"""
+        if not self._is_valid_slurm_name(username):
+            return None
+        if account is not None and not self._is_valid_slurm_name(account):
+            return None
+        if partition is not None and not self._is_valid_slurm_name(partition):
+            return None
+
+        cpu_grant = self._hours_to_minutes(cpu_hours)
+        gpu_grant = self._hours_to_minutes(gpu_hours)
+        if cpu_grant <= 0 and gpu_grant <= 0:
+            return None
+
+        with self._tres_grant_lock:
+            resolved_account = account or self.get_user_default_account(username)
+            if not self._is_valid_slurm_name(resolved_account):
+                return None
+
+            association_kwargs = {}
+            if partition is not None:
+                association_kwargs["partition"] = partition
+            limits = self.get_association_tres_minutes(
+                username, resolved_account, **association_kwargs
+            )
+            usage = self.get_user_tres_usage_minutes(username, resolved_account)
+            if limits is None or usage is None:
+                return None
+
+            cpu_limit = limits.get("cpu")
+            gpu_limit = limits.get("gres/gpu")
+            new_cpu_limit = cpu_limit
+            new_gpu_limit = gpu_limit
+            if cpu_grant > 0:
+                new_cpu_limit = max(cpu_limit or 0, usage["cpu"]) + cpu_grant
+            if gpu_grant > 0:
+                new_gpu_limit = max(gpu_limit or 0, usage["gres/gpu"]) + gpu_grant
+
+            if not self.set_association_tres_minutes(
+                username=username,
+                account=resolved_account,
+                cpu_minutes=new_cpu_limit,
+                gpu_minutes=new_gpu_limit,
+                **association_kwargs,
+            ):
+                return None
+
+            verified = self.get_association_tres_minutes(
+                username, resolved_account, **association_kwargs
+            )
+            if verified is None:
+                return None
+            if new_cpu_limit is not None and verified.get("cpu") != new_cpu_limit:
+                return None
+            if new_gpu_limit is not None and verified.get("gres/gpu") != new_gpu_limit:
+                return None
+
+            return {
+                "account": resolved_account,
+                "partition": partition,
+                "cpu_granted_minutes": cpu_grant,
+                "gpu_granted_minutes": gpu_grant,
+                "cpu_used_minutes": usage["cpu"],
+                "gpu_used_minutes": usage["gres/gpu"],
+                "cpu_limit_minutes": verified.get("cpu"),
+                "gpu_limit_minutes": verified.get("gres/gpu"),
+                "remaining_cpu_minutes": max(
+                    (verified.get("cpu") or 0) - usage["cpu"], 0
+                ),
+                "remaining_gpu_minutes": max(
+                    (verified.get("gres/gpu") or 0) - usage["gres/gpu"], 0
+                ),
+            }
 
     def add_user_account(self, username: str, account: Optional[str] = None) -> bool:
         """添加用户到 Slurm 账户系统

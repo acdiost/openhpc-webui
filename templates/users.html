@@ -588,11 +588,11 @@ modals %}
     </div>
 </div>
 
-<!-- 核时拨付弹窗 -->
+<!-- 核时/卡时拨付弹窗 -->
 <div id="creditModal" class="modal" style="display: none">
     <div class="modal-content" style="max-width: 520px">
         <div class="modal-header">
-            <h3 id="creditModalTitle">核时拨付</h3>
+            <h3 id="creditModalTitle">核时/卡时拨付</h3>
             <button class="modal-close" onclick="closeCreditModal()">
                 &times;
             </button>
@@ -600,15 +600,25 @@ modals %}
         <form id="creditForm" onsubmit="handleCreditSubmit(event)">
             <input type="hidden" id="credit_username" name="username" />
             <div class="form-group">
-                <label for="credit_hours">拨付核时 (CPU 小时)</label>
+                <label for="credit_cpu_hours">增加 CPU 核时</label>
                 <input
                     type="number"
-                    id="credit_hours"
-                    name="hours"
+                    id="credit_cpu_hours"
+                    name="cpu_hours"
                     min="0.1"
                     step="0.1"
-                    required
                     placeholder="如 120"
+                />
+            </div>
+            <div class="form-group">
+                <label for="credit_gpu_hours">增加 GPU 卡时</label>
+                <input
+                    type="number"
+                    id="credit_gpu_hours"
+                    name="gpu_hours"
+                    min="0.1"
+                    step="0.1"
+                    placeholder="如 24"
                 />
             </div>
             <div class="form-group">
@@ -619,10 +629,6 @@ modals %}
                     <option value="grant">专项拨付</option>
                     <option value="other">其他</option>
                 </select>
-            </div>
-            <div class="form-group">
-                <label for="credit_date">生效日期</label>
-                <input type="date" id="credit_date" name="effective_date" />
             </div>
             <div class="form-group">
                 <label for="credit_note">备注</label>
@@ -704,7 +710,7 @@ page_scripts %}
                             onclick="resetUserSshKey('${user.username}')">生成/重置密钥</button>
                     <button class="btn btn-secondary"
                             style="padding: 4px 12px; font-size: 12px; margin-right: 4px; background-color: #f59e0b; color: #111827;"
-                            onclick="showCreditModal('${user.username}')">核时拨付</button>
+                            onclick="showCreditModal('${user.username}')">核时/卡时拨付</button>
                     <button class="btn"
                             style="padding: 4px 12px; font-size: 12px; background-color: #dc3023; color: white;"
                             onclick="deleteUser('${user.username}')">删除</button>
@@ -997,14 +1003,12 @@ page_scripts %}
         window.open(url, "_blank");
     }
 
-    /* ── 核时拨付 ─────────────────────────────────────────── */
+    /* ── 核时/卡时拨付 ───────────────────────────────────── */
 
     function showCreditModal(username) {
-        document.getElementById("creditModalTitle").textContent = `核时拨付：${username}`;
-        document.getElementById("credit_username").value = username;
         document.getElementById("creditForm").reset();
-        const today = new Date().toISOString().slice(0, 10);
-        document.getElementById("credit_date").value = today;
+        document.getElementById("creditModalTitle").textContent = `核时/卡时拨付：${username}`;
+        document.getElementById("credit_username").value = username;
         document.getElementById("creditModal").style.display = "flex";
     }
 
@@ -1016,12 +1020,18 @@ page_scripts %}
         event.preventDefault();
         const fd = new FormData(event.target);
         const username = fd.get("username");
+        const cpuRaw = fd.get("cpu_hours");
+        const gpuRaw = fd.get("gpu_hours");
         const payload = {
-            hours: parseFloat(fd.get("hours")),
             reason: fd.get("reason") || null,
             note: fd.get("note") || null,
-            effective_date: fd.get("effective_date") || null,
         };
+        if (cpuRaw) payload.cpu_hours = parseFloat(cpuRaw);
+        if (gpuRaw) payload.gpu_hours = parseFloat(gpuRaw);
+        if (payload.cpu_hours === undefined && payload.gpu_hours === undefined) {
+            showToast("请至少填写核时或卡时", "warning");
+            return;
+        }
 
         try {
             const res = await fetch(`/api/slurm/users/${username}/credit`, {
