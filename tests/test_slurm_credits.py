@@ -326,6 +326,10 @@ class SlurmCreditTemplateTests(unittest.TestCase):
         self.assertIn("核时剩余 (h)", template)
         self.assertIn("卡时已用 (h)", template)
         self.assertIn("卡时剩余 (h)", template)
+        self.assertIn('class="users-table-scroll"', template)
+        self.assertIn("#usersTable thead th", template)
+        self.assertIn("position: sticky", template)
+        self.assertIn("table-layout: fixed", template)
         self.assertIn('min="-1000000"', template)
         self.assertIn("负数表示扣除", template)
 

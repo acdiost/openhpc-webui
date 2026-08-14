@@ -34,6 +34,77 @@ endblock %} {% block head_extra %}
     .user-action-menu-item.danger:hover,
     .user-action-menu-item.danger:focus-visible { background: #fef2f2; }
     .user-action-menu-separator { height: 1px; margin: 5px 4px; background: #e5e7eb; }
+    .users-table-scroll {
+        position: relative;
+        max-height: clamp(360px, calc(100vh - 280px), 720px);
+        overflow: auto;
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        scrollbar-gutter: stable;
+    }
+    .users-table-scroll:focus-visible {
+        outline: 2px solid #2563eb;
+        outline-offset: 2px;
+    }
+    #usersTable {
+        min-width: 1830px;
+        table-layout: fixed;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+    #usersTable th,
+    #usersTable td {
+        height: 42px;
+        padding: 8px 10px;
+        overflow: hidden;
+        font-size: 13px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    #usersTable thead th {
+        position: sticky;
+        top: 0;
+        z-index: 3;
+        height: 44px;
+        background: #f3f4f6;
+        box-shadow: inset 0 -1px 0 #d1d5db;
+        vertical-align: middle;
+    }
+    #usersTable tbody td { background: #fff; }
+    #usersTable tbody tr:nth-child(even) td { background: #fafafa; }
+    #usersTable tbody tr:hover td { background: #f3f4f6; }
+    #usersTable th:first-child,
+    #usersTable td:first-child {
+        position: sticky;
+        left: 0;
+        z-index: 2;
+        box-shadow: inset -1px 0 0 #e5e7eb;
+    }
+    #usersTable th:last-child,
+    #usersTable td:last-child {
+        position: sticky;
+        right: 0;
+        z-index: 2;
+        box-shadow: inset 1px 0 0 #e5e7eb;
+    }
+    #usersTable thead th:first-child,
+    #usersTable thead th:last-child { z-index: 5; }
+    #usersTable th:nth-child(1) { width: 150px; }
+    #usersTable th:nth-child(2),
+    #usersTable th:nth-child(3) { width: 78px; }
+    #usersTable th:nth-child(4) { width: 190px; }
+    #usersTable th:nth-child(5) { width: 105px; }
+    #usersTable th:nth-child(n+6):nth-child(-n+11) { width: 105px; }
+    #usersTable th:nth-child(12) { width: 150px; }
+    #usersTable th:nth-child(13) { width: 180px; }
+    #usersTable th:nth-child(14) { width: 82px; }
+    #usersTable th:nth-child(15) { width: 184px; }
+    #usersTable th:nth-child(2),
+    #usersTable td:nth-child(2),
+    #usersTable th:nth-child(3),
+    #usersTable td:nth-child(3),
+    #usersTable th:nth-child(n+5):nth-child(-n+11),
+    #usersTable td:nth-child(n+5):nth-child(-n+11) { text-align: right; }
 </style>
 {% endblock %} {# ══════════════════════════════════════════════════════════
 主体内容 ══════════════════════════════════════════════════════════ #} {% block
@@ -68,7 +139,12 @@ content %}
         </span>
     </div>
 
-    <div style="overflow-x: auto">
+    <div
+        class="users-table-scroll"
+        role="region"
+        aria-label="用户列表"
+        tabindex="0"
+    >
         <table class="table" id="usersTable">
             <thead>
                 <tr>
