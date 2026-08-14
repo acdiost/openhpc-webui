@@ -127,15 +127,40 @@ class SlurmCreditManagerTests(unittest.TestCase):
         self.assertIn("partition=CPU", modify_args)
 
     @patch("slurm_manager.subprocess.run")
-    def test_usage_minutes_rounds_up_partial_minutes(self, run):
-        run.side_effect = [
-            Mock(stdout="dawn|dawn|61\n"),
-            Mock(stdout="dawn|dawn|60\n"),
-        ]
+    def test_usage_minutes_uses_controller_enforcement_values(self, run):
+        run.return_value = Mock(
+            stdout="""
+ClusterName=cluster Account=dawn UserName=dawn(1000) Partition= Priority=0 ID=17
+    GrpTRESMins=cpu=8488(1529),mem=N(0),gres/gpu=0(0)
+ClusterName=cluster Account=dawn UserName= Partition=CPU Priority=0 ID=16
+    GrpTRESMins=cpu=5(0),mem=N(0),gres/gpu=N(0)
+"""
+        )
 
         usage = self.manager.get_user_tres_usage_minutes("dawn", "dawn")
 
-        self.assertEqual(usage, {"cpu": 2, "gres/gpu": 1})
+        self.assertEqual(usage, {"cpu": 1529, "gres/gpu": 0})
+        self.assertEqual(
+            run.call_args.args[0],
+            ["scontrol", "show", "assoc_mgr", "flags=assoc", "users=dawn"],
+        )
+
+    @patch("slurm_manager.subprocess.run")
+    def test_usage_minutes_selects_partition_association(self, run):
+        run.return_value = Mock(
+            stdout="""
+ClusterName=cluster Account=research UserName=alice(1001) Partition= Priority=0 ID=18
+    GrpTRESMins=cpu=600(200),gres/gpu=60(10)
+ClusterName=cluster Account=research UserName=alice(1001) Partition=GPU Priority=0 ID=19
+    GrpTRESMins=cpu=300(125),gres/gpu=30(7)
+"""
+        )
+
+        usage = self.manager.get_user_tres_usage_minutes(
+            "alice", "research", partition="GPU"
+        )
+
+        self.assertEqual(usage, {"cpu": 125, "gres/gpu": 7})
 
     @patch("slurm_manager.subprocess.run")
     def test_lists_user_tres_limits_preferring_global_association(self, run):

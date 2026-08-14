@@ -1264,52 +1264,64 @@ class SlurmManager:
             return None
 
     def get_user_tres_usage_minutes(
-        self, username: str, account: str
+        self,
+        username: str,
+        account: str,
+        partition: Optional[str] = None,
     ) -> Optional[Dict[str, int]]:
         if not self._is_valid_slurm_name(username) or not self._is_valid_slurm_name(
             account
-        ):
+        ) or (partition is not None and not self._is_valid_slurm_name(partition)):
+            return None
+        try:
+            result = subprocess.run(
+                [
+                    "scontrol",
+                    "show",
+                    "assoc_mgr",
+                    "flags=assoc",
+                    f"users={username}",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except Exception as e:
+            print(f"获取用户 TRES 有效用量失败: {e}")
             return None
 
-        usage = {}
-        for tres in ("cpu", "gres/gpu"):
-            try:
-                result = subprocess.run(
-                    [
-                        "sreport",
-                        "-T",
-                        tres,
-                        "-t",
-                        "Seconds",
-                        "cluster",
-                        "UserUtilizationByAccount",
-                        f"Users={username}",
-                        f"Accounts={account}",
-                        "Start=1970-01-01T00:00:00",
-                        "End=now",
-                        "-n",
-                        "-P",
-                        "format=Account,Login,Used",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                )
-            except Exception as e:
-                print(f"获取用户 {tres} 累计用量失败: {e}")
-                return None
+        expected_partition = partition or ""
+        blocks = re.split(r"(?=^ClusterName=)", result.stdout, flags=re.MULTILINE)
+        header_pattern = re.compile(
+            r"^ClusterName=\S+\s+Account=(\S*)\s+"
+            r"UserName=([^\s(]*)(?:\([^)]*\))?\s+Partition=(\S*)\s+"
+        )
+        for block in blocks:
+            header = header_pattern.search(block)
+            if not header:
+                continue
+            block_account, block_user, block_partition = header.groups()
+            if (
+                block_account != account
+                or block_user != username
+                or block_partition != expected_partition
+            ):
+                continue
 
-            used_seconds = 0
-            for line in result.stdout.splitlines():
-                parts = line.strip().split("|")
-                if (
-                    len(parts) >= 3
-                    and parts[0] == account
-                    and parts[1] == username
-                ):
-                    used_seconds += self._safe_int(parts[2])
-            usage[tres] = (used_seconds + 59) // 60
-        return usage
+            tres_line = re.search(
+                r"^\s*GrpTRESMins=(.+)$", block, flags=re.MULTILINE
+            )
+            if not tres_line:
+                return None
+            usage = {}
+            for tres in ("cpu", "gres/gpu"):
+                match = re.search(
+                    rf"(?:^|,){re.escape(tres)}=[^,(]*\((\d+)\)",
+                    tres_line.group(1),
+                )
+                usage[tres] = int(match.group(1)) if match else 0
+            return usage
+        return None
 
     @staticmethod
     def _hours_to_minutes(hours: Optional[float]) -> int:
@@ -1355,7 +1367,9 @@ class SlurmManager:
             limits = self.get_association_tres_minutes(
                 username, resolved_account, **association_kwargs
             )
-            usage = self.get_user_tres_usage_minutes(username, resolved_account)
+            usage = self.get_user_tres_usage_minutes(
+                username, resolved_account, **association_kwargs
+            )
             if limits is None or usage is None:
                 return None
 
