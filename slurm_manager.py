@@ -514,20 +514,9 @@ class SlurmManager:
             username: 用户名
             range_key: day/week/month
         """
-        if start_date:
-            start_date = self._normalize_date(start_date)
-        if end_date:
-            end_date = self._normalize_date(end_date)
-
-        if not start_date:
-            range_days = {
-                "day": 1,
-                "week": 7,
-                "month": 30,
-            }.get(range_key, 1)
-            start_date = (datetime.now() - timedelta(days=range_days)).strftime(
-                "%Y-%m-%d"
-            )
+        start_date, end_date = self._resolve_report_period(
+            range_key, start_date, end_date
+        )
         jobs = []
         totals = {
             "total_jobs": 0,
@@ -535,6 +524,7 @@ class SlurmManager:
             "failed_jobs": 0,
             "cancelled_jobs": 0,
             "cpu_hours": 0.0,
+            "gpu_hours": 0.0,
             "elapsed_hours": 0.0,
         }
 
@@ -551,7 +541,12 @@ class SlurmManager:
         jobs = json_jobs["jobs"]
         totals = json_jobs["totals"]
 
+        tres_hours = self._get_user_tres_hours(username, start_date, end_date)
+        if tres_hours is not None:
+            totals.update(tres_hours)
+
         totals["cpu_hours"] = round(totals["cpu_hours"], 2)
+        totals["gpu_hours"] = round(totals["gpu_hours"], 2)
         totals["elapsed_hours"] = round(totals["elapsed_hours"], 2)
 
         return {
@@ -561,6 +556,77 @@ class SlurmManager:
             "jobs": jobs[:50],
             "totals": totals,
         }
+
+    @staticmethod
+    def _resolve_report_period(
+        range_key: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        now: Optional[datetime] = None,
+    ) -> tuple:
+        """返回供 Slurm 查询使用的左闭右开时间区间。"""
+        now = (now or datetime.now()).replace(microsecond=0)
+        normalized_start = SlurmManager._normalize_date(start_date or "")
+        normalized_end = SlurmManager._normalize_date(end_date or "")
+
+        if normalized_start:
+            start = datetime.strptime(normalized_start, "%Y-%m-%d")
+        elif range_key == "month":
+            start = now.replace(day=1, hour=0, minute=0, second=0)
+        elif range_key == "week":
+            start = (now - timedelta(days=now.weekday())).replace(
+                hour=0, minute=0, second=0
+            )
+        else:
+            start = now.replace(hour=0, minute=0, second=0)
+
+        if normalized_end:
+            end = datetime.strptime(normalized_end, "%Y-%m-%d") + timedelta(days=1)
+        else:
+            end = now
+
+        return start.isoformat(timespec="seconds"), end.isoformat(timespec="seconds")
+
+    def _get_user_tres_hours(
+        self, username: str, start_date: str, end_date: str
+    ) -> Optional[Dict[str, float]]:
+        """使用 sreport 的区间截断结果统计已分配核时和卡时。"""
+        totals = {}
+        for tres, field in (("cpu", "cpu_hours"), ("gres/gpu", "gpu_hours")):
+            cmd = [
+                "sreport",
+                "-T",
+                tres,
+                "-t",
+                "Seconds",
+                "cluster",
+                "UserUtilizationByAccount",
+                f"Users={username}",
+                f"Start={start_date}",
+                f"End={end_date}",
+                "-n",
+                "-P",
+                "format=Login,Used",
+            ]
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+            except Exception as e:
+                print(f"获取用户 {tres} 使用量失败: {e}")
+                return None
+
+            used_seconds = 0
+            for line in result.stdout.splitlines():
+                parts = line.strip().split("|")
+                if len(parts) >= 2 and parts[0] == username:
+                    used_seconds += self._safe_int(parts[1])
+            totals[field] = round(used_seconds / 3600, 2)
+
+        return totals
 
     def _get_user_job_report_json(
         self, username: str, start_date: str, end_date: Optional[str]
@@ -572,7 +638,7 @@ class SlurmManager:
             "-S",
             start_date,
             "-o",
-            "JobID,JobName,State,ElapsedRaw,AllocCPUS,Partition,Submit,Start,End",
+            "JobID,JobName,State,ElapsedRaw,AllocCPUS,AllocTRES,Partition,Submit,Start,End",
             "-X",
             "-n",
             "--parsable2",
@@ -604,6 +670,7 @@ class SlurmManager:
             "failed_jobs": 0,
             "cancelled_jobs": 0,
             "cpu_hours": 0.0,
+            "gpu_hours": 0.0,
             "elapsed_hours": 0.0,
         }
 
@@ -630,19 +697,49 @@ class SlurmManager:
 
             time_obj = job.get("time") or {}
             elapsed_raw = self._safe_int(time_obj.get("elapsed", 0))
+            elapsed_raw = self._clip_elapsed_to_period(
+                elapsed_raw, time_obj, start_date, end_date
+            )
 
             alloc_cpus = self._safe_int(
                 (job.get("required") or {}).get("CPUs", 0)
             )
             if alloc_cpus == 0:
-                for req in (job.get("tres") or {}).get("requested", []):
-                    if req.get("type") == "cpu":
-                        alloc_cpus = self._safe_int(req.get("count", 0))
+                tres = job.get("tres") or {}
+                for source in ("allocated", "requested"):
+                    for req in tres.get(source, []):
+                        if req.get("type") == "cpu":
+                            alloc_cpus = self._safe_int(req.get("count", 0))
+                            break
+                    if alloc_cpus:
+                        break
+
+            alloc_gpus = 0
+            tres = job.get("tres") or {}
+            for allocated in tres.get("allocated", []):
+                if (
+                    allocated.get("type") == "gres"
+                    and allocated.get("name") == "gpu"
+                ):
+                    alloc_gpus = self._safe_int(allocated.get("count", 0))
+                    break
+            if alloc_gpus == 0:
+                for requested in tres.get("requested", []):
+                    if (
+                        requested.get("type") == "gres"
+                        and requested.get("name") == "gpu"
+                    ):
+                        alloc_gpus = self._safe_int(requested.get("count", 0))
                         break
 
             cpu_hours = (
                 round((elapsed_raw * alloc_cpus) / 3600, 2)
                 if elapsed_raw and alloc_cpus > 0
+                else 0.0
+            )
+            gpu_hours = (
+                round((elapsed_raw * alloc_gpus) / 3600, 2)
+                if elapsed_raw and alloc_gpus > 0
                 else 0.0
             )
             elapsed_hours = round(elapsed_raw / 3600, 2) if elapsed_raw else 0.0
@@ -658,7 +755,9 @@ class SlurmManager:
                     "state": state_value,
                     "elapsed_hours": elapsed_hours,
                     "cpu_hours": cpu_hours,
+                    "gpu_hours": gpu_hours,
                     "alloc_cpus": alloc_cpus,
+                    "alloc_gpus": alloc_gpus,
                     "partition": job.get("partition") or job.get("Partition", ""),
                     "submit_time": submit_time,
                     "start_time": start_time,
@@ -668,6 +767,7 @@ class SlurmManager:
 
             totals["total_jobs"] += 1
             totals["cpu_hours"] += cpu_hours
+            totals["gpu_hours"] += gpu_hours
             totals["elapsed_hours"] += elapsed_hours
 
             if state_value.startswith("COMPLETED"):
@@ -680,9 +780,42 @@ class SlurmManager:
                 totals["failed_jobs"] += 1
 
         totals["cpu_hours"] = round(totals["cpu_hours"], 2)
+        totals["gpu_hours"] = round(totals["gpu_hours"], 2)
         totals["elapsed_hours"] = round(totals["elapsed_hours"], 2)
 
         return {"jobs": jobs, "totals": totals}
+
+    @staticmethod
+    def _clip_elapsed_to_period(
+        elapsed_seconds: int,
+        time_obj: Dict,
+        start_date: str,
+        end_date: Optional[str],
+    ) -> int:
+        """按作业与报表区间的重叠比例截断 Slurm ElapsedRaw。"""
+        if elapsed_seconds <= 0 or not end_date:
+            return elapsed_seconds
+
+        try:
+            period_start = datetime.fromisoformat(start_date).timestamp()
+            period_end = datetime.fromisoformat(end_date).timestamp()
+            job_start = int(time_obj.get("start", 0))
+            job_end = int(time_obj.get("end", 0))
+            if job_start <= 0:
+                return elapsed_seconds
+            if job_end <= job_start or job_end >= 4294967294:
+                job_end = job_start + elapsed_seconds
+
+            wall_seconds = job_end - job_start
+            overlap_seconds = max(
+                0,
+                min(job_end, period_end) - max(job_start, period_start),
+            )
+            if overlap_seconds >= wall_seconds:
+                return elapsed_seconds
+            return int(round(elapsed_seconds * overlap_seconds / wall_seconds))
+        except (TypeError, ValueError, OverflowError):
+            return elapsed_seconds
 
     @staticmethod
     def _format_epoch(value: Optional[int]) -> str:

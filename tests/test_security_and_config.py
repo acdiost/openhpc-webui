@@ -219,7 +219,7 @@ class FrontendSecurityTests(unittest.TestCase):
         self.assertIn('id="aboutModal"', base_template)
         self.assertIn("function openAboutModal()", base_template)
         self.assertIn(
-            "https://github.com/acdiost/openhpc-web-python", base_template
+            "https://github.com/acdiost/openhpc-webui", base_template
         )
         self.assertIn('onclick="openAboutModal()"', sidebar_template)
         self.assertIn('class="sidebar-actions"', sidebar_template)

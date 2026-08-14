@@ -423,9 +423,9 @@ modals %}
                     background: #fff;
                 "
             >
-                <option value="day">近一天</option>
-                <option value="week">近一周</option>
-                <option value="month">近一月</option>
+                <option value="day">今日</option>
+                <option value="week">本周</option>
+                <option value="month">本月</option>
                 <option value="custom">自定义</option>
             </select>
             <input
@@ -505,8 +505,14 @@ modals %}
                 </div>
                 <div style="padding: 12px 14px; background: #f9fafb; border-radius: 10px">
                     <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px">
-                        <div style="color: #374151; font-size: 14px; font-weight: 700">机时 (CPU h)</div>
+                        <div style="color: #374151; font-size: 14px; font-weight: 700">CPU 核时</div>
                         <div id="report_cpu_hours" style="font-size: 22px; font-weight: 700">—</div>
+                    </div>
+                </div>
+                <div style="padding: 12px 14px; background: #f9fafb; border-radius: 10px">
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px">
+                        <div style="color: #374151; font-size: 14px; font-weight: 700">GPU 卡时</div>
+                        <div id="report_gpu_hours" style="font-size: 22px; font-weight: 700">—</div>
                     </div>
                 </div>
                 <div style="padding: 12px 14px; background: #f9fafb; border-radius: 10px">
@@ -562,7 +568,9 @@ modals %}
                         <th>状态</th>
                         <th>分区</th>
                         <th>CPU</th>
-                        <th>机时(h)</th>
+                        <th>GPU</th>
+                        <th>核时</th>
+                        <th>卡时</th>
                         <th>运行(h)</th>
                         <th>开始时间</th>
                         <th>结束时间</th>
@@ -570,7 +578,7 @@ modals %}
                 </thead>
                 <tbody id="userReportTableBody">
                     <tr>
-                        <td colspan="9" class="text-center py-8 text-gray-500">
+                        <td colspan="11" class="text-center py-8 text-gray-500">
                             加载中…
                         </td>
                     </tr>
@@ -898,7 +906,7 @@ page_scripts %}
     async function loadUserReport(username, range, startDate = "", endDate = "") {
         const tbody = document.getElementById("userReportTableBody");
         tbody.innerHTML =
-            '<tr><td colspan="9" class="text-center py-8 text-gray-500">加载中…</td></tr>';
+            '<tr><td colspan="11" class="text-center py-8 text-gray-500">加载中…</td></tr>';
         try {
             const query = new URLSearchParams({ range });
             if (startDate) query.set("start", startDate);
@@ -922,6 +930,8 @@ page_scripts %}
                 totals.cancelled_jobs ?? 0;
             document.getElementById("report_cpu_hours").textContent =
                 totals.cpu_hours ?? 0;
+            document.getElementById("report_gpu_hours").textContent =
+                totals.gpu_hours ?? 0;
             document.getElementById("report_elapsed_hours").textContent =
                 totals.elapsed_hours ?? 0;
             document.getElementById("userReportStartDate").textContent = data.start_date
@@ -932,7 +942,7 @@ page_scripts %}
             const jobs = data.jobs || [];
             if (jobs.length === 0) {
                 tbody.innerHTML =
-                    '<tr><td colspan="9" class="text-center py-8 text-gray-500">暂无作业数据</td></tr>';
+                    '<tr><td colspan="11" class="text-center py-8 text-gray-500">暂无作业数据</td></tr>';
                 return;
             }
 
@@ -945,7 +955,9 @@ page_scripts %}
                     <td>${job.state || "—"}</td>
                     <td>${job.partition || "—"}</td>
                     <td>${job.alloc_cpus || "—"}</td>
+                    <td>${job.alloc_gpus || "—"}</td>
                     <td>${job.cpu_hours ?? 0}</td>
+                    <td>${job.gpu_hours ?? 0}</td>
                     <td>${job.elapsed_hours ?? 0}</td>
                     <td>${job.start_time || "—"}</td>
                     <td>${job.end_time || "—"}</td>
@@ -956,7 +968,7 @@ page_scripts %}
         } catch (e) {
             showToast(e.message || "加载报表失败", "error");
             tbody.innerHTML =
-                '<tr><td colspan="9" class="text-center py-8 text-gray-500">加载失败</td></tr>';
+                '<tr><td colspan="11" class="text-center py-8 text-gray-500">加载失败</td></tr>';
         }
     }
 
