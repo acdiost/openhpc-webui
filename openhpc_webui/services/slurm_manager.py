@@ -303,7 +303,7 @@ class SlurmManager:
         """
         try:
             # 使用 squeue 获取作业队列
-            cmd = ['squeue', '-o', '%i|%j|%u|%P|%T|%D|%M|%S|%N']
+            cmd = ['squeue', '-o', '%i|%j|%u|%P|%T|%D|%C|%M|%S|%N']
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -318,7 +318,7 @@ class SlurmManager:
             jobs = []
             for line in lines[1:]:  # Skip header
                 parts = line.split('|')
-                if len(parts) >= 9:
+                if len(parts) >= 10:
                     job_state = parts[4]
                     job_partition = parts[3]
 
@@ -335,9 +335,11 @@ class SlurmManager:
                         'partition': job_partition,
                         'state': job_state,
                         'nodes': parts[5],
-                        'time': parts[6],
-                        'start_time': parts[7],
-                        'nodelist': self._normalize_null(parts[8]) if len(parts) > 8 else None
+                        'cpus': self._safe_int(parts[6]),
+                        'alloc_cpus': self._safe_int(parts[6]),
+                        'time': parts[7],
+                        'start_time': parts[8],
+                        'nodelist': self._normalize_null(parts[9]) if len(parts) > 9 else None
                     }
                     jobs.append(job)
 
@@ -430,8 +432,8 @@ class SlurmManager:
             # -n: 不显示头部
             # --parsable2: 以制表符分隔的可解析格式输出
             # sacct 字段说明：
-            # JobID | JobName | User | State | Elapsed | End | ExitCode
-            cmd = """sacct -S today -o JobID,JobName,User,State,Elapsed,End,ExitCode -X -n --parsable2 | sort -t'|' -k6,6r"""
+            # JobID | JobName | User | State | AllocCPUS | Elapsed | End | ExitCode
+            cmd = """sacct -S today -o JobID,JobName,User,State,AllocCPUS,Elapsed,End,ExitCode -X -n --parsable2 | sort -t'|' -k7,7r"""
             result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True)
 
             lines = result.stdout.strip().split('\n')
@@ -453,7 +455,7 @@ class SlurmManager:
                     continue
 
                 parts = line.split('|')
-                if len(parts) < 7:
+                if len(parts) < 8:
                     continue
 
                 state = parts[3].strip()
@@ -465,9 +467,11 @@ class SlurmManager:
                         'name': parts[1],
                         'user': parts[2],
                         'state': state,
-                        'elapsed': parts[4],
-                        'end_time': parts[5],
-                        'exit_code': parts[6]
+                        'cpus': self._safe_int(parts[4]),
+                        'alloc_cpus': self._safe_int(parts[4]),
+                        'elapsed': parts[5],
+                        'end_time': parts[6],
+                        'exit_code': parts[7]
                     }
                     jobs.append(job)
 

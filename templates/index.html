@@ -90,12 +90,13 @@ breadcrumb_title %}系统概览{% endblock %} {% block content %} {# ── 页�
                     <th>分区</th>
                     <th>状态</th>
                     <th>运行时间</th>
+                    <th>核心数</th>
                     <th>节点</th>
                 </tr>
             </thead>
             <tbody id="recentJobsBody">
                 <tr>
-                    <td colspan="6" class="text-center py-8 text-gray-500">
+                    <td colspan="7" class="text-center py-8 text-gray-500">
                         加载中…
                     </td>
                 </tr>
@@ -195,7 +196,7 @@ breadcrumb_title %}系统概览{% endblock %} {% block content %} {# ── 页�
 
             if (jobs.length === 0) {
                 tbody.innerHTML =
-                    '<tr><td colspan="6" class="text-center py-8 text-gray-500">暂无活动作业</td></tr>';
+                    '<tr><td colspan="7" class="text-center py-8 text-gray-500">暂无活动作业</td></tr>';
                 return;
             }
 
@@ -212,6 +213,7 @@ breadcrumb_title %}系统概览{% endblock %} {% block content %} {# ── 页�
                         <td>${job.partition}</td>
                         <td><span class="badge ${st.cls}">${st.text}</span></td>
                         <td>${job.time || "—"}</td>
+                        <td>${job.cpus ?? job.alloc_cpus ?? "—"}</td>
                         <td>${job.nodes || "—"}</td>
                     </tr>`;
                 })
@@ -219,7 +221,7 @@ breadcrumb_title %}系统概览{% endblock %} {% block content %} {# ── 页�
         } catch (e) {
             console.warn("[dashboard] 近期作业加载失败", e);
             tbody.innerHTML =
-                '<tr><td colspan="6" class="text-center text-gray-400 py-6">暂无数据</td></tr>';
+                '<tr><td colspan="7" class="text-center text-gray-400 py-6">暂无数据</td></tr>';
         }
     }
 

@@ -82,6 +82,7 @@ content %}
                     <th class="col-status">状态</th>
                     <th>节点</th>
                     <th class="col-number">节点数</th>
+                    <th class="col-number">核心数</th>
                     <th>运行时间</th>
                     <th>提交时间</th>
                     <th class="col-actions">操作</th>
@@ -89,7 +90,7 @@ content %}
             </thead>
             <tbody id="activeJobsTableBody">
                 <tr>
-                    <td colspan="10" style="text-align: center; color: #6b7280">
+                    <td colspan="11" style="text-align: center; color: #6b7280">
                         加载中…
                     </td>
                 </tr>
@@ -109,6 +110,7 @@ content %}
                     <th>作业名称</th>
                     <th>用户</th>
                     <th class="col-status">状态</th>
+                    <th class="col-number">核心数</th>
                     <th>运行时间</th>
                     <th>完成时间</th>
                     <th class="col-status">退出码</th>
@@ -116,7 +118,7 @@ content %}
             </thead>
             <tbody id="completedJobsTableBody">
                 <tr>
-                    <td colspan="7" style="text-align: center; color: #6b7280">
+                    <td colspan="8" style="text-align: center; color: #6b7280">
                         加载中…
                     </td>
                 </tr>
@@ -194,7 +196,7 @@ page_scripts %}
 
             if (!data.jobs || data.jobs.length === 0) {
                 tbody.innerHTML =
-                    '<tr><td colspan="10" style="text-align:center;color:#6b7280;">暂无活动作业</td></tr>';
+                    '<tr><td colspan="11" style="text-align:center;color:#6b7280;">暂无活动作业</td></tr>';
                 return;
             }
 
@@ -228,6 +230,8 @@ page_scripts %}
                 appendTextCell(row, job.nodelist || "—");
                 const nodeCountCell = appendTextCell(row, job.nodes);
                 nodeCountCell.classList.add("col-number");
+                const cpuCountCell = appendTextCell(row, job.cpus ?? job.alloc_cpus ?? "—");
+                cpuCountCell.classList.add("col-number");
                 appendTextCell(row, job.time || "—");
                 appendTextCell(
                     row,
@@ -255,7 +259,7 @@ page_scripts %}
         } catch (e) {
             console.error("[jobs] 活动作业加载失败:", e);
             tbody.innerHTML =
-                '<tr><td colspan="10" style="text-align:center;color:#dc3023;">加载失败，请检查 Slurm 服务</td></tr>';
+                '<tr><td colspan="11" style="text-align:center;color:#dc3023;">加载失败，请检查 Slurm 服务</td></tr>';
         }
     }
 
@@ -270,7 +274,7 @@ page_scripts %}
 
             if (!data.jobs || data.jobs.length === 0) {
                 tbody.innerHTML =
-                    '<tr><td colspan="7" style="text-align:center;color:#6b7280;">暂无已完成作业</td></tr>';
+                    '<tr><td colspan="8" style="text-align:center;color:#6b7280;">暂无已完成作业</td></tr>';
                 return;
             }
 
@@ -289,6 +293,8 @@ page_scripts %}
                 appendTextCell(row, job.user);
                 const stateCell = appendBadgeCell(row, st.text, st.cls);
                 stateCell.classList.add("col-status");
+                const cpuCountCell = appendTextCell(row, job.cpus ?? job.alloc_cpus ?? "—");
+                cpuCountCell.classList.add("col-number");
                 appendTextCell(row, job.elapsed || "—");
                 appendTextCell(row, job.end_time || "—");
                 const exitCodeCell = appendBadgeCell(row, exitCode, exitCls);
@@ -298,7 +304,7 @@ page_scripts %}
         } catch (e) {
             console.error("[jobs] 已完成作业加载失败:", e);
             tbody.innerHTML =
-                '<tr><td colspan="7" style="text-align:center;color:#dc3023;">加载失败，请检查 Slurm 服务</td></tr>';
+                '<tr><td colspan="8" style="text-align:center;color:#dc3023;">加载失败，请检查 Slurm 服务</td></tr>';
         }
     }
 
