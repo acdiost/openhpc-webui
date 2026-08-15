@@ -71,20 +71,20 @@ content %}
             </select>
         </div>
     </div>
-    <div style="overflow-x: auto">
-        <table class="table" id="jobsTable">
+    <div class="data-table-scroll" role="region" aria-label="活动作业队列" tabindex="0">
+        <table class="table data-table data-table--wide has-actions" id="jobsTable">
             <thead>
                 <tr>
-                    <th>作业ID</th>
+                    <th class="col-number">作业ID</th>
                     <th>作业名称</th>
                     <th>用户</th>
                     <th>分区</th>
-                    <th>状态</th>
+                    <th class="col-status">状态</th>
                     <th>节点</th>
-                    <th>节点数</th>
+                    <th class="col-number">节点数</th>
                     <th>运行时间</th>
                     <th>提交时间</th>
-                    <th>操作</th>
+                    <th class="col-actions">操作</th>
                 </tr>
             </thead>
             <tbody id="activeJobsTableBody">
@@ -101,17 +101,17 @@ content %}
 <!-- 最近完成的作业卡片 -->
 <div class="card">
     <h3 class="card-title">最近完成的作业</h3>
-    <div style="overflow-x: auto">
-        <table class="table">
+    <div class="data-table-scroll" role="region" aria-label="最近完成的作业" tabindex="0">
+        <table class="table data-table data-table--medium">
             <thead>
                 <tr>
-                    <th>作业ID</th>
+                    <th class="col-number">作业ID</th>
                     <th>作业名称</th>
                     <th>用户</th>
-                    <th>状态</th>
+                    <th class="col-status">状态</th>
                     <th>运行时间</th>
                     <th>完成时间</th>
-                    <th>退出码</th>
+                    <th class="col-status">退出码</th>
                 </tr>
             </thead>
             <tbody id="completedJobsTableBody">
@@ -207,7 +207,8 @@ page_scripts %}
                 const canCancel =
                     __USER__.isAdmin || job.user === __USER__.username;
                 const row = document.createElement("tr");
-                appendTextCell(row, job.job_id, true);
+                const jobIdCell = appendTextCell(row, job.job_id, true);
+                jobIdCell.classList.add("col-number");
                 appendTextCell(row, job.name);
                 const userCell = appendTextCell(row, job.user);
                 if (job.user === __USER__.username) {
@@ -221,10 +222,12 @@ page_scripts %}
                 const stateBadge = document.createElement("span");
                 stateBadge.className = `badge ${st.cls}`;
                 stateBadge.textContent = st.text;
+                stateCell.className = "col-status";
                 stateCell.appendChild(stateBadge);
                 row.appendChild(stateCell);
                 appendTextCell(row, job.nodelist || "—");
-                appendTextCell(row, job.nodes);
+                const nodeCountCell = appendTextCell(row, job.nodes);
+                nodeCountCell.classList.add("col-number");
                 appendTextCell(row, job.time || "—");
                 appendTextCell(
                     row,
@@ -232,7 +235,10 @@ page_scripts %}
                 );
 
                 const actions = document.createElement("td");
-                actions.appendChild(
+                actions.className = "col-actions";
+                const actionGroup = document.createElement("div");
+                actionGroup.className = "data-table-actions";
+                actionGroup.appendChild(
                     createActionButton("详情", () => showJobDetail(job.job_id)),
                 );
                 const cancelButton = createActionButton(
@@ -241,7 +247,8 @@ page_scripts %}
                     canCancel ? "danger" : "disabled",
                 );
                 if (!canCancel) cancelButton.title = "只能取消自己的作业";
-                actions.appendChild(cancelButton);
+                actionGroup.appendChild(cancelButton);
+                actions.appendChild(actionGroup);
                 row.appendChild(actions);
                 tbody.appendChild(row);
             });
@@ -276,13 +283,16 @@ page_scripts %}
                 const exitCls =
                     exitCode === "0" ? "badge-success" : "badge-error";
                 const row = document.createElement("tr");
-                appendTextCell(row, job.job_id, true);
+                const jobIdCell = appendTextCell(row, job.job_id, true);
+                jobIdCell.classList.add("col-number");
                 appendTextCell(row, job.name);
                 appendTextCell(row, job.user);
-                appendBadgeCell(row, st.text, st.cls);
+                const stateCell = appendBadgeCell(row, st.text, st.cls);
+                stateCell.classList.add("col-status");
                 appendTextCell(row, job.elapsed || "—");
                 appendTextCell(row, job.end_time || "—");
-                appendBadgeCell(row, exitCode, exitCls);
+                const exitCodeCell = appendBadgeCell(row, exitCode, exitCls);
+                exitCodeCell.classList.add("col-status");
                 tbody.appendChild(row);
             });
         } catch (e) {
@@ -655,6 +665,7 @@ page_scripts %}
         badge.textContent = value ?? "";
         cell.appendChild(badge);
         row.appendChild(cell);
+        return cell;
     }
 
     function createActionButton(label, handler, mode = "secondary") {

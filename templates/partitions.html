@@ -93,20 +93,20 @@ content %}
         </div>
     </div>
 
-    <div style="overflow-x: auto">
-        <table class="table">
+    <div class="data-table-scroll" role="region" aria-label="分区列表" tabindex="0">
+        <table class="table data-table data-table--wide has-actions">
             <thead>
                 <tr>
                     <th>分区名称</th>
-                    <th>状态</th>
-                    <th>总节点</th>
-                    <th>已分配</th>
-                    <th>空闲</th>
-                    <th>离线</th>
+                    <th class="col-status">状态</th>
+                    <th class="col-number">总节点</th>
+                    <th class="col-number">已分配</th>
+                    <th class="col-number">空闲</th>
+                    <th class="col-number">离线</th>
                     <th>节点状态</th>
                     <th>最大时间</th>
-                    <th>默认</th>
-                    <th style="width: 180px">操作</th>
+                    <th class="col-status">默认</th>
+                    <th class="col-actions">操作</th>
                 </tr>
             </thead>
             <tbody id="partitionsTableBody">

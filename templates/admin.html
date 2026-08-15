@@ -297,15 +297,15 @@ GET /admin 仅管理员可访问
         >）的管理员权限，需由其他管理员操作。
     </div>
 
-    <div style="overflow-x: auto">
-        <table class="table" id="adminTable">
+    <div class="data-table-scroll" role="region" aria-label="管理员列表" tabindex="0">
+        <table class="table data-table data-table--medium has-actions" id="adminTable">
             <thead>
                 <tr>
-                    <th style="width: 48px">#</th>
+                    <th class="col-number" style="width: 48px">#</th>
                     <th>用户名</th>
-                    <th>在 LDAP 中存在</th>
-                    <th>当前会话</th>
-                    <th style="width: 160px">操作</th>
+                    <th class="col-status">在 LDAP 中存在</th>
+                    <th class="col-status">当前会话</th>
+                    <th class="col-actions">操作</th>
                 </tr>
             </thead>
             <tbody id="adminTableBody">
@@ -410,7 +410,7 @@ page_scripts %}
 
                     return `
                 <tr>
-                    <td style="color:#9ca3af;">${idx + 1}</td>
+                    <td class="col-number" style="color:#9ca3af;">${idx + 1}</td>
                     <td>
                         <div style="display:flex; align-items:center; gap:10px;">
                             <div style="width:32px;height:32px;border-radius:50%;
@@ -426,21 +426,21 @@ page_scripts %}
                             <span class="badge badge-error" style="font-size:11px;">管理员</span>
                         </div>
                     </td>
-                    <td>
+                    <td class="col-status">
                         ${
                             inLdap
                                 ? '<span class="badge badge-success">存在</span>'
                                 : '<span class="badge" style="background:#fef3c7;color:#92400e;">未找到</span>'
                         }
                     </td>
-                    <td>
+                    <td class="col-status">
                         ${
                             isSelf
                                 ? '<span class="badge badge-info">当前会话</span>'
                                 : "—"
                         }
                     </td>
-                    <td>
+                    <td class="col-actions"><div class="data-table-actions">
                         ${
                             isSelf
                                 ? `<button class="btn btn-secondary" disabled
@@ -451,7 +451,7 @@ page_scripts %}
                                    撤销权限
                                </button>`
                         }
-                    </td>
+                    </div></td>
                 </tr>`;
                 })
                 .join("");

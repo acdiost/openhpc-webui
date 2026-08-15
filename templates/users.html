@@ -34,18 +34,6 @@ endblock %} {% block head_extra %}
     .user-action-menu-item.danger:hover,
     .user-action-menu-item.danger:focus-visible { background: #fef2f2; }
     .user-action-menu-separator { height: 1px; margin: 5px 4px; background: #e5e7eb; }
-    .users-table-scroll {
-        position: relative;
-        max-height: clamp(360px, calc(100vh - 280px), 720px);
-        overflow: auto;
-        border: 1px solid #e5e7eb;
-        border-radius: 6px;
-        scrollbar-gutter: stable;
-    }
-    .users-table-scroll:focus-visible {
-        outline: 2px solid #2563eb;
-        outline-offset: 2px;
-    }
     #usersTable {
         min-width: 1830px;
         table-layout: fixed;
@@ -145,12 +133,12 @@ content %}
         aria-label="用户列表"
         tabindex="0"
     >
-        <table class="table" id="usersTable">
+        <table class="table data-table has-actions" id="usersTable">
             <thead>
                 <tr>
                     <th>用户名</th>
-                    <th>UID</th>
-                    <th>GID</th>
+                    <th class="col-number">UID</th>
+                    <th class="col-number">GID</th>
                     <th>家目录</th>
                     <th>存储配额</th>
                     <th>核时限额 (h)</th>
@@ -161,8 +149,8 @@ content %}
                     <th>卡时剩余 (h)</th>
                     <th>Shell</th>
                     <th>所属组</th>
-                    <th>状态</th>
-                    <th>操作</th>
+                    <th class="col-status">状态</th>
+                    <th class="col-actions">操作</th>
                 </tr>
             </thead>
             <tbody id="usersTableBody">
@@ -921,14 +909,14 @@ page_scripts %}
                 <td>${!user.has_tres_association ? "—" : user.gpu_remaining_minutes == null ? "无限" : `${(user.gpu_remaining_minutes / 60).toFixed(2)} h`}</td>
                 <td style="font-family: monospace; font-size: 12px;">${user.shell}</td>
                 <td>${user.groups && user.groups.length > 0 ? user.groups.join(", ") : "—"}</td>
-                <td>
+                <td class="col-status">
                     ${
                         isDisabledShell(user.shell)
                             ? '<span class="badge badge-error">已禁用</span>'
                             : '<span class="badge badge-success">活跃</span>'
                     }
                 </td>
-                <td>
+                <td class="col-actions">
                     <div class="user-actions-cell">
                         <button type="button" class="user-action-primary"
                                 onclick="showUserReportModal(loadedUsers[${userIndex}].username)">报表</button>

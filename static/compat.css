@@ -16,6 +16,66 @@
 .table th, .table td { padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }
 .table th { background-color: #f9fafb; font-weight: 600; font-size: 14px; color: #374151; }
 .table tbody tr:hover { background-color: #f9fafb; }
+
+/* Shared list-table treatment. Keep dense operational pages aligned with users. */
+.data-table-scroll,
+.users-table-scroll {
+    position: relative;
+    max-height: clamp(360px, calc(100vh - 280px), 720px);
+    overflow: auto;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    scrollbar-gutter: stable;
+}
+.data-table-scroll:focus-visible,
+.users-table-scroll:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+}
+.data-table {
+    min-width: 760px;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+.data-table th,
+.data-table td {
+    height: 42px;
+    padding: 8px 10px;
+    overflow: hidden;
+    font-size: 13px;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+.data-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    height: 44px;
+    background: #f3f4f6;
+    box-shadow: inset 0 -1px 0 #d1d5db;
+}
+.data-table tbody td { background: #fff; }
+.data-table tbody tr:nth-child(even) td { background: #fafafa; }
+.data-table tbody tr:hover td { background: #f3f4f6; }
+.data-table .col-number { text-align: right; font-variant-numeric: tabular-nums; }
+.data-table .col-status { text-align: center; }
+.data-table .col-actions { width: 168px; min-width: 168px; text-align: right; }
+.data-table.has-actions th:last-child,
+.data-table.has-actions td:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 2;
+    background: #fff;
+    box-shadow: inset 1px 0 0 #e5e7eb;
+}
+.data-table.has-actions thead th:last-child { z-index: 5; background: #f3f4f6; }
+.data-table.has-actions tbody tr:nth-child(even) td:last-child { background: #fafafa; }
+.data-table.has-actions tbody tr:hover td:last-child { background: #f3f4f6; }
+.data-table-actions { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.data-table--wide { min-width: 1180px; }
+.data-table--medium { min-width: 920px; }
 .btn { display: inline-block; padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; text-decoration: none; transition: all 0.2s; }
 .btn-primary { background-color: #dc3023; color: white; }
 .btn-primary:hover { background-color: #c22a1e; }

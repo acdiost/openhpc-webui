@@ -22,16 +22,16 @@ title %}组管理{% endblock %} {% block breadcrumb_title %}组管理{% endblock
             总计: <strong id="groupCount">—</strong> 个组
         </span>
     </div>
-    <div style="overflow-x: auto">
-        <table class="table" id="groupsTable">
+    <div class="data-table-scroll" role="region" aria-label="系统组列表" tabindex="0">
+        <table class="table data-table data-table--medium has-actions" id="groupsTable">
             <thead>
                 <tr>
                     <th>组名</th>
-                    <th>GID</th>
-                    <th>成员数量</th>
+                    <th class="col-number">GID</th>
+                    <th class="col-number">成员数量</th>
                     <th>成员列表</th>
                     <th>描述</th>
-                    <th>操作</th>
+                    <th class="col-actions">操作</th>
                 </tr>
             </thead>
             <tbody id="groupsTableBody">
@@ -200,18 +200,18 @@ page_scripts %}
                 return `
                 <tr>
                     <td><strong>${group.name}</strong></td>
-                    <td>${group.gid}</td>
-                    <td>${group.members ? group.members.length : 0}</td>
+                    <td class="col-number">${group.gid}</td>
+                    <td class="col-number">${group.members ? group.members.length : 0}</td>
                     <td style="font-size: 13px; color: #6b7280;">${memberPreview}</td>
                     <td>${group.description || "—"}</td>
-                    <td>
+                    <td class="col-actions"><div class="data-table-actions">
                         <button class="btn btn-secondary"
                                 style="padding: 4px 12px; font-size: 12px; margin-right: 4px;"
                                 onclick="showEditGroupModal('${group.name}')">编辑</button>
                         <button class="btn"
                                 style="padding: 4px 12px; font-size: 12px; background-color: #dc3023; color: white;"
                                 onclick="deleteGroupConfirm('${group.name}')">删除</button>
-                    </td>
+                    </div></td>
                 </tr>`;
             })
             .join("");

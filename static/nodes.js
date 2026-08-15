@@ -94,17 +94,17 @@ function renderNodesTable(nodes) {
         return `
             <tr>
                 <td><strong>${node.name}</strong></td>
-                <td>${stateBadge}</td>
-                <td>${node.cpus || node.config?.cpus || '-'}</td>
-                <td>${node.memory || node.config?.real_memory || '-'}</td>
+                <td class="col-status">${stateBadge}</td>
+                <td class="col-number">${node.cpus || node.config?.cpus || '-'}</td>
+                <td class="col-number">${node.memory || node.config?.real_memory || '-'}</td>
                 <td>${node.partition || '-'}</td>
                 <td><code style="font-size: 11px;">${gres}</code></td>
-                <td>
+                <td class="col-actions" style="width:286px;min-width:286px"><div class="data-table-actions">
                     <button onclick="drainNode('${node.name}')" class="btn" style="padding: 4px 12px; font-size: 12px; background-color: #f59e0b; color: white; margin-right: 4px;">下线</button>
                     <button onclick="resumeNode('${node.name}')" class="btn btn-secondary" style="padding: 4px 12px; font-size: 12px; margin-right: 4px;">上线</button>
                     <button onclick="editNode('${node.name}')" class="btn btn-secondary" style="padding: 4px 12px; font-size: 12px; margin-right: 4px;">编辑</button>
                     <button onclick="deleteNode('${node.name}')" class="btn" style="padding: 4px 12px; font-size: 12px; background-color: #ef4444; color: white;">删除</button>
-                </td>
+                </div></td>
             </tr>
         `;
     }).join('');

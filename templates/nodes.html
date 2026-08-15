@@ -93,17 +93,17 @@ content %}
         </div>
     </div>
 
-    <div style="overflow-x: auto">
-        <table class="table">
+    <div class="data-table-scroll" role="region" aria-label="节点列表" tabindex="0">
+        <table class="table data-table data-table--wide has-actions">
             <thead>
                 <tr>
                     <th>节点名称</th>
-                    <th>状态</th>
-                    <th>CPUs</th>
-                    <th>内存 (MB)</th>
+                    <th class="col-status">状态</th>
+                    <th class="col-number">CPUs</th>
+                    <th class="col-number">内存 (MB)</th>
                     <th>分区</th>
                     <th>Gres</th>
-                    <th style="width: 240px">操作</th>
+                    <th class="col-actions" style="width: 286px; min-width: 286px">操作</th>
                 </tr>
             </thead>
             <tbody id="nodesTableBody">

@@ -38,8 +38,8 @@
 
 <!-- 关联列表 -->
 <div class="card">
-    <div style="overflow-x: auto">
-        <table class="table" id="associationsTable">
+    <div class="data-table-scroll" role="region" aria-label="集群用户关联列表" tabindex="0">
+        <table class="table data-table data-table--wide has-actions" id="associationsTable">
             <thead>
                 <tr>
                     <th>用户</th>
@@ -48,10 +48,10 @@
                     <th>分区</th>
                     <th>QOS</th>
                     <th>默认 QOS</th>
-                    <th>核时限额 (h)</th>
-                    <th>卡时限额 (h)</th>
-                    <th>默认</th>
-                    <th>操作</th>
+                    <th class="col-number">核时限额 (h)</th>
+                    <th class="col-number">卡时限额 (h)</th>
+                    <th class="col-status">默认</th>
+                    <th class="col-actions">操作</th>
                 </tr>
             </thead>
             <tbody id="associationsTableBody">
@@ -312,10 +312,10 @@
                     <td>${assoc.partition || "—"}</td>
                     <td style="font-size: 13px; color: #6b7280;">${qos}</td>
                     <td>${assoc.default_qos || "—"}</td>
-                    <td>${assoc.cpu_minutes == null ? "无限" : (assoc.cpu_minutes / 60).toFixed(2)}</td>
-                    <td>${assoc.gpu_minutes == null ? "无限" : (assoc.gpu_minutes / 60).toFixed(2)}</td>
-                    <td>${assoc.is_default ? "是" : "否"}</td>
-                    <td>${actionButtons}</td>
+                    <td class="col-number">${assoc.cpu_minutes == null ? "无限" : (assoc.cpu_minutes / 60).toFixed(2)}</td>
+                    <td class="col-number">${assoc.gpu_minutes == null ? "无限" : (assoc.gpu_minutes / 60).toFixed(2)}</td>
+                    <td class="col-status">${assoc.is_default ? "是" : "否"}</td>
+                    <td class="col-actions"><div class="data-table-actions">${actionButtons}</div></td>
                 </tr>`;
             })
             .join("");

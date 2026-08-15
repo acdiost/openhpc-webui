@@ -57,18 +57,18 @@ function renderPartitionsTable(partitions) {
         return `
             <tr>
                 <td><strong>${partition.name}</strong></td>
-                <td>${stateBadge}</td>
-                <td>${nodeStats.total}</td>
-                <td>${nodeStats.alloc}</td>
-                <td>${nodeStats.idle}</td>
-                <td>${nodeStats.down}</td>
+                <td class="col-status">${stateBadge}</td>
+                <td class="col-number">${nodeStats.total}</td>
+                <td class="col-number">${nodeStats.alloc}</td>
+                <td class="col-number">${nodeStats.idle}</td>
+                <td class="col-number">${nodeStats.down}</td>
                 <td style="white-space: nowrap;">${nodeStateBadges}</td>
                 <td>${partition.max_time || '-'}</td>
-                <td>${defaultBadge}</td>
-                <td>
+                <td class="col-status">${defaultBadge}</td>
+                <td class="col-actions"><div class="data-table-actions">
                     <button onclick="editPartition('${partition.name}')" class="btn btn-secondary" style="padding: 4px 12px; font-size: 12px; margin-right: 4px;">编辑</button>
                     <button onclick="deletePartition('${partition.name}')" class="btn" style="padding: 4px 12px; font-size: 12px; background-color: #ef4444; color: white;">删除</button>
-                </td>
+                </div></td>
             </tr>
         `;
     }).join('');

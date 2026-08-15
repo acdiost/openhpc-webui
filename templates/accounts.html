@@ -25,8 +25,8 @@
             总计: <strong id="accountCount">—</strong> 个账户
         </span>
     </div>
-    <div style="overflow-x: auto">
-        <table class="table" id="accountsTable">
+    <div class="data-table-scroll" role="region" aria-label="账户列表" tabindex="0">
+        <table class="table data-table data-table--medium has-actions" id="accountsTable">
             <thead>
                 <tr>
                     <th>账户名</th>
@@ -34,7 +34,7 @@
                     <th>描述</th>
                     <th>协调员</th>
                     <th>标记</th>
-                    <th>操作</th>
+                    <th class="col-actions">操作</th>
                 </tr>
             </thead>
             <tbody id="accountsTableBody">
@@ -203,14 +203,14 @@
                     <td>${account.description || "—"}</td>
                     <td style="font-size: 13px; color: #6b7280;">${coordinators}</td>
                     <td style="font-size: 13px; color: #6b7280;">${flags}</td>
-                    <td>
+                    <td class="col-actions"><div class="data-table-actions">
                         <button class="btn btn-secondary"
                                 style="padding: 4px 12px; font-size: 12px; margin-right: 4px;"
                                 onclick="showEditAccountModal('${account.name}')">编辑</button>
                         <button class="btn"
                                 style="padding: 4px 12px; font-size: 12px; background-color: #dc3023; color: white;"
                                 onclick="deleteAccountConfirm('${account.name}')">删除</button>
-                    </td>
+                    </div></td>
                 </tr>`;
             })
             .join("");
