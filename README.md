@@ -131,6 +131,7 @@ uv run openhpc_webui
 - [用户使用手册](./docs/USER_MANUAL.md)：管理员和普通用户的页面操作说明
 - [技术指南](./docs/TECHNICAL_GUIDE.md)：配置、运行、架构、测试与故障排查
 - [生产部署指南](./docs/DEPLOYMENT.md)：Supervisor、Nginx、HTTPS 和升级
+- [核时统计与额度拨付](./docs/SLURM_USAGE_AND_CREDITS.md)：统计口径、Slurm 命令、拨付算法和登录提示脚本
 - [Rocky Linux 9 LDAP 部署](./docs/LDAP_ROCKY9.md)：OpenLDAP 安装与初始化
 - [Rocky Linux 9 SSSD 接入](./docs/SSSD_LDAP_ROCKY9.md)：计算节点接入 LDAP 身份
 
