@@ -1,43 +1,95 @@
-# openhpc_webui 管理门户
+# openhpc_webui
 
-面向高校、科研机构和企业智算中心的轻量级集群管理门户。它把 LDAP 身份管理、Slurm 资源状态和作业管理集中到一个中文 Web 界面中，适合部署在无法访问互联网的内部网络。
+`openhpc_webui` 是面向高校、科研机构和企业智算中心的轻量级中文管理门户。项目将 OpenLDAP 身份管理、Slurm 账户与关联、分区和节点配置、作业状态及输出查看集中到同一个 Web 界面，适合内网和离线环境。
 
 当前版本：`0.2.0`
 
-## 让集群管理更直观
+## 功能概览
 
-openhpc_webui 为日常管理提供统一入口。管理员不必频繁切换 LDAP 工具和 Slurm 命令行，普通用户也能快速查看自己的作业、资源用量和账户信息。
+| 模块 | 主要能力 |
+| --- | --- |
+| 系统总览 | LDAP 用户数、活动作业、空闲节点、近期作业和分区状态 |
+| 用户管理 | LDAP 用户增删改、禁用、SSH 密钥、存储配额、核时/卡时和作业报表 |
+| 组管理 | LDAP 组创建、编辑、删除及成员信息查看 |
+| 账户管理 | Slurm 账户创建、编辑和删除 |
+| 集群用户 | Slurm Association、QOS、默认 QOS、分区和 TRES Minutes 管理 |
+| 分区管理 | Slurm 分区配置、节点状态统计及配置重载 |
+| 节点管理 | 节点配置维护、Drain、Resume 和状态查看 |
+| 作业管理 | 活动作业、近期完成作业、详情、取消及标准输出/错误查看 |
+| 权限管理 | 门户管理员授权与撤销 |
 
-- **统一身份管理**：创建和维护 LDAP 用户、用户组与成员关系。
-- **集群资源总览**：集中查看分区、节点、CPU 和内存状态。
-- **作业全程跟踪**：查看排队、运行和历史作业，检查详情与输出。
-- **账户与额度管理**：维护 Slurm 账户、用户关联及计算额度。
-- **权限分级**：管理员负责全局配置，普通用户只访问与自己相关的信息和操作。
-- **离线可用**：页面样式与脚本均随项目提供，不依赖外部 CDN。
+页面资源随项目提供，不依赖外部 CDN。列表采用固定表头、对齐的数字和状态列，并在内容溢出时提供横向滚动。
 
-## 主要功能
+## 权限模型
 
-| 功能 | 管理员 | 普通用户 |
-| --- | --- | --- |
-| 仪表盘 | 查看用户、作业和节点的全局概况 | - |
-| 用户与组 | 创建、修改、删除 LDAP 用户和组 | - |
-| Slurm 账户 | 管理账户、关联关系与额度 | 查看个人账户信息 |
-| 分区与节点 | 查看并维护分区、节点配置和状态 | - |
-| 作业 | 查看全部作业并进行管理 | 查看和管理自己的作业 |
-| 权限 | 设置门户管理员 | - |
+| 能力 | 管理员 | 普通用户 |
+| --- | :---: | :---: |
+| 系统总览和管理页面 | 是 | 否 |
+| 查看全部活动及近期完成作业 | 是 | 是 |
+| 查看作业详情 | 是 | 是 |
+| 查看作业输出 | 任意作业 | 仅自己的作业 |
+| 取消作业 | 任意作业 | 仅自己的作业 |
+| 修改自己的 LDAP 密码 | 是 | 是 |
 
-创建或删除 LDAP 用户时，门户会同步处理对应的 Slurm 用户关联，减少身份系统与调度系统之间的数据不一致。
+管理员由 `ADMIN_USERS` 配置，也可以在权限管理页面在线维护。普通用户访问管理员页面时会被重定向到作业页面。
 
-## 开始使用
+## 界面预览
 
-1. 在浏览器中打开管理员提供的门户地址。
-2. 使用 LDAP 用户名和密码登录。
-3. 管理员登录后进入仪表盘；普通用户登录后进入作业页面。
-4. 从左侧导航栏进入有权限使用的功能。
+### 登录
 
-首次部署和系统配置由集群管理员完成。完整操作步骤请查看[用户使用手册](./docs/USER_MANUAL.md)。
+![openhpc_webui 登录界面](./docs/login.png)
 
-## 开发运行
+### 系统总览
+
+![openhpc_webui 系统总览](./docs/dashboard.png)
+
+### 用户管理
+
+![openhpc_webui 用户管理](./docs/user.png)
+
+### 作业管理
+
+![openhpc_webui 作业管理](./docs/job.png)
+
+## 技术栈
+
+- Python 3.9+
+- FastAPI、Jinja2 和 Uvicorn
+- ldap3 / OpenLDAP
+- Slurm CLI：`sinfo`、`squeue`、`sacct`、`scontrol`、`sacctmgr`、`scancel`
+- uv 依赖与环境管理
+
+## 项目结构
+
+```text
+openhpc_webui/
+├── openhpc_webui/
+│   ├── application.py      # FastAPI 路由与接口
+│   ├── cli.py              # 命令行入口
+│   ├── core/               # 配置、认证和公共能力
+│   ├── models/             # 请求与响应模型
+│   └── services/           # LDAP、Slurm 和系统集成
+├── templates/              # Jinja2 页面模板
+├── static/                 # 离线 CSS、JavaScript 和图标
+├── tests/                  # 自动化测试
+├── docs/                   # 使用、部署和运维文档
+├── env.example             # 环境变量示例
+└── pyproject.toml          # 项目元数据与依赖
+```
+
+## 环境要求
+
+运行门户的主机需要：
+
+- 能够访问 OpenLDAP 服务；
+- 安装 Slurm 客户端命令，并能连接 Slurm 控制端；
+- 对节点和分区配置文件具有业务所需的读写权限；
+- 使用 NFS 配额时安装并配置 `quota` / `setquota`；
+- 生产环境具备 Nginx、Supervisor 或等效的进程管理能力。
+
+Web 管理员身份不会绕过 Linux 文件权限或 Slurm 权限。
+
+## 快速开始
 
 ```bash
 uv sync
@@ -45,34 +97,58 @@ cp env.example .env
 uv run uvicorn openhpc_webui.application:app --reload --port 6827
 ```
 
-启用认证时，必须在 `.env` 中设置不少于 32 个字符的独立 `SECRET_KEY`。完整配置项、生产启动方式和验证命令请查看[技术指南](./docs/TECHNICAL_GUIDE.md)。
+浏览器访问 `http://127.0.0.1:6827`。也可以使用项目命令启动监听在 `0.0.0.0:6827` 的服务：
 
-## 适用场景
+```bash
+uv run openhpc_webui
+```
 
-- 已使用 OpenLDAP 和 Slurm 的 HPC 或智算集群
-- 需要中文管理界面的教学、科研和内部计算平台
-- 需要在隔离网络或离线环境中运行的集群
-- 希望用轻量门户覆盖常用运维操作的小型团队
+### 最小配置
 
-本项目定位为集群管理辅助工具，不替代 Slurm、LDAP、监控平台或审计系统本身。
+编辑 `.env`，至少确认以下配置：
+
+| 配置项 | 用途 |
+| --- | --- |
+| `LDAP_URI` | LDAP 服务地址 |
+| `LDAP_BASE_DN` | LDAP Base DN |
+| `LDAP_DEFAULT_BIND_DN` | 管理 Bind DN |
+| `LDAP_DEFAULT_AUTHTOK` | 管理 Bind 密码 |
+| `SECRET_KEY` | Session 签名密钥，生产环境不少于 32 个随机字符 |
+| `AUTHORIZED` | 是否启用登录认证，生产环境必须为 `True` |
+| `ADMIN_USERS` | 管理员用户名，多个值使用英文逗号分隔 |
+| `SLURM_DEFAULT_ACCOUNT` | 创建 LDAP 用户时使用的默认 Slurm 账户 |
+
+完整配置说明见[技术指南](./docs/TECHNICAL_GUIDE.md)。
+
+## 生产部署
+
+生产环境建议由 Supervisor 管理 Uvicorn，并仅监听 `127.0.0.1:6827`；由 Nginx 提供 HTTPS 和反向代理。不要直接将开发服务器暴露到公网。
+
+部署步骤、自签发证书、服务管理和升级方法见[生产部署指南](./docs/DEPLOYMENT.md)。
 
 ## 文档
 
-### 使用者
+- [用户使用手册](./docs/USER_MANUAL.md)：管理员和普通用户的页面操作说明
+- [技术指南](./docs/TECHNICAL_GUIDE.md)：配置、运行、架构、测试与故障排查
+- [生产部署指南](./docs/DEPLOYMENT.md)：Supervisor、Nginx、HTTPS 和升级
+- [Rocky Linux 9 LDAP 部署](./docs/LDAP_ROCKY9.md)：OpenLDAP 安装与初始化
+- [Rocky Linux 9 SSSD 接入](./docs/SSSD_LDAP_ROCKY9.md)：计算节点接入 LDAP 身份
 
-- [用户使用手册](./docs/USER_MANUAL.md)：登录、用户、组、分区、节点和作业操作说明
+## 验证与开发
 
-### 部署与维护
+```bash
+uv run python -m unittest discover -s tests
+uv run python -m compileall -q openhpc_webui
+```
 
-- [技术指南](./docs/TECHNICAL_GUIDE.md)：环境要求、安装、配置、运行、开发与故障排查
-- [生产部署](./docs/DEPLOYMENT.md)：Supervisor、Nginx、HTTPS、升级与故障排查
-- [Rocky Linux 9 LDAP 部署](./docs/LDAP_ROCKY9.md)：安装并初始化 OpenLDAP
-- [Rocky Linux 9 SSSD 接入](./docs/SSSD_LDAP_ROCKY9.md)：让计算节点使用 LDAP 身份
+提交界面变更前，还应手动检查登录、用户、组、账户、集群用户、分区、节点、作业和权限页面，并附上桌面与窄屏截图。
 
-## 安全提示
+## 安全建议
 
-门户应部署在受控内网中，并通过防火墙限制访问范围。生产环境必须启用身份认证、使用独立的 Session 密钥，并建议通过 HTTPS 反向代理提供服务。LDAP 管理凭据、Session 密钥等敏感配置不得提交到版本库。
+- 仅在受控内网开放门户，并使用防火墙限制来源。
+- 生产环境启用 HTTPS，并将 `SESSION_HTTPS_ONLY` 设为 `True`。
+- 不要提交 `.env`、LDAP 管理密码、Session 密钥或真实用户数据。
+- 仅授予运行账户完成 LDAP、Slurm 和配置文件操作所需的最小权限。
+- 定期审计管理员列表、Slurm 操作和应用日志。
 
-## 参与项目
-
-欢迎通过 Issue 报告问题或提交 Pull Request。提交前请说明变更目的、受影响页面或模块以及验证方式；涉及界面调整时请附截图。
+本项目是集群管理辅助工具，不替代 Slurm、LDAP、监控平台或审计系统本身。
