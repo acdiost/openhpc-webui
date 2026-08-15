@@ -6,14 +6,14 @@
     .resource-card { position: relative; overflow: hidden; }
     .resource-card::after { content: ""; position: absolute; inset: 0; pointer-events: none; border: 1px solid rgba(148, 163, 184, .16); border-radius: inherit; }
     .resource-liquid { position: relative; height: 132px; margin-top: 10px; overflow: hidden; border: 1px solid #dbe4ee; border-radius: 9px; background: linear-gradient(135deg, #f8fafc, #eef2f7); isolation: isolate; }
-    .resource-liquid::before { content: ""; position: absolute; top: 12px; right: 12px; bottom: 12px; width: 34%; border: 1px solid #cbd5e1; border-radius: 18px 18px 9px 9px; background: rgba(255, 255, 255, .62); box-shadow: inset 0 1px 3px rgba(15, 23, 42, .08); }
-    .resource-liquid-fill { position: absolute; z-index: 1; right: 13px; bottom: 13px; width: calc(34% - 2px); height: var(--fill-level, 0%); min-height: 0; border-radius: 14px 14px 7px 7px; background: linear-gradient(180deg, #22c1dc 0%, #2563eb 100%); transition: height .7s cubic-bezier(.22, 1, .36, 1); }
+    .resource-liquid::before { content: ""; position: absolute; top: 31px; right: 12px; bottom: 12px; width: 34%; border: 1px solid #cbd5e1; border-radius: 18px 18px 9px 9px; background: rgba(255, 255, 255, .62); box-shadow: inset 0 1px 3px rgba(15, 23, 42, .08); }
+    .resource-liquid-fill { position: absolute; z-index: 1; right: 13px; bottom: 13px; width: calc(34% - 2px); height: calc(100% - 46px); min-height: 0; border-radius: 14px 14px 7px 7px; background: linear-gradient(180deg, #22c1dc 0%, #2563eb 100%); transform: scaleY(var(--fill-ratio, 0)); transform-origin: bottom; transition: transform .7s cubic-bezier(.22, 1, .36, 1); }
     .resource-liquid-fill::before { content: ""; position: absolute; top: -5px; left: 4%; width: 92%; height: 10px; border-radius: 50%; background: rgba(224, 242, 254, .78); animation: resource-wave 4s ease-in-out infinite alternate; }
     .resource-liquid-fill::after { content: ""; position: absolute; top: 2px; left: 12%; width: 76%; height: 1px; background: rgba(255, 255, 255, .62); }
     .resource-liquid.is-unlimited { border-color: #ddd6fe; background: linear-gradient(135deg, #faf5ff, #f5f3ff); }
-    .resource-liquid.is-unlimited .resource-liquid-fill { height: calc(100% - 25px); background: repeating-linear-gradient(155deg, #a78bfa 0 8px, #8b5cf6 8px 16px); opacity: .55; }
-    .resource-liquid.is-empty .resource-liquid-fill { height: 0; }
-    .resource-liquid-label { position: absolute; z-index: 2; top: 9px; right: 10px; max-width: 34%; overflow: hidden; color: #475569; font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+    .resource-liquid.is-unlimited .resource-liquid-fill { background: repeating-linear-gradient(155deg, #a78bfa 0 8px, #8b5cf6 8px 16px); opacity: .55; transform: scaleY(1); }
+    .resource-liquid.is-empty .resource-liquid-fill { transform: scaleY(0); }
+    .resource-liquid-label { position: absolute; z-index: 2; top: 9px; right: 10px; max-width: 34%; overflow: hidden; padding: 2px 6px; border: 1px solid #dbe4ee; border-radius: 4px; background: rgba(255, 255, 255, .88); color: #475569; font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
     .resource-stat-lines { position: relative; z-index: 2; width: calc(66% - 16px); margin: 31px 0 0 12px; padding: 8px 10px; border-left: 3px solid #38bdf8; border-radius: 0 6px 6px 0; background: rgba(255, 255, 255, .78); box-shadow: 0 1px 2px rgba(15, 23, 42, .06); font-size: 13px; line-height: 1.65; }
     .resource-stat-lines > div { display: flex; justify-content: space-between; gap: 12px; }
     .resource-stat-lines span { color: #6b7280; }
@@ -160,7 +160,7 @@
             ? Math.min(Math.max((used / quota) * 100, 0), 100)
             : 0;
         const remainingRatio = hasQuota ? Math.max(100 - usedRatio, 0) : 100;
-        liquid.style.setProperty("--fill-level", `${remainingRatio}%`);
+        liquid.style.setProperty("--fill-ratio", `${remainingRatio / 100}`);
         resourceMeter.classList.toggle("is-unlimited", !hasQuota);
         resourceMeter.classList.toggle("is-empty", hasQuota && remainingRatio === 0);
         resourceMeter.setAttribute("aria-valuenow", usedRatio.toFixed(0));
