@@ -4,6 +4,54 @@ GET /users ============================================================ #} {%
 block title %}用户管理{% endblock %} {% block breadcrumb_title %}用户管理{%
 endblock %} {% block head_extra %}
 <style>
+    /* 用户报表弹窗 */
+    .report-modal-content { width: min(1180px, 96vw); max-width: none; }
+    .report-modal-header { align-items: flex-start; padding: 20px 24px 16px; }
+    .report-modal-heading { min-width: 0; }
+    .report-modal-heading h3 { font-size: 20px; line-height: 1.3; }
+    .report-modal-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; color: #6b7280; font-size: 12px; }
+    .report-period { padding: 3px 8px; border-radius: 999px; background: #fef2f2; color: #b91c1c; font-weight: 600; }
+    .report-filter { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 0 24px 20px; padding: 14px; border: 1px solid #e5e7eb; border-radius: 8px; background: #f8fafc; }
+    .report-filter-group { display: flex; flex-direction: column; gap: 5px; }
+    .report-filter-label { color: #4b5563; font-size: 12px; font-weight: 600; }
+    .report-filter select, .report-filter input { height: 36px; padding: 0 10px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; color: #1f2937; }
+    .report-filter select { min-width: 108px; }
+    .report-filter input { min-width: 142px; }
+    .report-filter-separator { align-self: center; padding-top: 19px; color: #9ca3af; }
+    .report-filter-actions { display: flex; gap: 8px; margin-left: auto; }
+    .report-filter .btn { height: 36px; padding: 0 12px; }
+    .report-date-note { flex-basis: 100%; color: #6b7280; font-size: 12px; }
+    .report-summary { margin: 0 24px 20px; }
+    .report-summary-title { margin: 0 0 10px; color: #6b7280; font-size: 12px; font-weight: 700; letter-spacing: .04em; }
+    .report-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .report-kpi { min-height: 70px; padding: 12px 14px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
+    .report-kpi-label { color: #6b7280; font-size: 12px; }
+    .report-kpi-value { margin-top: 6px; color: #111827; font-size: 22px; font-weight: 700; line-height: 1; }
+    .report-kpi.success .report-kpi-value { color: #047857; }
+    .report-kpi.warning .report-kpi-value { color: #b45309; }
+    .report-kpi.danger .report-kpi-value { color: #b91c1c; }
+    .report-kpi.resource { background: #f8fafc; }
+    .report-table-wrap { margin: 0 24px 24px; overflow: auto; max-height: min(48vh, 460px); border: 1px solid #e5e7eb; border-radius: 8px; }
+    #userReportTable { min-width: 980px; }
+    #userReportTable th { background: #f8fafc; font-size: 11px; letter-spacing: .02em; text-transform: none; }
+    #userReportTable td { font-size: 12px; }
+    .report-empty { padding: 42px 16px !important; color: #6b7280; text-align: center; }
+    .report-state { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    .report-state.success { color: #047857; background: #d1fae5; }
+    .report-state.warning { color: #b45309; background: #fef3c7; }
+    .report-state.danger { color: #b91c1c; background: #fee2e2; }
+    .report-state.info { color: #374151; background: #e5e7eb; }
+    @media (max-width: 720px) {
+        .report-modal-content { width: 100%; max-height: 95vh; border-radius: 8px 8px 0 0; }
+        .report-modal-header, .report-filter, .report-summary, .report-table-wrap { margin-left: 14px; margin-right: 14px; }
+        .report-modal-header { padding-left: 0; padding-right: 0; }
+        .report-filter { align-items: stretch; }
+        .report-filter-group, .report-filter select, .report-filter input { width: 100%; }
+        .report-filter-separator { display: none; }
+        .report-filter-actions { width: 100%; margin-left: 0; }
+        .report-filter-actions .btn { flex: 1; }
+        .report-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
     .user-actions-cell { display: flex; align-items: center; gap: 6px; min-width: 174px; }
     .user-action-primary,
     .user-action-more {
@@ -495,176 +543,61 @@ modals %}
 
 <!-- 用户报表弹窗 -->
 <div id="userReportModal" class="modal" style="display: none">
-    <div class="modal-content" style="max-width: 1100px; width: 95vw">
-        <div class="modal-header">
-            <h3 id="userReportTitle">用户报表</h3>
+    <div class="modal-content report-modal-content">
+        <div class="modal-header report-modal-header">
+            <div class="report-modal-heading">
+                <h3 id="userReportTitle">用户报表</h3>
+                <div class="report-modal-meta">
+                    <span>Slurm 作业与资源使用概览</span>
+                    <span id="userReportPeriod" class="report-period">今日</span>
+                </div>
+            </div>
             <button class="modal-close" onclick="closeUserReportModal()">
-                &times;
+                <span aria-hidden="true">&times;</span><span class="sr-only">关闭</span>
             </button>
         </div>
-        <div
-            style="
-                display: flex;
-                flex-wrap: wrap;
-                align-items: center;
-                gap: 12px 16px;
-                margin-bottom: 20px;
-                padding: 12px 14px;
-                background: #f9fafb;
-                border: 1px solid #eef2f7;
-                border-radius: 10px;
-            "
-        >
-            <label for="userReportRange" style="font-weight: 700; min-width: 72px; color: #374151"
-                >筛选范围</label
-            >
-            <select
-                id="userReportRange"
-                style="
-                    padding: 8px 12px;
-                    border: 1px solid #e5e7eb;
-                    border-radius: 8px;
-                    min-width: 120px;
-                    background: #fff;
-                "
-            >
+        <div class="report-filter" aria-label="报表筛选">
+            <div class="report-filter-group">
+                <label class="report-filter-label" for="userReportRange">统计周期</label>
+                <select id="userReportRange">
                 <option value="day">今日</option>
                 <option value="week">本周</option>
                 <option value="month">本月</option>
                 <option value="custom">自定义</option>
-            </select>
-            <input
-                type="date"
-                id="userReportStart"
-                style="
-                    padding: 8px 12px;
-                    border: 1px solid #e5e7eb;
-                    border-radius: 8px;
-                    min-width: 150px;
-                    background: #fff;
-                "
-            />
-            <span style="color: #9ca3af">至</span>
-            <input
-                type="date"
-                id="userReportEnd"
-                style="
-                    padding: 8px 12px;
-                    border: 1px solid #e5e7eb;
-                    border-radius: 8px;
-                    min-width: 150px;
-                    background: #fff;
-                "
-            />
-            <button
-                class="btn btn-secondary"
-                style="padding: 8px 14px"
-                onclick="applyCustomReportRange()"
-            >
-                应用
-            </button>
-            <button
-                class="btn btn-secondary"
-                style="padding: 8px 14px"
-                onclick="exportUserReportCsv()"
-            >
-                导出 CSV
-            </button>
-            <span
-                id="userReportStartDate"
-                style="color: #6b7280; font-size: 13px; margin-left: auto"
-            ></span>
+                </select>
+            </div>
+            <div class="report-filter-group">
+                <label class="report-filter-label" for="userReportStart">开始日期</label>
+                <input type="date" id="userReportStart" />
+            </div>
+            <span class="report-filter-separator">至</span>
+            <div class="report-filter-group">
+                <label class="report-filter-label" for="userReportEnd">结束日期</label>
+                <input type="date" id="userReportEnd" />
+            </div>
+            <div class="report-filter-actions">
+                <button class="btn btn-secondary" onclick="applyCustomReportRange()">应用筛选</button>
+                <button class="btn btn-secondary" onclick="exportUserReportCsv()">导出 CSV</button>
+            </div>
+            <span id="userReportStartDate" class="report-date-note"></span>
         </div>
 
-        <div class="card" style="margin-bottom: 20px">
-            <div
-                style="
-                    display: grid;
-                    grid-template-columns: repeat(3, minmax(0, 1fr));
-                    gap: 16px;
-                "
-            >
-                <div style="padding: 12px 14px; background: #f9fafb; border-radius: 10px">
-                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px">
-                        <div style="color: #374151; font-size: 14px; font-weight: 700">作业数</div>
-                        <div id="report_total_jobs" style="font-size: 22px; font-weight: 700">—</div>
-                    </div>
-                </div>
-                <div style="padding: 12px 14px; background: #f9fafb; border-radius: 10px">
-                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px">
-                        <div style="color: #374151; font-size: 14px; font-weight: 700">完成</div>
-                        <div id="report_completed_jobs" style="font-size: 22px; font-weight: 700">—</div>
-                    </div>
-                </div>
-                <div style="padding: 12px 14px; background: #f9fafb; border-radius: 10px">
-                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px">
-                        <div style="color: #374151; font-size: 14px; font-weight: 700">失败/异常</div>
-                        <div id="report_failed_jobs" style="font-size: 22px; font-weight: 700">—</div>
-                    </div>
-                </div>
-                <div style="padding: 12px 14px; background: #f9fafb; border-radius: 10px">
-                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px">
-                        <div style="color: #374151; font-size: 14px; font-weight: 700">取消</div>
-                        <div id="report_cancelled_jobs" style="font-size: 22px; font-weight: 700">—</div>
-                    </div>
-                </div>
-                <div style="padding: 12px 14px; background: #f9fafb; border-radius: 10px">
-                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px">
-                        <div style="color: #374151; font-size: 14px; font-weight: 700">CPU 核时</div>
-                        <div id="report_cpu_hours" style="font-size: 22px; font-weight: 700">—</div>
-                    </div>
-                </div>
-                <div style="padding: 12px 14px; background: #f9fafb; border-radius: 10px">
-                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px">
-                        <div style="color: #374151; font-size: 14px; font-weight: 700">GPU 卡时</div>
-                        <div id="report_gpu_hours" style="font-size: 22px; font-weight: 700">—</div>
-                    </div>
-                </div>
-                <div style="padding: 12px 14px; background: #f9fafb; border-radius: 10px">
-                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px">
-                        <div style="color: #374151; font-size: 14px; font-weight: 700">运行时长 (h)</div>
-                        <div id="report_elapsed_hours" style="font-size: 22px; font-weight: 700">—</div>
-                    </div>
-                </div>
+        <div class="report-summary">
+            <div class="report-summary-title">作业状态</div>
+            <div class="report-kpis">
+                <div class="report-kpi"><div class="report-kpi-label">作业总数</div><div id="report_total_jobs" class="report-kpi-value">—</div></div>
+                <div class="report-kpi success"><div class="report-kpi-label">已完成</div><div id="report_completed_jobs" class="report-kpi-value">—</div></div>
+                <div class="report-kpi danger"><div class="report-kpi-label">失败 / 异常</div><div id="report_failed_jobs" class="report-kpi-value">—</div></div>
+                <div class="report-kpi warning"><div class="report-kpi-label">已取消</div><div id="report_cancelled_jobs" class="report-kpi-value">—</div></div>
+            </div>
+            <div class="report-summary-title" style="margin-top: 18px">资源消耗</div>
+            <div class="report-kpis">
+                <div class="report-kpi resource"><div class="report-kpi-label">CPU 核时</div><div id="report_cpu_hours" class="report-kpi-value">—</div></div>
+                <div class="report-kpi resource"><div class="report-kpi-label">GPU 卡时</div><div id="report_gpu_hours" class="report-kpi-value">—</div></div>
+                <div class="report-kpi resource"><div class="report-kpi-label">运行时长 (h)</div><div id="report_elapsed_hours" class="report-kpi-value">—</div></div>
             </div>
         </div>
-
-        <style>
-            #userReportTable {
-                width: 100%;
-                border-collapse: separate;
-                border-spacing: 0;
-            }
-            #userReportTable th,
-            #userReportTable td {
-                padding: 10px 12px;
-                border-bottom: 1px solid #eef2f7;
-                white-space: nowrap;
-            }
-            #userReportTable th {
-                background: #f9fafb;
-                color: #374151;
-                font-weight: 600;
-                position: sticky;
-                top: 0;
-                z-index: 1;
-            }
-            #userReportTable tbody tr:nth-child(even) {
-                background: #fcfcfd;
-            }
-            #userReportTable tbody tr:hover {
-                background: #f3f4f6;
-            }
-        </style>
-
-        <div
-            style="
-                overflow-x: auto;
-                max-height: 420px;
-                border: 1px solid #e5e7eb;
-                border-radius: 10px;
-            "
-        >
+        <div class="report-table-wrap">
             <table class="table" id="userReportTable">
                 <thead>
                     <tr>
@@ -684,7 +617,7 @@ modals %}
                 <tbody id="userReportTableBody">
                     <tr>
                         <td colspan="11" class="text-center py-8 text-gray-500">
-                            加载中…
+                            正在加载作业明细…
                         </td>
                     </tr>
                 </tbody>
@@ -1109,12 +1042,14 @@ page_scripts %}
         document.getElementById("userReportTitle").textContent = `用户报表：${username}`;
         const rangeSelect = document.getElementById("userReportRange");
         rangeSelect.value = "day";
+        document.getElementById("userReportPeriod").textContent = "今日";
         document.getElementById("userReportStart").value = "";
         document.getElementById("userReportEnd").value = "";
         document.getElementById("userReportModal").style.display = "flex";
         loadUserReport(username, rangeSelect.value);
         rangeSelect.onchange = () => {
             if (rangeSelect.value === "custom") return;
+            document.getElementById("userReportPeriod").textContent = rangeSelect.options[rangeSelect.selectedIndex].text;
             loadUserReport(username, rangeSelect.value);
         };
     }
@@ -1126,8 +1061,11 @@ page_scripts %}
 
     async function loadUserReport(username, range, startDate = "", endDate = "") {
         const tbody = document.getElementById("userReportTableBody");
+        document.querySelectorAll("#userReportModal .report-kpi-value").forEach((node) => {
+            node.textContent = "—";
+        });
         tbody.innerHTML =
-            '<tr><td colspan="11" class="text-center py-8 text-gray-500">加载中…</td></tr>';
+            '<tr><td colspan="11" class="report-empty">正在加载作业明细…</td></tr>';
         try {
             const query = new URLSearchParams({ range });
             if (startDate) query.set("start", startDate);
@@ -1159,11 +1097,14 @@ page_scripts %}
                 ? `统计起始：${data.start_date}` +
                   (data.end_date ? `，结束：${data.end_date}` : "")
                 : "";
+            document.getElementById("userReportPeriod").textContent = range === "custom"
+                ? (startDate ? `${startDate}${endDate ? ` 至 ${endDate}` : ""}` : "自定义")
+                : document.getElementById("userReportRange").options[document.getElementById("userReportRange").selectedIndex].text;
 
             const jobs = data.jobs || [];
             if (jobs.length === 0) {
                 tbody.innerHTML =
-                    '<tr><td colspan="11" class="text-center py-8 text-gray-500">暂无作业数据</td></tr>';
+                    '<tr><td colspan="11" class="report-empty">当前周期暂无作业数据</td></tr>';
                 return;
             }
 
@@ -1173,7 +1114,7 @@ page_scripts %}
                 <tr>
                     <td>${job.job_id}</td>
                     <td>${job.name || "—"}</td>
-                    <td>${job.state || "—"}</td>
+                    <td><span class="report-state ${reportStateTone(job.state)}">${job.state || "—"}</span></td>
                     <td>${job.partition || "—"}</td>
                     <td>${job.alloc_cpus || "—"}</td>
                     <td>${job.alloc_gpus || "—"}</td>
@@ -1189,8 +1130,16 @@ page_scripts %}
         } catch (e) {
             showToast(e.message || "加载报表失败", "error");
             tbody.innerHTML =
-                '<tr><td colspan="11" class="text-center py-8 text-gray-500">加载失败</td></tr>';
+                '<tr><td colspan="11" class="report-empty">报表加载失败，请稍后重试</td></tr>';
         }
+    }
+
+    function reportStateTone(state) {
+        const value = String(state || "").toUpperCase();
+        if (["COMPLETED", "SUCCESS"].includes(value)) return "success";
+        if (["FAILED", "TIMEOUT", "NODE_FAIL", "OUT_OF_MEMORY"].includes(value)) return "danger";
+        if (["CANCELLED", "PREEMPTED"].includes(value)) return "warning";
+        return "info";
     }
 
     function applyCustomReportRange() {
@@ -1201,6 +1150,10 @@ page_scripts %}
         rangeSelect.value = "custom";
         if (!startDate) {
             showToast("请选择开始日期", "warning");
+            return;
+        }
+        if (endDate && endDate < startDate) {
+            showToast("结束日期不能早于开始日期", "warning");
             return;
         }
         loadUserReport(currentReportUser, "custom", startDate, endDate);
