@@ -76,6 +76,7 @@ class AssocTRESMinutesUpdate(BaseModel):
     cpu_minutes: Optional[int] = None
     gpu_minutes: Optional[int] = None
     partition: Optional[str] = None
+    comment: Optional[str] = None
 
 
 class PartitionCreate(BaseModel):
@@ -132,6 +133,8 @@ class UserCreditRequest(BaseModel):
     gpu_hours: Optional[float] = None
     hours: Optional[float] = None
     reason: Optional[str] = None
+    comment: Optional[str] = None
+    # Deprecated compatibility alias. New clients should send comment.
     note: Optional[str] = None
     effective_date: Optional[str] = None
 

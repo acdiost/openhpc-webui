@@ -90,7 +90,7 @@ sacctmgr show assoc where \
 全局 Association 不传 `partition`。示例输出：
 
 ```text
-alice|research|GPU|cpu=600,gres/gpu=60
+dawn|research|GPU|cpu=600,gres/gpu=60
 ```
 
 读取控制器正在执行的额度和累计已用量：
@@ -157,7 +157,17 @@ Content-Type: application/json
 ```bash
 sacctmgr -i modify user <用户名> \
   where account=<账户> partition=<分区> \
-  set GrpTRESMins=cpu=<CPU分钟>,gres/gpu=<GPU分钟>
+  set GrpTRESMins=cpu=<CPU分钟>,gres/gpu=<GPU分钟> \
+  Comment="[2026-08-15 14:30:00] <拨付说明>"
+
+sacctmgr -i modify user dawn \
+where account=dawn \
+set GrpTRESMins=cpu=3000,gres/gpu=700 \
+Comment="[2026-08-15 14:30:00] 项目A 2026年度GPU额度"
+
+sacctmgr show assoc \
+  where user=dawn account=dawn \
+  format=User,Account,Partition,GrpTRESMins,Comment
 ```
 
 无分区关联时省略 `partition=<分区>`。拨付代码使用进程内线程锁保护
@@ -165,8 +175,12 @@ sacctmgr -i modify user <用户名> \
 Web 进程之间的分布式锁。
 
 接口只允许管理员调用；Slurm 名称只接受字母、数字、点、下划线和短横线，最长
-64 个字符；单次调整不能超过 1,000,000 小时；备注最长 500 个字符。原因和备注
-当前只输出到应用日志，没有写入独立审计数据库。
+64 个字符；单次调整不能超过 1,000,000 小时；用户填写的 Comment 最长 478 个
+字符且不能换行。后端会使用当前系统时间生成
+`[YYYY-MM-DD HH:MM:SS] 拨付说明`，完整 Comment 不超过 500 个字符，并写入
+Slurm Association，在集群用户列表中回读展示；拨付原因、
+Comment 和操作人也会输出到应用日志。Association 的 Comment 只保存最后一次
+拨付说明，如需完整历史审计，仍应长期保留应用日志或接入独立审计数据库。
 
 项目还保留绝对分钟设置接口：
 
@@ -215,4 +229,3 @@ bash scripts/slurm_usage_login.sh
   不同结果。
 - `GrpTRESMins` 是 Association 的组 TRES 分钟限制。实际限制效果还取决于
   SlurmDBD、AccountingStorageEnforce、QOS、父账户和其他 Association 配置。
-

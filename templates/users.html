@@ -664,6 +664,7 @@ modals %}
             <div class="form-group">
                 <div style="font-size: 12px; color: #6b7280;">正数拨付，负数表示扣除；扣除后不会低于历史已用量。</div>
             </div>
+            <div id="creditCurrentSummary" style="margin-bottom: 16px; padding: 10px 12px; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 6px; color: #475569; font-size: 13px;"></div>
             <div class="form-group">
                 <label for="credit_reason">拨付原因</label>
                 <select id="credit_reason" name="reason">
@@ -675,12 +676,14 @@ modals %}
                 </select>
             </div>
             <div class="form-group">
-                <label for="credit_note">备注</label>
+                <label for="credit_comment">Comment（拨付说明）</label>
                 <textarea
-                    id="credit_note"
-                    name="note"
+                    id="credit_comment"
+                    name="comment"
                     rows="3"
-                    placeholder="可选"
+                    maxlength="478"
+                    required
+                    placeholder="填写拨付原因、项目或工单号，便于追溯"
                 ></textarea>
             </div>
             <div class="modal-footer">
@@ -1177,6 +1180,11 @@ page_scripts %}
         document.getElementById("creditForm").reset();
         document.getElementById("creditModalTitle").textContent = `核时/卡时拨付：${username}`;
         document.getElementById("credit_username").value = username;
+        const current = loadedUsers.find((user) => user.username === username);
+        const cpuLimit = current?.cpu_minutes == null ? "无限" : `${(current.cpu_minutes / 60).toFixed(2)} h`;
+        const gpuLimit = current?.gpu_minutes == null ? "无限" : `${(current.gpu_minutes / 60).toFixed(2)} h`;
+        document.getElementById("creditCurrentSummary").textContent =
+            `当前限额：CPU ${cpuLimit}，GPU ${gpuLimit}`;
         document.getElementById("creditModal").style.display = "flex";
     }
 
@@ -1192,7 +1200,7 @@ page_scripts %}
         const gpuRaw = fd.get("gpu_hours");
         const payload = {
             reason: fd.get("reason") || null,
-            note: fd.get("note") || null,
+            comment: (fd.get("comment") || "").trim(),
         };
         if (cpuRaw) payload.cpu_hours = parseFloat(cpuRaw);
         if (gpuRaw) payload.gpu_hours = parseFloat(gpuRaw);
@@ -1200,7 +1208,13 @@ page_scripts %}
             showToast("请至少填写核时或卡时", "warning");
             return;
         }
+        if (!payload.comment) {
+            showToast("请填写 Comment（拨付说明）", "warning");
+            return;
+        }
 
+        const submitButton = event.submitter;
+        if (submitButton) submitButton.disabled = true;
         try {
             const res = await fetch(`/api/slurm/users/${username}/credit`, {
                 method: "POST",
@@ -1213,8 +1227,11 @@ page_scripts %}
             }
             showToast(data.message || "拨付成功", "success");
             closeCreditModal();
+            await loadUsers();
         } catch (e) {
             showToast(e.message || "拨付失败", "error");
+        } finally {
+            if (submitButton) submitButton.disabled = false;
         }
     }
 

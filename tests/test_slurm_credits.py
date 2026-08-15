@@ -127,6 +127,22 @@ class SlurmCreditManagerTests(unittest.TestCase):
         self.assertIn("partition=CPU", modify_args)
 
     @patch("openhpc_webui.services.slurm_manager.subprocess.run")
+    def test_limit_write_persists_comment_on_association(self, run):
+        run.return_value = Mock(stdout="updated\n")
+
+        success = self.manager.set_association_tres_minutes(
+            "alice",
+            "research",
+            cpu_minutes=600,
+            comment="project P-2026-08 allocation",
+        )
+
+        self.assertTrue(success)
+        modify_args = run.call_args.args[0]
+        self.assertIn("GrpTRESMins=cpu=600", modify_args)
+        self.assertIn("Comment=project P-2026-08 allocation", modify_args)
+
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
     def test_usage_minutes_uses_controller_enforcement_values(self, run):
         run.return_value = Mock(
             stdout="""
@@ -252,7 +268,11 @@ class SlurmCreditApiTests(unittest.TestCase):
 
         with patch.object(
             main.slurm_mgr, "grant_user_tres_hours", return_value=grant_result
-        ) as grant:
+        ) as grant, patch.object(
+            main,
+            "_timestamp_credit_comment",
+            return_value="[2026-08-15 14:30:00] test allocation",
+        ):
             result = asyncio.run(
                 main.allocate_user_credits(
                     "dawn", payload, {"username": "admin", "is_admin": True}
@@ -264,8 +284,12 @@ class SlurmCreditApiTests(unittest.TestCase):
             account="dawn",
             cpu_hours=2.5,
             gpu_hours=1.5,
+            comment="[2026-08-15 14:30:00] test allocation",
         )
         self.assertEqual(result["remaining_gpu_hours"], 1.5)
+        self.assertEqual(
+            result["comment"], "[2026-08-15 14:30:00] test allocation"
+        )
 
     def test_credit_endpoint_rejects_all_zero_amounts(self):
         payload = main.UserCreditRequest(cpu_hours=0, gpu_hours=0)
@@ -313,6 +337,8 @@ class SlurmCreditTemplateTests(unittest.TestCase):
 
         self.assertIn('name="cpu_hours"', template)
         self.assertIn('name="gpu_hours"', template)
+        self.assertIn('name="comment"', template)
+        self.assertIn('maxlength="478"', template)
         self.assertIn("核时/卡时拨付", template)
         self.assertIn("核时限额 (h)", template)
         self.assertIn("卡时限额 (h)", template)

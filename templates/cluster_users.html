@@ -50,13 +50,14 @@
                     <th>默认 QOS</th>
                     <th class="col-number">核时限额 (h)</th>
                     <th class="col-number">卡时限额 (h)</th>
+                    <th>Comment</th>
                     <th class="col-status">默认</th>
                     <th class="col-actions">操作</th>
                 </tr>
             </thead>
             <tbody id="associationsTableBody">
                 <tr>
-                    <td colspan="10" class="text-center py-8 text-gray-500">
+                    <td colspan="11" class="text-center py-8 text-gray-500">
                         加载中…
                     </td>
                 </tr>
@@ -233,6 +234,12 @@
             <div style="font-size: 12px; color: #6b7280; margin-top: -6px; margin-bottom: 12px;">
                 正数拨付，负数表示扣除；扣除后不会低于历史已用量。
             </div>
+            <div id="tresCurrentSummary" style="margin-bottom: 16px; padding: 10px 12px; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 6px; color: #475569; font-size: 13px;"></div>
+            <div class="form-group">
+                <label for="tres_comment">Comment（拨付说明）</label>
+                <textarea id="tres_comment" name="comment" rows="3" maxlength="478" required
+                          placeholder="填写拨付原因、项目或工单号，便于追溯"></textarea>
+            </div>
             <div class="modal-footer">
                 <button
                     type="button"
@@ -251,6 +258,14 @@
 {% block page_scripts %}
 <script>
     /* ── 数据加载 ─────────────────────────────────────────── */
+
+    function escapeHtml(value) {
+        const node = document.createElement("span");
+        node.textContent = String(value ?? "");
+        return node.innerHTML
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#39;");
+    }
 
     async function loadAccountOptions() {
         const accounts = await fetchAccounts();
@@ -281,7 +296,7 @@
 
         if (!assocs || assocs.length === 0) {
             tbody.innerHTML =
-                '<tr><td colspan="10" class="text-center py-8 text-gray-500">暂无关联数据</td></tr>';
+                '<tr><td colspan="11" class="text-center py-8 text-gray-500">暂无关联数据</td></tr>';
             document.getElementById("assocCount").textContent = "0";
             return;
         }
@@ -314,6 +329,7 @@
                     <td>${assoc.default_qos || "—"}</td>
                     <td class="col-number">${assoc.cpu_minutes == null ? "无限" : (assoc.cpu_minutes / 60).toFixed(2)}</td>
                     <td class="col-number">${assoc.gpu_minutes == null ? "无限" : (assoc.gpu_minutes / 60).toFixed(2)}</td>
+                    <td title="${escapeHtml(assoc.comment || "")}">${escapeHtml(assoc.comment || "—")}</td>
                     <td class="col-status">${assoc.is_default ? "是" : "否"}</td>
                     <td class="col-actions"><div class="data-table-actions">${actionButtons}</div></td>
                 </tr>`;
@@ -426,6 +442,12 @@
         document.getElementById("tres_partition").value = partition || "";
         document.getElementById("tres_cpu_hours").value = "";
         document.getElementById("tres_gpu_hours").value = "";
+        const cpuLimit = target.cpu_minutes == null ? "无限" : `${(target.cpu_minutes / 60).toFixed(2)} h`;
+        const gpuLimit = target.gpu_minutes == null ? "无限" : `${(target.gpu_minutes / 60).toFixed(2)} h`;
+        const previousComment = target.comment || "无";
+        document.getElementById("tresCurrentSummary").textContent =
+            `当前限额：CPU ${cpuLimit}，GPU ${gpuLimit}；上一条 Comment：${previousComment}`;
+        document.getElementById("tres_comment").value = "";
         document.getElementById("tresMinutesModal").style.display = "flex";
     }
 
@@ -441,16 +463,24 @@
         const partition = fd.get("partition");
         const cpuRaw = fd.get("cpu_hours");
         const gpuRaw = fd.get("gpu_hours");
+        const comment = (fd.get("comment") || "").trim();
 
-        const payload = { account, partition: partition || null };
+        const payload = { account, partition: partition || null, comment };
         if (cpuRaw) payload.cpu_hours = parseFloat(cpuRaw);
         if (gpuRaw) payload.gpu_hours = parseFloat(gpuRaw);
         if (payload.cpu_hours === undefined && payload.gpu_hours === undefined) {
             showToast("请至少填写核时或卡时", "warning");
             return;
         }
+        if (!comment) {
+            showToast("请填写 Comment（拨付说明）", "warning");
+            return;
+        }
 
+        const submitButton = event.submitter;
+        if (submitButton) submitButton.disabled = true;
         const success = await grantUserCredits(username, payload);
+        if (submitButton) submitButton.disabled = false;
         if (success) {
             closeTRESMinutesModal();
             loadAssociations();

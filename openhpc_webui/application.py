@@ -2,6 +2,7 @@ import os
 import re
 import subprocess
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -53,6 +54,13 @@ _DISABLED_LOGIN_SHELLS = {
     "/sbin/nologin",
     "/usr/sbin/nologin",
 }
+
+_CREDIT_COMMENT_INPUT_MAX_LENGTH = 478
+
+
+def _timestamp_credit_comment(comment: str) -> str:
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return f"[{timestamp}] {comment.strip()}"
 
 
 def _is_disabled_login_shell(shell: Optional[str]) -> bool:
@@ -839,6 +847,16 @@ async def set_association_tres_minutes(
         payload.partition
     ):
         raise HTTPException(status_code=400, detail="分区名称无效")
+    if payload.comment is not None and (
+        not payload.comment.strip()
+        or len(payload.comment) > _CREDIT_COMMENT_INPUT_MAX_LENGTH
+        or "\n" in payload.comment
+        or "\r" in payload.comment
+    ):
+        raise HTTPException(status_code=400, detail="Comment 必须为 1-478 个字符且不能换行")
+    stamped_comment = (
+        _timestamp_credit_comment(payload.comment) if payload.comment else None
+    )
 
     success = slurm_mgr.set_association_tres_minutes(
         username=username,
@@ -846,6 +864,7 @@ async def set_association_tres_minutes(
         cpu_minutes=payload.cpu_minutes,
         gpu_minutes=payload.gpu_minutes,
         partition=payload.partition,
+        comment=stamped_comment,
     )
     if not success:
         raise HTTPException(status_code=500, detail="设置核时/卡时失败")
@@ -853,6 +872,7 @@ async def set_association_tres_minutes(
         "message": f"关联 {username}/{account_name} 核时/卡时设置成功",
         "cpu_minutes": payload.cpu_minutes,
         "gpu_minutes": payload.gpu_minutes,
+        "comment": stamped_comment,
     }
 
 
@@ -1204,8 +1224,15 @@ async def allocate_user_credits(
         "other",
     }:
         raise HTTPException(status_code=400, detail="拨付原因无效")
-    if payload.note and len(payload.note) > 500:
-        raise HTTPException(status_code=400, detail="备注不能超过 500 个字符")
+    comment = payload.comment if payload.comment is not None else payload.note
+    if comment is not None and (
+        not comment.strip()
+        or len(comment) > _CREDIT_COMMENT_INPUT_MAX_LENGTH
+        or "\n" in comment
+        or "\r" in comment
+    ):
+        raise HTTPException(status_code=400, detail="Comment 必须为 1-478 个字符且不能换行")
+    stamped_comment = _timestamp_credit_comment(comment) if comment is not None else None
 
     grant_kwargs = {
         "username": username,
@@ -1215,6 +1242,8 @@ async def allocate_user_credits(
     }
     if payload.partition is not None:
         grant_kwargs["partition"] = payload.partition
+    if stamped_comment is not None:
+        grant_kwargs["comment"] = stamped_comment
     grant = slurm_mgr.grant_user_tres_hours(
         **grant_kwargs
     )
@@ -1229,7 +1258,7 @@ async def allocate_user_credits(
             "cpu_hours": cpu_hours,
             "gpu_hours": gpu_hours,
             "reason": payload.reason,
-            "note": payload.note,
+            "comment": stamped_comment,
             "operator": user.get("username"),
         },
     )
@@ -1248,7 +1277,8 @@ async def allocate_user_credits(
         "remaining_cpu_hours": round(grant["remaining_cpu_minutes"] / 60, 2),
         "remaining_gpu_hours": round(grant["remaining_gpu_minutes"] / 60, 2),
         "reason": payload.reason,
-        "note": payload.note,
+        "comment": stamped_comment,
+        "note": stamped_comment,
     }
 
 

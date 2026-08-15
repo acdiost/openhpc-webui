@@ -962,7 +962,7 @@ class SlurmManager:
                     "show",
                     "assoc",
                     f"account={account}",
-                    "format=Cluster,Account,User%20,Partition,Qos",
+                    "format=Cluster,Account,User%20,Partition,Qos,Comment",
                     "--json",
                 ],
                 capture_output=True,
@@ -1005,6 +1005,7 @@ class SlurmManager:
                         "partition": assoc.get("partition") or "",
                         "qos": assoc.get("qos") or [],
                         "default_qos": default_qos,
+                        "comment": assoc.get("comment") or assoc.get("Comment") or "",
                         "is_default": assoc.get("is_default"),
                         "shares_raw": assoc.get("shares_raw"),
                         "parent_account": assoc.get("parent_account") or "",
@@ -1180,6 +1181,7 @@ class SlurmManager:
         cpu_minutes: Optional[int] = None,
         gpu_minutes: Optional[int] = None,
         partition: Optional[str] = None,
+        comment: Optional[str] = None,
     ) -> bool:
         """设置关联的 GrpTRESMins（核时/卡时）。"""
         if not self._is_valid_slurm_name(username) or not self._is_valid_slurm_name(
@@ -1207,9 +1209,17 @@ class SlurmManager:
             ]
             if partition is not None:
                 args.append(f"partition={partition}")
-            args.extend(["set", f"GrpTRESMins={value}"])
+            set_values = [f"GrpTRESMins={value}"]
+            if comment is not None:
+                if "\n" in comment or "\r" in comment:
+                    return False
+                set_values.append(f"Comment={comment}")
+            args.extend(["set", *set_values])
             result = subprocess.run(args, capture_output=True, text=True, check=True)
-            print(f"Slurm 设置 GrpTRESMins {username}/{account} 成功: {result.stdout}")
+            print(
+                f"Slurm 设置 GrpTRESMins {username}/{account} 成功"
+                f" comment={comment!r}: {result.stdout}"
+            )
             return True
         except Exception as e:
             print(f"Slurm 设置 GrpTRESMins 失败: {e}")
@@ -1362,6 +1372,7 @@ class SlurmManager:
         gpu_hours: Optional[float] = None,
         account: Optional[str] = None,
         partition: Optional[str] = None,
+        comment: Optional[str] = None,
     ) -> Optional[Dict]:
         """增加或扣除用户核时/卡时，并回读验证关联的 GrpTRESMins。"""
         if not self._is_valid_slurm_name(username):
@@ -1410,13 +1421,16 @@ class SlurmManager:
                     return None
                 new_gpu_limit = max(usage["gres/gpu"], gpu_limit + gpu_grant)
 
-            if not self.set_association_tres_minutes(
-                username=username,
-                account=resolved_account,
-                cpu_minutes=new_cpu_limit,
-                gpu_minutes=new_gpu_limit,
+            write_kwargs = {
+                "username": username,
+                "account": resolved_account,
+                "cpu_minutes": new_cpu_limit,
+                "gpu_minutes": new_gpu_limit,
                 **association_kwargs,
-            ):
+            }
+            if comment is not None:
+                write_kwargs["comment"] = comment
+            if not self.set_association_tres_minutes(**write_kwargs):
                 return None
 
             verified = self.get_association_tres_minutes(
@@ -1438,6 +1452,7 @@ class SlurmManager:
                 "gpu_used_minutes": usage["gres/gpu"],
                 "cpu_limit_minutes": verified.get("cpu"),
                 "gpu_limit_minutes": verified.get("gres/gpu"),
+                "comment": comment,
                 "remaining_cpu_minutes": max(
                     (verified.get("cpu") or 0) - usage["cpu"], 0
                 ),
