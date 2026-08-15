@@ -25,7 +25,6 @@
     overflow: auto;
     border: 1px solid #e5e7eb;
     border-radius: 6px;
-    scrollbar-gutter: stable;
 }
 .data-table-scroll:focus-visible,
 .users-table-scroll:focus-visible {
