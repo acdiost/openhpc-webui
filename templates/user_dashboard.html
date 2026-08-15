@@ -5,22 +5,20 @@
 <style>
     .resource-card { position: relative; overflow: hidden; }
     .resource-card::after { content: ""; position: absolute; inset: 0; pointer-events: none; border: 1px solid rgba(148, 163, 184, .16); border-radius: inherit; }
-    .resource-liquid { position: relative; height: 132px; margin-top: 10px; overflow: hidden; border: 1px solid #dbe4ee; border-radius: 9px; background: linear-gradient(135deg, #f8fafc, #eef2f7); isolation: isolate; }
-    .resource-liquid::before { content: ""; position: absolute; top: 31px; right: 12px; bottom: 12px; width: 34%; border: 1px solid #cbd5e1; border-radius: 18px 18px 9px 9px; background: rgba(255, 255, 255, .62); box-shadow: inset 0 1px 3px rgba(15, 23, 42, .08); }
-    .resource-liquid-fill { position: absolute; z-index: 1; right: 13px; bottom: 13px; width: calc(34% - 2px); height: calc(100% - 46px); min-height: 0; border-radius: 14px 14px 7px 7px; background: linear-gradient(180deg, #22c1dc 0%, #2563eb 100%); transform: scaleY(var(--fill-ratio, 0)); transform-origin: bottom; transition: transform .7s cubic-bezier(.22, 1, .36, 1); }
-    .resource-liquid-fill::before { content: ""; position: absolute; top: -5px; left: 4%; width: 92%; height: 10px; border-radius: 50%; background: rgba(224, 242, 254, .78); animation: resource-wave 4s ease-in-out infinite alternate; }
-    .resource-liquid-fill::after { content: ""; position: absolute; top: 2px; left: 12%; width: 76%; height: 1px; background: rgba(255, 255, 255, .62); }
-    .resource-liquid.is-unlimited { border-color: #ddd6fe; background: linear-gradient(135deg, #faf5ff, #f5f3ff); }
-    .resource-liquid.is-unlimited .resource-liquid-fill { background: repeating-linear-gradient(155deg, #a78bfa 0 8px, #8b5cf6 8px 16px); opacity: .55; transform: scaleY(1); }
-    .resource-liquid.is-empty .resource-liquid-fill { transform: scaleY(0); }
-    .resource-liquid-label { position: absolute; z-index: 2; top: 9px; right: 10px; max-width: 34%; overflow: hidden; padding: 2px 6px; border: 1px solid #dbe4ee; border-radius: 4px; background: rgba(255, 255, 255, .88); color: #475569; font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
-    .resource-stat-lines { position: relative; z-index: 2; width: calc(66% - 16px); margin: 31px 0 0 12px; padding: 8px 10px; border-left: 3px solid #38bdf8; border-radius: 0 6px 6px 0; background: rgba(255, 255, 255, .78); box-shadow: 0 1px 2px rgba(15, 23, 42, .06); font-size: 13px; line-height: 1.65; }
+    .resource-liquid { position: relative; height: 132px; margin-top: 10px; padding: 13px 12px 10px; overflow: hidden; border: 1px solid #dbe4ee; border-radius: 8px; background: #f8fafc; }
+    .resource-liquid::after { content: ""; position: absolute; z-index: 0; top: 58px; right: 12px; left: 12px; height: 6px; border-radius: 999px; background: #e2e8f0; }
+    .resource-liquid-fill { position: absolute; z-index: 1; top: 58px; right: 12px; left: 12px; width: auto; height: 6px; border-radius: 999px; background: #38bdf8; transform: scaleX(var(--usage-ratio, 0)); transform-origin: left; transition: transform .6s ease, background-color .2s ease; }
+    .resource-liquid-fill::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: rgba(255, 255, 255, .25); }
+    .resource-liquid-label { position: relative; z-index: 2; display: block; color: #334155; font-size: 12px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+    .resource-liquid.is-warning .resource-liquid-fill { background: #f59e0b; }
+    .resource-liquid.is-critical .resource-liquid-fill { background: #ef4444; }
+    .resource-liquid.is-unlimited .resource-liquid-fill { background: #a78bfa; transform: scaleX(0); }
+    .resource-stat-lines { position: relative; z-index: 2; margin-top: 23px; padding-top: 8px; border-top: 1px solid #e2e8f0; font-size: 13px; line-height: 1.65; }
     .resource-stat-lines > div { display: flex; justify-content: space-between; gap: 12px; }
     .resource-stat-lines span { color: #6b7280; }
     .resource-stat-lines strong { color: #1f2937; font-weight: 600; }
-    @keyframes resource-wave { from { transform: translateX(-8%); } to { transform: translateX(8%); } }
-    @media (prefers-reduced-motion: reduce) { .resource-liquid-fill, .resource-liquid-fill::before, .resource-liquid-fill::after { animation: none; transition: none; } }
-    @media (max-width: 640px) { .resource-liquid { height: 124px; } .resource-stat-lines { margin-left: 10px; font-size: 12px; } .resource-liquid::before, .resource-liquid-fill { right: 10px; width: 33%; } .resource-liquid-fill { right: 11px; } }
+    @media (prefers-reduced-motion: reduce) { .resource-liquid-fill { transition: none; } }
+    @media (max-width: 640px) { .resource-liquid { height: 124px; padding-inline: 10px; } .resource-stat-lines { font-size: 12px; } .resource-liquid-fill { right: 10px; left: 10px; } }
 </style>
 {% endblock %}
 {% block content %}
@@ -159,10 +157,10 @@
         const usedRatio = hasQuota && Number.isFinite(used) && quota > 0
             ? Math.min(Math.max((used / quota) * 100, 0), 100)
             : 0;
-        const remainingRatio = hasQuota ? Math.max(100 - usedRatio, 0) : 100;
-        liquid.style.setProperty("--fill-ratio", `${remainingRatio / 100}`);
+        liquid.style.setProperty("--usage-ratio", `${usedRatio / 100}`);
         resourceMeter.classList.toggle("is-unlimited", !hasQuota);
-        resourceMeter.classList.toggle("is-empty", hasQuota && remainingRatio === 0);
+        resourceMeter.classList.toggle("is-warning", hasQuota && usedRatio >= 80 && usedRatio < 95);
+        resourceMeter.classList.toggle("is-critical", hasQuota && usedRatio >= 95);
         resourceMeter.setAttribute("aria-valuenow", usedRatio.toFixed(0));
         resourceMeter.setAttribute("aria-valuetext", hasQuota ? `${usedRatio.toFixed(0)}% 已用` : "无限额度");
         percentLabel.textContent = hasQuota ? `${usedRatio.toFixed(0)}% 已用` : "无限额度";
