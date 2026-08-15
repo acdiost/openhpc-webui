@@ -1,6 +1,14 @@
 {% extends "base.html" %}
 {% block title %}个人总览{% endblock %}
 {% block breadcrumb_title %}个人总览{% endblock %}
+{% block head_extra %}
+<style>
+    .resource-stat-lines { margin-top: 8px; font-size: 13px; line-height: 1.65; }
+    .resource-stat-lines > div { display: flex; justify-content: space-between; gap: 12px; }
+    .resource-stat-lines span { color: #6b7280; }
+    .resource-stat-lines strong { color: #1f2937; font-weight: 600; }
+</style>
+{% endblock %}
 {% block content %}
 <div class="page-header" style="margin-bottom: 24px">
     <div>
@@ -27,12 +35,20 @@
         <div class="stat-value" id="myPending" style="color: #f59e0b">—</div>
     </div>
     <div class="stat-card">
-        <div class="stat-label">本周核时</div>
-        <div class="stat-value" id="myCpuHours" style="color: #2563eb">—</div>
+        <div class="stat-label">本月核时</div>
+        <div class="resource-stat-lines" id="myCpuResource">
+            <div><span>已用</span><strong id="myCpuUsed">—</strong></div>
+            <div><span>剩余</span><strong id="myCpuRemaining">—</strong></div>
+            <div><span>可用</span><strong id="myCpuAvailable">—</strong></div>
+        </div>
     </div>
     <div class="stat-card">
-        <div class="stat-label">本周卡时</div>
-        <div class="stat-value" id="myGpuHours" style="color: #7c3aed">—</div>
+        <div class="stat-label">本月卡时</div>
+        <div class="resource-stat-lines" id="myGpuResource">
+            <div><span>已用</span><strong id="myGpuUsed">—</strong></div>
+            <div><span>剩余</span><strong id="myGpuRemaining">—</strong></div>
+            <div><span>可用</span><strong id="myGpuAvailable">—</strong></div>
+        </div>
     </div>
 </div>
 
@@ -103,6 +119,17 @@
         return Number.isFinite(number) ? `${number.toFixed(2)} h` : "—";
     }
 
+    function formatQuotaHours(value) {
+        return value == null ? "无限" : formatHours(value);
+    }
+
+    function renderResource(prefix, resource) {
+        const data = resource || {};
+        document.getElementById(`${prefix}Used`).textContent = formatHours(data.used_hours);
+        document.getElementById(`${prefix}Remaining`).textContent = formatQuotaHours(data.remaining_hours);
+        document.getElementById(`${prefix}Available`).textContent = formatQuotaHours(data.available_hours);
+    }
+
     function renderMyJobs(activeJobs, recentJobs) {
         const tbody = document.getElementById("myJobsBody");
         const activeIds = new Set(activeJobs.map((job) => String(job.job_id)));
@@ -154,12 +181,11 @@
 
     async function loadUserDashboard() {
         const data = await (await fetch("/api/slurm/my/dashboard")).json();
-        const totals = data.totals || {};
         const activeJobs = data.active_jobs || [];
         document.getElementById("myRunning").textContent = activeJobs.filter((job) => job.state === "RUNNING").length;
         document.getElementById("myPending").textContent = activeJobs.filter((job) => job.state === "PENDING").length;
-        document.getElementById("myCpuHours").textContent = formatHours(totals.cpu_hours);
-        document.getElementById("myGpuHours").textContent = formatHours(totals.gpu_hours);
+        renderResource("myCpu", (data.resources || {}).cpu);
+        renderResource("myGpu", (data.resources || {}).gpu);
         renderMyJobs(activeJobs, data.recent_jobs || []);
         renderPartitions(data.partitions || []);
         document.getElementById("partitionUpdated").textContent = `更新于 ${new Date().toLocaleTimeString()}`;

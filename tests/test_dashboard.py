@@ -39,8 +39,10 @@ class DashboardTemplateTests(unittest.TestCase):
         )
 
         self.assertIn("/api/slurm/my/dashboard", template)
-        self.assertIn("myCpuHours", template)
-        self.assertIn("myGpuHours", template)
+        self.assertIn("myCpuUsed", template)
+        self.assertIn("myCpuRemaining", template)
+        self.assertIn("myCpuAvailable", template)
+        self.assertIn("myGpuUsed", template)
         self.assertIn("个人总览", sidebar)
 
     def test_personal_dashboard_only_returns_current_users_active_jobs(self):
@@ -51,6 +53,10 @@ class DashboardTemplateTests(unittest.TestCase):
         report = {"jobs": [], "totals": {"cpu_hours": 2.5, "gpu_hours": 1.0}}
         with patch.object(main.slurm_mgr, "list_jobs", return_value=active_jobs), patch.object(
             main.slurm_mgr, "get_user_job_report", return_value=report
+        ), patch.object(
+            main.slurm_mgr,
+            "get_users_tres_limits",
+            return_value={"alice": {"cpu_minutes": 600, "gpu_minutes": None}},
         ), patch.object(main.slurm_mgr, "list_partitions", return_value=[]):
             data = asyncio.run(
                 main.get_my_dashboard({"username": "alice", "is_admin": False})
@@ -58,6 +64,12 @@ class DashboardTemplateTests(unittest.TestCase):
 
         self.assertEqual([job["job_id"] for job in data["active_jobs"]], ["1"])
         self.assertEqual(data["totals"]["cpu_hours"], 2.5)
+        self.assertEqual(data["resources"]["cpu"], {
+            "used_hours": 2.5,
+            "remaining_hours": 7.5,
+            "available_hours": 10.0,
+        })
+        self.assertIsNone(data["resources"]["gpu"]["available_hours"])
 
 
 if __name__ == "__main__":

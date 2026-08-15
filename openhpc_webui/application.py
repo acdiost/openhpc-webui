@@ -961,12 +961,36 @@ async def get_my_dashboard(user: dict = Depends(get_current_user)):
         for job in slurm_mgr.list_jobs()
         if job.get("user") == username
     ]
-    report = slurm_mgr.get_user_job_report(username, range_key="week")
+    report = slurm_mgr.get_user_job_report(username, range_key="month")
+    limits = slurm_mgr.get_users_tres_limits().get(username, {})
+    totals = report.get("totals", {})
+
+    def resource_usage(prefix: str) -> dict:
+        used_hours = round(float(totals.get(f"{prefix}_hours", 0) or 0), 2)
+        limit_minutes = limits.get(f"{prefix}_minutes")
+        available_hours = (
+            None if limit_minutes is None else round(limit_minutes / 60, 2)
+        )
+        remaining_hours = (
+            None
+            if available_hours is None
+            else round(max(available_hours - used_hours, 0), 2)
+        )
+        return {
+            "used_hours": used_hours,
+            "remaining_hours": remaining_hours,
+            "available_hours": available_hours,
+        }
+
     return {
         "username": username,
         "active_jobs": active_jobs[:20],
         "recent_jobs": report.get("jobs", [])[:20],
-        "totals": report.get("totals", {}),
+        "totals": totals,
+        "resources": {
+            "cpu": resource_usage("cpu"),
+            "gpu": resource_usage("gpu"),
+        },
         "partitions": slurm_mgr.list_partitions(),
     }
 

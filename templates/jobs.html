@@ -69,6 +69,19 @@ content %}
                 <option value="RUNNING">运行中</option>
                 <option value="PENDING">排队中</option>
             </select>
+            <select
+                id="ownerFilter"
+                onchange="applyFilters()"
+                style="
+                    padding: 6px 12px;
+                    border: 1px solid #e5e7eb;
+                    border-radius: 6px;
+                    font-size: 14px;
+                "
+            >
+                <option value="">所有作业</option>
+                <option value="mine">仅我的作业</option>
+            </select>
         </div>
     </div>
     <div class="data-table-scroll" role="region" aria-label="活动作业队列" tabindex="0">
@@ -135,6 +148,7 @@ page_scripts %}
     /* ── 过滤器状态 ────────────────────────────────────────── */
     let currentPartitionFilter = "";
     let currentStateFilter = "";
+    let currentOwnerFilter = "";
 
     /* ── 状态映射表 ────────────────────────────────────────── */
     const stateMap = {
@@ -194,13 +208,16 @@ page_scripts %}
             const data = await (await fetch(url)).json();
             tbody.innerHTML = "";
 
-            if (!data.jobs || data.jobs.length === 0) {
+            const jobs = (data.jobs || []).filter(
+                (job) => !currentOwnerFilter || job.user === __USER__.username,
+            );
+            if (jobs.length === 0) {
                 tbody.innerHTML =
                     '<tr><td colspan="11" style="text-align:center;color:#6b7280;">暂无活动作业</td></tr>';
                 return;
             }
 
-            data.jobs.forEach((job) => {
+            jobs.forEach((job) => {
                 const st = stateMap[job.state] || {
                     text: job.state,
                     cls: "badge-info",
@@ -272,13 +289,16 @@ page_scripts %}
             ).json();
             tbody.innerHTML = "";
 
-            if (!data.jobs || data.jobs.length === 0) {
+            const jobs = (data.jobs || []).filter(
+                (job) => !currentOwnerFilter || job.user === __USER__.username,
+            );
+            if (jobs.length === 0) {
                 tbody.innerHTML =
                     '<tr><td colspan="8" style="text-align:center;color:#6b7280;">暂无已完成作业</td></tr>';
                 return;
             }
 
-            data.jobs.forEach((job) => {
+            jobs.forEach((job) => {
                 const st = stateMap[job.state] || {
                     text: job.state,
                     cls: "badge-info",
@@ -406,7 +426,9 @@ page_scripts %}
         currentPartitionFilter =
             document.getElementById("partitionFilter").value;
         currentStateFilter = document.getElementById("stateFilter").value;
+        currentOwnerFilter = document.getElementById("ownerFilter").value;
         loadActiveJobs();
+        loadCompletedJobs();
     }
 
     /* ── 刷新全部数据 ──────────────────────────────────────── */
