@@ -3,10 +3,21 @@
 {% block breadcrumb_title %}个人总览{% endblock %}
 {% block head_extra %}
 <style>
-    .resource-stat-lines { margin-top: 8px; font-size: 13px; line-height: 1.65; }
+    .resource-card { position: relative; overflow: hidden; }
+    .resource-card::after { content: ""; position: absolute; inset: 0; pointer-events: none; border: 1px solid rgba(148, 163, 184, .16); border-radius: inherit; }
+    .resource-liquid { position: relative; height: 108px; margin-top: 10px; overflow: hidden; border-radius: 7px; background: #f1f5f9; isolation: isolate; }
+    .resource-liquid-fill { position: absolute; z-index: 0; right: 0; bottom: 0; left: 0; height: var(--fill-level, 0%); min-height: 8px; background: linear-gradient(160deg, #38bdf8, #2563eb); transition: height .7s ease; }
+    .resource-liquid-fill::before, .resource-liquid-fill::after { content: ""; position: absolute; top: -13px; left: -12%; width: 124%; height: 27px; border-radius: 47%; background: rgba(125, 211, 252, .82); animation: resource-wave 5s linear infinite; }
+    .resource-liquid-fill::after { top: -8px; left: -18%; opacity: .45; background: rgba(224, 242, 254, .8); animation-duration: 7s; animation-direction: reverse; }
+    .resource-liquid.is-unlimited .resource-liquid-fill { background: linear-gradient(160deg, #a78bfa, #7c3aed); }
+    .resource-liquid.is-unlimited .resource-liquid-fill::before { background: rgba(196, 181, 253, .85); }
+    .resource-liquid-label { position: absolute; z-index: 1; top: 8px; right: 10px; color: #64748b; font-size: 11px; }
+    .resource-stat-lines { position: relative; z-index: 1; margin: 23px 12px 0; font-size: 13px; line-height: 1.65; }
     .resource-stat-lines > div { display: flex; justify-content: space-between; gap: 12px; }
     .resource-stat-lines span { color: #6b7280; }
     .resource-stat-lines strong { color: #1f2937; font-weight: 600; }
+    @keyframes resource-wave { from { transform: translateX(0) rotate(0deg); } to { transform: translateX(-8%) rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .resource-liquid-fill, .resource-liquid-fill::before, .resource-liquid-fill::after { animation: none; transition: none; } }
 </style>
 {% endblock %}
 {% block content %}
@@ -34,20 +45,28 @@
         <div class="stat-label">排队中作业</div>
         <div class="stat-value" id="myPending" style="color: #f59e0b">—</div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card resource-card">
         <div class="stat-label">本月核时</div>
-        <div class="resource-stat-lines" id="myCpuResource">
+        <div class="resource-liquid" id="myCpuResource" aria-label="本月核时使用比例">
+            <div class="resource-liquid-fill" id="myCpuLiquid"></div>
+            <span class="resource-liquid-label" id="myCpuPercent">—</span>
+        <div class="resource-stat-lines">
             <div><span>已用</span><strong id="myCpuUsed">—</strong></div>
             <div><span>剩余</span><strong id="myCpuRemaining">—</strong></div>
-            <div><span>可用</span><strong id="myCpuAvailable">—</strong></div>
+            <div><span>累计</span><strong id="myCpuAvailable">—</strong></div>
+        </div>
         </div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card resource-card">
         <div class="stat-label">本月卡时</div>
-        <div class="resource-stat-lines" id="myGpuResource">
+        <div class="resource-liquid" id="myGpuResource" aria-label="本月卡时使用比例">
+            <div class="resource-liquid-fill" id="myGpuLiquid"></div>
+            <span class="resource-liquid-label" id="myGpuPercent">—</span>
+        <div class="resource-stat-lines">
             <div><span>已用</span><strong id="myGpuUsed">—</strong></div>
             <div><span>剩余</span><strong id="myGpuRemaining">—</strong></div>
-            <div><span>可用</span><strong id="myGpuAvailable">—</strong></div>
+            <div><span>累计</span><strong id="myGpuAvailable">—</strong></div>
+        </div>
         </div>
     </div>
 </div>
@@ -128,6 +147,16 @@
         document.getElementById(`${prefix}Used`).textContent = formatHours(data.used_hours);
         document.getElementById(`${prefix}Remaining`).textContent = formatQuotaHours(data.remaining_hours);
         document.getElementById(`${prefix}Available`).textContent = formatQuotaHours(data.available_hours);
+        const liquid = document.getElementById(`${prefix}Liquid`);
+        const percentLabel = document.getElementById(`${prefix}Percent`);
+        const hasQuota = Number.isFinite(Number(data.available_hours)) && Number(data.available_hours) > 0;
+        const used = Number(data.used_hours);
+        const ratio = hasQuota && Number.isFinite(used)
+            ? Math.min(Math.max((used / Number(data.available_hours)) * 100, 0), 100)
+            : 18;
+        liquid.style.setProperty("--fill-level", `${ratio}%`);
+        liquid.parentElement.classList.toggle("is-unlimited", !hasQuota);
+        percentLabel.textContent = hasQuota ? `${ratio.toFixed(0)}% 已用` : "无限额度";
     }
 
     function renderMyJobs(activeJobs, recentJobs) {
