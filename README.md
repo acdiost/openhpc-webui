@@ -58,6 +58,7 @@
 - ldap3 / OpenLDAP
 - Slurm CLI：`sinfo`、`squeue`、`sacct`、`scontrol`、`sacctmgr`、`scancel`
 - uv 依赖与环境管理
+- Tailwind CSS CLI 4.x（仅在修改模板或前端脚本中的工具类后重新构建）
 
 ## 项目结构
 
@@ -138,9 +139,12 @@ uv run openhpc_webui
 ## 验证与开发
 
 ```bash
+./scripts/build_tailwind.sh
 uv run python -m unittest discover -s tests
 uv run python -m compileall -q openhpc_webui
 ```
+
+Tailwind 构建入口为 `tailwind.css`，只扫描 `templates/` 和 `static/*.js` 中实际使用的类，并将压缩后的离线样式写入 `static/all-tailwind-classes-full-min.css`。
 
 提交界面变更前，还应手动检查登录、用户、组、账户、集群用户、分区、节点、作业和权限页面，并附上桌面与窄屏截图。
 
