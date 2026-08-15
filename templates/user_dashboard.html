@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}个人总览{% endblock %}
+{% block breadcrumb_title %}个人总览{% endblock %}
+{% block content %}
+<div class="page-header" style="margin-bottom: 24px">
+    <div>
+        <h2 style="font-size: 28px; font-weight: 700">个人总览</h2>
+        <p style="margin-top: 6px; color: #6b7280">
+            欢迎回来，<strong id="dashboardUser">{{ user.get('cn', user.get('username', '用户')) }}</strong>
+        </p>
+    </div>
+    <button class="btn btn-secondary" type="button" onclick="refreshUserDashboard(this)">
+        <svg style="width: 16px; height: 16px; display: inline-block; margin-right: 4px; vertical-align: -3px" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+        刷新
+    </button>
+</div>
+
+<div class="stats-grid" style="margin-bottom: 24px">
+    <div class="stat-card">
+        <div class="stat-label">运行中作业</div>
+        <div class="stat-value" id="myRunning" style="color: #10b981">—</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">排队中作业</div>
+        <div class="stat-value" id="myPending" style="color: #f59e0b">—</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">本周核时</div>
+        <div class="stat-value" id="myCpuHours" style="color: #2563eb">—</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">本周卡时</div>
+        <div class="stat-value" id="myGpuHours" style="color: #7c3aed">—</div>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom: 20px">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px">
+        <h3 class="card-title" style="margin-bottom: 0">我的近期作业</h3>
+        <a href="/jobs" class="btn btn-secondary" style="font-size: 13px; padding: 6px 14px">查看全部 →</a>
+    </div>
+    <div class="data-table-scroll" role="region" aria-label="我的近期作业" tabindex="0">
+        <table class="table data-table data-table--wide" id="myJobsTable">
+            <thead>
+                <tr>
+                    <th class="col-number">作业 ID</th>
+                    <th>作业名称</th>
+                    <th>状态</th>
+                    <th>分区</th>
+                    <th class="col-number">核心数</th>
+                    <th>运行时间</th>
+                    <th>开始 / 完成时间</th>
+                </tr>
+            </thead>
+            <tbody id="myJobsBody">
+                <tr><td colspan="7" class="text-center py-8 text-gray-500">加载中…</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px">
+        <h3 class="card-title" style="margin-bottom: 0">集群节点状态</h3>
+        <span id="partitionUpdated" style="font-size: 12px; color: #9ca3af">—</span>
+    </div>
+    <div class="data-table-scroll" role="region" aria-label="集群节点状态" tabindex="0">
+        <table class="table data-table" id="myPartitionsTable">
+            <thead>
+                <tr>
+                    <th>分区</th>
+                    <th class="col-number">总节点</th>
+                    <th class="col-number">占用</th>
+                    <th class="col-number">空闲</th>
+                    <th class="col-number">离线</th>
+                    <th>状态</th>
+                </tr>
+            </thead>
+            <tbody id="myPartitionsBody">
+                <tr><td colspan="6" class="text-center py-8 text-gray-500">加载中…</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<script>
+    const MY_STATE_MAP = {
+        RUNNING: { text: "运行中", cls: "badge-success" },
+        PENDING: { text: "排队中", cls: "badge-warning" },
+        COMPLETED: { text: "已完成", cls: "badge-info" },
+        FAILED: { text: "失败", cls: "badge-error" },
+        CANCELLED: { text: "已取消", cls: "badge-error" },
+        TIMEOUT: { text: "超时", cls: "badge-error" },
+        OUT_OF_MEMORY: { text: "内存溢出", cls: "badge-error" },
+    };
+
+    function formatHours(value) {
+        const number = Number(value);
+        return Number.isFinite(number) ? `${number.toFixed(2)} h` : "—";
+    }
+
+    function renderMyJobs(activeJobs, recentJobs) {
+        const tbody = document.getElementById("myJobsBody");
+        const activeIds = new Set(activeJobs.map((job) => String(job.job_id)));
+        const jobs = [
+            ...activeJobs.map((job) => ({ ...job, _time: job.time || "—", _date: job.start_time || "—" })),
+            ...recentJobs
+                .filter((job) => !activeIds.has(String(job.job_id)))
+                .map((job) => ({ ...job, _time: job.elapsed || "—", _date: job.end_time || "—" })),
+        ].slice(0, 12);
+
+        if (!jobs.length) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-gray-500">暂无近期作业</td></tr>';
+            return;
+        }
+        tbody.innerHTML = jobs.map((job) => {
+            const stateKey = String(job.state || "").split("+")[0];
+            const state = MY_STATE_MAP[stateKey] || { text: job.state || "未知", cls: "badge-info" };
+            const cpus = job.cpus ?? job.alloc_cpus;
+            return `<tr>
+                <td><strong>${job.job_id ?? "—"}</strong></td>
+                <td>${job.name || "—"}</td>
+                <td><span class="badge ${state.cls}">${state.text}</span></td>
+                <td>${job.partition || "—"}</td>
+                <td class="col-number">${cpus ?? "—"}</td>
+                <td>${job._time}</td>
+                <td>${job._date}</td>
+            </tr>`;
+        }).join("");
+    }
+
+    function renderPartitions(partitions) {
+        const tbody = document.getElementById("myPartitionsBody");
+        if (!partitions.length) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-gray-500">暂无集群分区数据</td></tr>';
+            return;
+        }
+        tbody.innerHTML = partitions.map((partition) => {
+            const isUp = String(partition.state || "").toUpperCase() === "UP";
+            return `<tr>
+                <td><strong>${partition.name || "—"}</strong></td>
+                <td class="col-number">${partition.total_nodes ?? 0}</td>
+                <td class="col-number">${partition.alloc_nodes ?? 0}</td>
+                <td class="col-number">${partition.idle_nodes ?? 0}</td>
+                <td class="col-number">${partition.offline_nodes ?? 0}</td>
+                <td><span class="badge ${isUp ? "badge-success" : "badge-error"}">${isUp ? "正常" : "停用"}</span></td>
+            </tr>`;
+        }).join("");
+    }
+
+    async function loadUserDashboard() {
+        const data = await (await fetch("/api/slurm/my/dashboard")).json();
+        const totals = data.totals || {};
+        const activeJobs = data.active_jobs || [];
+        document.getElementById("myRunning").textContent = activeJobs.filter((job) => job.state === "RUNNING").length;
+        document.getElementById("myPending").textContent = activeJobs.filter((job) => job.state === "PENDING").length;
+        document.getElementById("myCpuHours").textContent = formatHours(totals.cpu_hours);
+        document.getElementById("myGpuHours").textContent = formatHours(totals.gpu_hours);
+        renderMyJobs(activeJobs, data.recent_jobs || []);
+        renderPartitions(data.partitions || []);
+        document.getElementById("partitionUpdated").textContent = `更新于 ${new Date().toLocaleTimeString()}`;
+    }
+
+    async function refreshUserDashboard(button) {
+        if (button) button.disabled = true;
+        try {
+            await loadUserDashboard();
+            showToast("总览已刷新", "success");
+        } catch (error) {
+            console.error("[user-dashboard] 加载失败", error);
+            showToast("加载总览失败，请稍后重试", "error");
+        } finally {
+            if (button) button.disabled = false;
+        }
+    }
+
+    loadUserDashboard().catch((error) => {
+        console.error("[user-dashboard] 加载失败", error);
+        showToast("加载总览失败，请检查 Slurm 服务", "error");
+    });
+</script>
+{% endblock %}

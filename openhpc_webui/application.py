@@ -281,9 +281,11 @@ async def get_me(user: dict = Depends(get_current_user)):
 
 @router.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request, user: dict = Depends(get_current_user)):
-    """仪表盘：仅管理员可访问，普通用户跳转至 /jobs。"""
+    """根据用户角色显示管理员或个人总览。"""
     if not user.get("is_admin"):
-        return RedirectResponse(url="/jobs", status_code=302)
+        return templates.TemplateResponse(
+            "user_dashboard.html", {"request": request, "user": user}
+        )
     return templates.TemplateResponse("index.html", {"request": request, "user": user})
 
 
@@ -948,6 +950,25 @@ async def get_job_stats(user: dict = Depends(get_current_user)):
     """获取作业统计信息。"""
     stats = slurm_mgr.get_job_stats()
     return stats
+
+
+@router.get("/api/slurm/my/dashboard")
+async def get_my_dashboard(user: dict = Depends(get_current_user)):
+    """获取当前用户总览数据，不返回其他用户的作业。"""
+    username = user.get("username", "")
+    active_jobs = [
+        job
+        for job in slurm_mgr.list_jobs()
+        if job.get("user") == username
+    ]
+    report = slurm_mgr.get_user_job_report(username, range_key="week")
+    return {
+        "username": username,
+        "active_jobs": active_jobs[:20],
+        "recent_jobs": report.get("jobs", [])[:20],
+        "totals": report.get("totals", {}),
+        "partitions": slurm_mgr.list_partitions(),
+    }
 
 
 @router.get("/api/slurm/jobs/completed/recent")
