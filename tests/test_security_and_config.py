@@ -8,15 +8,15 @@ from unittest.mock import Mock, patch
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key-0123456789abcdef")
 
-import main
-import auth_manager
-from auth_manager import AuthManager
+import openhpc_webui.application as main
+from openhpc_webui.services import auth_manager
+from openhpc_webui.services.auth_manager import AuthManager
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from node_config import NodeConfigManager
-from partition_config import PartitionConfigManager
-from slurm_manager import SlurmManager
+from openhpc_webui.services.node_config import NodeConfigManager
+from openhpc_webui.services.partition_config import PartitionConfigManager
+from openhpc_webui.services.slurm_manager import SlurmManager
 
 
 class SessionSecurityTests(unittest.TestCase):

@@ -18,10 +18,10 @@ This is a lightweight web management portal for HPC centers, built to run in off
 ### Running the Application
 ```bash
 # Development server (from project root)
-uvicorn main:app --reload --port 6827
+uvicorn openhpc_webui.application:app --reload --port 6827
 
 # Production server
-uvicorn main:app --host 0.0.0.0 --port 6827
+uvicorn openhpc_webui.application:app --host 127.0.0.1 --port 6827 --proxy-headers --forwarded-allow-ips=127.0.0.1
 ```
 
 ### Package Management
@@ -85,7 +85,10 @@ source .venv/bin/activate
 ## Development Guidelines
 
 ### File Organization
-- `main.py` - FastAPI application entry point
+- `openhpc_webui/application.py` - FastAPI application factory and route layer
+- `openhpc_webui/services/` - LDAP, Slurm, quota, and system integrations
+- `openhpc_webui/schemas.py` - API request models
+- `openhpc_webui/config.py` - environment settings and runtime paths
 - `templates/` - HTML templates (Jinja2)
 - `static/` - All CSS, JS, and static assets (must be self-contained)
 - `requirement.md` - Complete project requirements in Chinese

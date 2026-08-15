@@ -3,7 +3,7 @@ import unittest
 from datetime import datetime
 from unittest.mock import Mock, patch
 
-from slurm_manager import SlurmManager
+from openhpc_webui.services.slurm_manager import SlurmManager
 
 
 class SlurmReportTests(unittest.TestCase):
@@ -29,7 +29,7 @@ class SlurmReportTests(unittest.TestCase):
         self.assertEqual(start, "2026-08-01T00:00:00")
         self.assertEqual(end, "2026-08-15T00:00:00")
 
-    @patch("slurm_manager.subprocess.run")
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
     def test_tres_hours_match_sreport_allocated_seconds(self, run):
         run.side_effect = [
             Mock(stdout="lanjun11125|81208748\n"),
@@ -47,7 +47,7 @@ class SlurmReportTests(unittest.TestCase):
         self.assertIn("cpu", run.call_args_list[0].args[0])
         self.assertIn("gres/gpu", run.call_args_list[1].args[0])
 
-    @patch("slurm_manager.subprocess.run")
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
     def test_job_report_reads_allocated_gpu_tres(self, run):
         payload = {
             "jobs": [
@@ -83,7 +83,7 @@ class SlurmReportTests(unittest.TestCase):
         self.assertEqual(report["jobs"][0]["alloc_gpus"], 1)
         self.assertEqual(report["jobs"][0]["gpu_hours"], 1.0)
 
-    @patch("slurm_manager.subprocess.run")
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
     def test_job_hours_are_clipped_to_the_report_period(self, run):
         start = int(datetime(2026, 7, 31, 23, 0, 0).timestamp())
         end = int(datetime(2026, 8, 1, 1, 0, 0).timestamp())

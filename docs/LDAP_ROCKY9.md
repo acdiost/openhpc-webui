@@ -186,7 +186,7 @@ objectClass: posixGroup
 cn: admins
 gidNumber: 10000
 memberUid: admin
-description: OpenHPC WebUI administrators
+description: openhpc_webui administrators
 
 dn: uid=admin,ou=People,dc=acdiost,dc=com
 objectClass: top
@@ -262,12 +262,12 @@ ldapwhoami -x -H ldap://127.0.0.1:389 \
 dn:uid=admin,ou=People,dc=acdiost,dc=com
 ```
 
-## 8. 对接 OpenHPC WebUI
+## 8. 对接 openhpc_webui
 
 在项目目录复制并编辑环境变量文件：
 
 ```bash
-cd /opt/openhpc-web
+cd /opt/openhpc_webui
 cp env.example .env
 chmod 600 .env
 vi .env
@@ -289,8 +289,8 @@ ADMIN_USERS=admin
 LDAP 在其他服务器时，将 `LDAP_URI` 改为该服务器的内网地址。完成后重启 WebUI：
 
 ```bash
-sudo supervisorctl restart openhpc-web
-sudo supervisorctl status openhpc-web
+sudo supervisorctl restart openhpc_webui
+sudo supervisorctl status openhpc_webui
 ```
 
 使用第 5 步创建的 `admin` 用户和密码登录 WebUI。不要使用目录管理绑定 DN 登录；

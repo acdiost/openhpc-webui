@@ -1,0 +1,141 @@
+"""Request models used by the HTTP API."""
+
+from typing import Optional
+
+from pydantic import BaseModel
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class UserCreate(BaseModel):
+    username: str
+    uid: int
+    gid: int
+    home: str
+    shell: str = "/bin/bash"
+    password: Optional[str] = None
+    is_admin: bool = False
+    storage_quota_gb: Optional[float] = None
+
+
+class UserUpdate(BaseModel):
+    gid: Optional[int] = None
+    home: Optional[str] = None
+    shell: Optional[str] = None
+    password: Optional[str] = None
+    cn: Optional[str] = None
+    is_admin: Optional[bool] = None
+    storage_quota_gb: Optional[float] = None
+
+
+class GroupCreate(BaseModel):
+    name: str
+    gid: int
+    description: Optional[str] = ""
+
+
+class GroupUpdate(BaseModel):
+    gid: Optional[int] = None
+    description: Optional[str] = None
+
+
+class GroupMemberUpdate(BaseModel):
+    username: str
+    group_name: str
+
+
+class AccountCreate(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    organization: Optional[str] = ""
+
+
+class AccountUpdate(BaseModel):
+    description: Optional[str] = None
+    organization: Optional[str] = None
+
+
+class AssocCreate(BaseModel):
+    username: str
+    account: str
+    partition: Optional[str] = None
+    qos: Optional[str] = None
+    default_qos: Optional[str] = None
+
+
+class AssocUpdate(BaseModel):
+    partition: Optional[str] = None
+    qos: Optional[str] = None
+    default_qos: Optional[str] = None
+
+
+class AssocTRESMinutesUpdate(BaseModel):
+    cpu_minutes: Optional[int] = None
+    gpu_minutes: Optional[int] = None
+    partition: Optional[str] = None
+
+
+class PartitionCreate(BaseModel):
+    name: str
+    nodes: str
+    default: Optional[bool] = False
+    state: Optional[str] = "UP"
+    max_time: Optional[str] = None
+    allow_groups: Optional[str] = None
+
+
+class PartitionUpdate(BaseModel):
+    state: Optional[str] = None
+    max_time: Optional[str] = None
+    allow_groups: Optional[str] = None
+    nodes: Optional[str] = None
+    default: Optional[bool] = None
+
+
+class NodeCreate(BaseModel):
+    name: str
+    cpus: int
+    boards: Optional[int] = 1
+    sockets_per_board: Optional[int] = 1
+    cores_per_socket: Optional[int] = 1
+    threads_per_core: Optional[int] = 1
+    real_memory: Optional[int] = None
+    gres: Optional[str] = None
+
+
+class NodeUpdate(BaseModel):
+    cpus: Optional[int] = None
+    boards: Optional[int] = None
+    sockets_per_board: Optional[int] = None
+    cores_per_socket: Optional[int] = None
+    threads_per_core: Optional[int] = None
+    real_memory: Optional[int] = None
+    gres: Optional[str] = None
+
+
+class NodeStateUpdate(BaseModel):
+    state: str
+    reason: Optional[str] = None
+
+
+class AdminUserRequest(BaseModel):
+    username: str
+
+
+class UserCreditRequest(BaseModel):
+    account: Optional[str] = None
+    partition: Optional[str] = None
+    cpu_hours: Optional[float] = None
+    gpu_hours: Optional[float] = None
+    hours: Optional[float] = None
+    reason: Optional[str] = None
+    note: Optional[str] = None
+    effective_date: Optional[str] = None
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str

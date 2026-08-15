@@ -1,10 +1,12 @@
-# OpenHPC Web 管理门户
+# openhpc_webui 管理门户
 
 面向高校、科研机构和企业智算中心的轻量级集群管理门户。它把 LDAP 身份管理、Slurm 资源状态和作业管理集中到一个中文 Web 界面中，适合部署在无法访问互联网的内部网络。
 
+当前版本：`0.2.0`
+
 ## 让集群管理更直观
 
-OpenHPC Web 为日常管理提供统一入口。管理员不必频繁切换 LDAP 工具和 Slurm 命令行，普通用户也能快速查看自己的作业、资源用量和账户信息。
+openhpc_webui 为日常管理提供统一入口。管理员不必频繁切换 LDAP 工具和 Slurm 命令行，普通用户也能快速查看自己的作业、资源用量和账户信息。
 
 - **统一身份管理**：创建和维护 LDAP 用户、用户组与成员关系。
 - **集群资源总览**：集中查看分区、节点、CPU 和内存状态。
@@ -35,6 +37,16 @@ OpenHPC Web 为日常管理提供统一入口。管理员不必频繁切换 LDAP
 
 首次部署和系统配置由集群管理员完成。完整操作步骤请查看[用户使用手册](./docs/USER_MANUAL.md)。
 
+## 开发运行
+
+```bash
+uv sync
+cp env.example .env
+uv run uvicorn openhpc_webui.application:app --reload --port 6827
+```
+
+启用认证时，必须在 `.env` 中设置不少于 32 个字符的独立 `SECRET_KEY`。完整配置项、生产启动方式和验证命令请查看[技术指南](./docs/TECHNICAL_GUIDE.md)。
+
 ## 适用场景
 
 - 已使用 OpenLDAP 和 Slurm 的 HPC 或智算集群
@@ -53,7 +65,7 @@ OpenHPC Web 为日常管理提供统一入口。管理员不必频繁切换 LDAP
 ### 部署与维护
 
 - [技术指南](./docs/TECHNICAL_GUIDE.md)：环境要求、安装、配置、运行、开发与故障排查
-- [Supervisor 部署](./DEPLOYMENT.md)：生产进程管理和日志查看
+- [生产部署](./docs/DEPLOYMENT.md)：Supervisor、Nginx、HTTPS、升级与故障排查
 - [Rocky Linux 9 LDAP 部署](./docs/LDAP_ROCKY9.md)：安装并初始化 OpenLDAP
 - [Rocky Linux 9 SSSD 接入](./docs/SSSD_LDAP_ROCKY9.md)：让计算节点使用 LDAP 身份
 

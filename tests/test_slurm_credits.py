@@ -6,10 +6,10 @@ from unittest.mock import Mock, patch
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key-0123456789abcdef")
 
-import main
+import openhpc_webui.application as main
 from fastapi import HTTPException
 
-from slurm_manager import SlurmManager
+from openhpc_webui.services.slurm_manager import SlurmManager
 
 
 class SlurmCreditManagerTests(unittest.TestCase):
@@ -84,7 +84,7 @@ class SlurmCreditManagerTests(unittest.TestCase):
         self.assertEqual(result["remaining_cpu_minutes"], 0)
 
     def test_grant_rejects_invalid_slurm_names_before_commands(self):
-        with patch("slurm_manager.subprocess.run") as run:
+        with patch("openhpc_webui.services.slurm_manager.subprocess.run") as run:
             result = self.manager.grant_user_tres_hours(
                 "dawn account=root", cpu_hours=1
             )
@@ -92,7 +92,7 @@ class SlurmCreditManagerTests(unittest.TestCase):
         self.assertIsNone(result)
         run.assert_not_called()
 
-    @patch("slurm_manager.subprocess.run")
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
     def test_reads_zero_and_unlimited_tres_limits_distinctly(self, run):
         run.return_value = Mock(
             stdout="dawn|dawn||cpu=120,gres/gpu=0\n"
@@ -102,7 +102,7 @@ class SlurmCreditManagerTests(unittest.TestCase):
 
         self.assertEqual(limits, {"cpu": 120, "gres/gpu": 0})
 
-    @patch("slurm_manager.subprocess.run")
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
     def test_partition_grant_targets_only_the_selected_association(self, run):
         run.side_effect = [
             Mock(
@@ -126,7 +126,7 @@ class SlurmCreditManagerTests(unittest.TestCase):
         modify_args = run.call_args_list[1].args[0]
         self.assertIn("partition=CPU", modify_args)
 
-    @patch("slurm_manager.subprocess.run")
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
     def test_usage_minutes_uses_controller_enforcement_values(self, run):
         run.return_value = Mock(
             stdout="""
@@ -145,7 +145,7 @@ ClusterName=cluster Account=dawn UserName= Partition=CPU Priority=0 ID=16
             ["scontrol", "show", "assoc_mgr", "flags=assoc", "users=dawn"],
         )
 
-    @patch("slurm_manager.subprocess.run")
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
     def test_usage_minutes_selects_partition_association(self, run):
         run.return_value = Mock(
             stdout="""
@@ -162,7 +162,7 @@ ClusterName=cluster Account=research UserName=alice(1001) Partition=GPU Priority
 
         self.assertEqual(usage, {"cpu": 125, "gres/gpu": 7})
 
-    @patch("slurm_manager.subprocess.run")
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
     def test_lists_user_tres_limits_preferring_global_association(self, run):
         run.return_value = Mock(
             stdout="""
@@ -195,7 +195,7 @@ ClusterName=cluster Account=research UserName=alice(1001) Partition= Priority=0 
             ["scontrol", "show", "assoc_mgr", "flags=assoc"],
         )
 
-    @patch("slurm_manager.subprocess.run")
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
     def test_absolute_limit_write_rejects_invalid_names(self, run):
         success = self.manager.set_association_tres_minutes(
             "dawn where account=root", "dawn", cpu_minutes=60

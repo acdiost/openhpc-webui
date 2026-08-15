@@ -1,17 +1,17 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `main.py` is the FastAPI entrypoint and route layer.
-- Core service modules live at repo root: `ldap_manager.py`, `slurm_manager.py`, `auth_manager.py`, `admin_manager.py`, `partition_config.py`, `node_config.py`.
+- `openhpc_webui/application.py` contains the FastAPI application factory and route layer.
+- Core integrations live in `openhpc_webui/services/`; request models and settings live in `openhpc_webui/schemas.py` and `openhpc_webui/config.py`.
 - UI templates are in `templates/` (with shared layout/components in `templates/base.html` and `templates/components/`).
 - Frontend static assets are in `static/` (offline Tailwind CSS bundle plus page scripts).
-- Operations/deployment docs are in `README.md`, `DEPLOYMENT.md`, and `USER_MANUAL.md`.
+- Operations/deployment docs are in `README.md`, `docs/DEPLOYMENT.md`, and `docs/USER_MANUAL.md`.
 
 ## Build, Test, and Development Commands
 - `uv sync` installs Python dependencies into the project environment.
-- `uvicorn main:app --reload --port 6827` starts local development server with auto-reload.
-- `uvicorn main:app --host 0.0.0.0 --port 6827` runs production-style server binding.
-- `python -m py_compile main.py ldap_manager.py slurm_manager.py` performs a quick syntax validation pass.
+- `uvicorn openhpc_webui.application:app --reload --port 6827` starts local development server with auto-reload.
+- `uvicorn openhpc_webui.application:app --host 127.0.0.1 --port 6827 --proxy-headers --forwarded-allow-ips=127.0.0.1` runs a production-style local binding behind Nginx.
+- `python -m compileall -q openhpc_webui` performs a quick syntax validation pass.
 - `bash update_offline.sh` refreshes offline assets/content for disconnected deployment scenarios.
 
 ## Coding Style & Naming Conventions
@@ -22,7 +22,7 @@
 - Templates and static files should use feature-oriented names (for example, `jobs.html`, `nodes.js`).
 
 ## Testing Guidelines
-- There is no formal automated test suite yet; add tests under a new `tests/` directory when introducing non-trivial logic.
+- Automated tests live under `tests/`; extend them when introducing non-trivial logic.
 - Name test files `test_<module>.py` and test functions `test_<behavior>()`.
 - Before opening a PR, run syntax checks and manually verify key flows: login, user/group CRUD, partition/node/jobs pages.
 

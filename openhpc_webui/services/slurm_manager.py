@@ -5,8 +5,8 @@ import threading
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
-from partition_config import PartitionConfigManager
-from node_config import NodeConfigManager
+from .node_config import NodeConfigManager
+from .partition_config import PartitionConfigManager
 import os
 from collections import deque
 from pathlib import Path
@@ -1447,12 +1447,12 @@ class SlurmManager:
 
         Args:
             username: 用户名
-            account: Slurm 账户名,默认从环境变量 SLURM_DEFAULT_ACCOUNT 读取,或使用 "cardc"
+            account: Slurm 账户名,默认从环境变量 SLURM_DEFAULT_ACCOUNT 读取,或使用 "dawn"
         """
         try:
             # 获取默认账户
             if not account:
-                account = os.getenv('SLURM_DEFAULT_ACCOUNT', 'cardc')
+                account = os.getenv('SLURM_DEFAULT_ACCOUNT', 'dawn')
 
             # 使用 sacctmgr 添加用户账户
             # -i: 立即执行,不需要确认

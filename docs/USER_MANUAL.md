@@ -688,11 +688,11 @@ sudo tail -f /var/log/slurm/slurmctld.log
 1. 刷新页面并重新登录
 2. 检查后端服务状态：
 ```bash
-sudo supervisorctl status openhpc-web
+sudo supervisorctl status openhpc_webui
 ```
 3. 查看应用日志：
 ```bash
-sudo tail -f /var/log/openhpc-web/error.log
+sudo tail -f /var/log/openhpc_webui/error.log
 ```
 
 ### 8. 创建用户后无法提交作业
@@ -707,7 +707,7 @@ sudo tail -f /var/log/openhpc-web/error.log
 sacctmgr show user username
 
 # 手动添加用户到 Slurm
-sacctmgr -i add user username account=cardc
+sacctmgr -i add user username account=dawn
 ```
 
 ### 9. 忘记管理员密码怎么办？
@@ -728,13 +728,13 @@ ldappasswd -x -D "cn=admin,dc=acdiost,dc=com" -W -S "cn=admin,dc=acdiost,dc=com"
 **应用日志位置**:
 ```bash
 # 访问日志
-/var/log/openhpc-web/access.log
+/var/log/openhpc_webui/access.log
 
 # 错误日志
-/var/log/openhpc-web/error.log
+/var/log/openhpc_webui/error.log
 
 # 实时查看
-sudo tail -f /var/log/openhpc-web/error.log
+sudo tail -f /var/log/openhpc_webui/error.log
 ```
 
 **Slurm 日志位置**:
@@ -782,6 +782,6 @@ sudo journalctl -u slapd
 
 ---
 
-**文档版本**: 1.0
-**最后更新**: 2026-02-02
-**适用系统版本**: OpenHPC Web Management Portal v1.0
+**文档版本**: 0.2.0
+**最后更新**: 2026-08-15
+**适用系统版本**: openhpc_webui v0.2.0
