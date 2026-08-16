@@ -83,6 +83,22 @@ async function updateAccount(accountName, accountData) {
     }
 }
 
+async function updateAccountTRES(accountName, payload) {
+    try {
+        const response = await fetch(`/api/slurm/accounts/${encodeURIComponent(accountName)}/tres-minutes`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Failed to update account limits');
+        showToast('账户核时/卡时额度已更新', 'success');
+        return true;
+    } catch (error) {
+        showToast(error.message, 'error');
+        return false;
+    }
+}
+
 // Delete account
 async function deleteAccount(accountName) {
     try {
@@ -1194,6 +1210,7 @@ window.fetchAccounts = fetchAccounts;
 window.fetchQos = fetchQos;
 window.createAccount = createAccount;
 window.updateAccount = updateAccount;
+window.updateAccountTRES = updateAccountTRES;
 window.deleteAccount = deleteAccount;
 window.fetchAssociations = fetchAssociations;
 window.createAssociation = createAssociation;

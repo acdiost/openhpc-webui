@@ -17,6 +17,7 @@ from .config import STATIC_DIR, TEMPLATES_DIR, settings
 from .schemas import (
     AccountCreate,
     AccountUpdate,
+    AccountTRESMinutesUpdate,
     QosCreate,
     QosUpdate,
     AdminUserRequest,
@@ -749,6 +750,11 @@ async def get_accounts(user: dict = Depends(get_current_user)):
     """获取 Slurm 账户列表。"""
     _require_admin(user)
     accounts = slurm_mgr.list_accounts()
+    for account in accounts:
+        limits = slurm_mgr.get_account_tres_minutes(account.get("name", ""))
+        if limits:
+            account["cpu_minutes"] = limits.get("cpu")
+            account["gpu_minutes"] = limits.get("gres/gpu")
     return {"accounts": accounts, "count": len(accounts)}
 
 
@@ -782,6 +788,38 @@ async def update_account(
     if not success:
         raise HTTPException(status_code=500, detail="更新账户失败")
     return {"message": f"账户 {account_name} 更新成功"}
+
+
+@router.get("/api/slurm/accounts/{account_name}/tres-minutes")
+async def get_account_tres_minutes(account_name: str, user: dict = Depends(get_current_user)):
+    _require_admin(user)
+    if not slurm_mgr._is_valid_slurm_name(account_name):
+        raise HTTPException(status_code=400, detail="账户名格式无效")
+    limits = slurm_mgr.get_account_tres_minutes(account_name)
+    if limits is None:
+        raise HTTPException(status_code=404, detail="账户核时/卡时额度不存在")
+    return {"account": account_name, "cpu_minutes": limits.get("cpu"),
+            "gpu_minutes": limits.get("gres/gpu")}
+
+
+@router.put("/api/slurm/accounts/{account_name}/tres-minutes")
+async def set_account_tres_minutes(
+    account_name: str, payload: AccountTRESMinutesUpdate,
+    user: dict = Depends(get_current_user),
+):
+    _require_admin(user)
+    if not slurm_mgr._is_valid_slurm_name(account_name):
+        raise HTTPException(status_code=400, detail="账户名格式无效")
+    if payload.cpu_minutes is None and payload.gpu_minutes is None:
+        raise HTTPException(status_code=400, detail="至少需要设置一种分钟额度")
+    if payload.comment is not None and (not payload.comment.strip() or len(payload.comment) > 478 or "\n" in payload.comment or "\r" in payload.comment):
+        raise HTTPException(status_code=400, detail="Comment 不能为空且不能换行")
+    if not slurm_mgr.set_account_tres_minutes(
+        account_name, payload.cpu_minutes, payload.gpu_minutes, payload.comment
+    ):
+        raise HTTPException(status_code=500, detail="设置账户核时/卡时失败")
+    return {"message": f"账户 {account_name} 核时/卡时设置成功", "account": account_name,
+            "cpu_minutes": payload.cpu_minutes, "gpu_minutes": payload.gpu_minutes}
 
 
 @router.delete("/api/slurm/accounts/{account_name}")

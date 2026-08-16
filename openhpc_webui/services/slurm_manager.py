@@ -895,6 +895,51 @@ class SlurmManager:
             print(f"获取 Slurm 账户失败: {e}")
             return []
 
+    def get_account_tres_minutes(self, account: str) -> Optional[Dict[str, Optional[int]]]:
+        """读取账户级 GrpTRESMins 上限（不包含用户关联）。"""
+        if not self._is_valid_slurm_name(account):
+            return None
+        try:
+            # GrpTRESMins is stored on the account association, not on the
+            # account metadata row returned by `show account`.
+            result = subprocess.run(
+                ["sacctmgr", "show", "assoc", "where", f"account={account}",
+                 "user=", "format=Account,Partition,GrpTRESMins", "-n", "-P"],
+                capture_output=True, text=True, check=True,
+            )
+            for line in result.stdout.splitlines():
+                parts = line.strip().split("|", 2)
+                if len(parts) == 3 and parts[0].strip() == account and not parts[1].strip():
+                    return self._parse_tres_minutes(parts[2].strip())
+        except Exception as e:
+            print(f"获取账户 TRES 限额失败: {e}")
+        return None
+
+    def set_account_tres_minutes(
+        self, account: str, cpu_minutes: Optional[int] = None,
+        gpu_minutes: Optional[int] = None, comment: Optional[str] = None,
+    ) -> bool:
+        """设置账户级 GrpTRESMins。"""
+        if not self._is_valid_slurm_name(account):
+            return False
+        parts = []
+        if cpu_minutes is not None:
+            parts.append(f"cpu={int(cpu_minutes)}")
+        if gpu_minutes is not None:
+            parts.append(f"gres/gpu={int(gpu_minutes)}")
+        if not parts or (comment is not None and ("\n" in comment or "\r" in comment)):
+            return False
+        try:
+            args = ["sacctmgr", "-i", "modify", "account", f"name={account}",
+                    "set", f"GrpTRESMins={','.join(parts)}"]
+            if comment is not None:
+                args.append(f"Comment={comment}")
+            subprocess.run(args, capture_output=True, text=True, check=True)
+            return True
+        except Exception as e:
+            print(f"设置账户 TRES 限额失败: {e}")
+            return False
+
     def create_account(
         self, name: str, description: Optional[str] = None, organization: Optional[str] = None
     ) -> bool:

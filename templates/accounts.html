@@ -34,17 +34,37 @@
                     <th>描述</th>
                     <th>协调员</th>
                     <th>标记</th>
+                    <th>CPU 核时</th>
+                    <th>GPU 卡时</th>
                     <th class="col-actions">操作</th>
                 </tr>
             </thead>
             <tbody id="accountsTableBody">
                 <tr>
-                    <td colspan="6" class="text-center py-8 text-gray-500">
+                    <td colspan="8" class="text-center py-8 text-gray-500">
                         加载中…
                     </td>
                 </tr>
             </tbody>
         </table>
+    </div>
+</div>
+
+<div id="accountTresModal" class="modal" style="display:none">
+    <div class="modal-content" style="max-width:520px">
+        <div class="modal-header"><h3 id="accountTresModalTitle">账户核时/卡时限额</h3>
+            <button class="modal-close" onclick="closeAccountTresModal()">&times;</button></div>
+        <form id="accountTresForm" onsubmit="handleAccountTresSubmit(event)">
+            <input type="hidden" id="account_tres_name">
+            <div class="form-group"><label for="account_cpu_hours">CPU 核时上限（小时）</label>
+                <input type="number" id="account_cpu_hours" min="0" step="0.1" placeholder="留空表示不修改"></div>
+            <div class="form-group"><label for="account_gpu_hours">GPU 卡时上限（小时）</label>
+                <input type="number" id="account_gpu_hours" min="0" step="0.1" placeholder="留空表示不修改"></div>
+            <div class="form-group"><label for="account_tres_comment">Comment</label>
+                <input type="text" id="account_tres_comment" maxlength="478" required></div>
+            <div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="closeAccountTresModal()">取消</button>
+                <button type="submit" class="btn btn-primary">保存额度</button></div>
+        </form>
     </div>
 </div>
 {% endblock %}
@@ -181,7 +201,7 @@
 
         if (!accounts || accounts.length === 0) {
             tbody.innerHTML =
-                '<tr><td colspan="6" class="text-center py-8 text-gray-500">暂无账户数据</td></tr>';
+                '<tr><td colspan="8" class="text-center py-8 text-gray-500">暂无账户数据</td></tr>';
             document.getElementById("accountCount").textContent = "0";
             return;
         }
@@ -196,6 +216,8 @@
                     account.flags && account.flags.length > 0
                         ? account.flags.join(", ")
                         : "—";
+                const cpu = account.cpu_minutes == null ? "无限" : `${(account.cpu_minutes / 60).toFixed(2)} h`;
+                const gpu = account.gpu_minutes == null ? "无限" : `${(account.gpu_minutes / 60).toFixed(2)} h`;
                 return `
                 <tr>
                     <td><strong>${account.name}</strong></td>
@@ -203,7 +225,9 @@
                     <td>${account.description || "—"}</td>
                     <td style="font-size: 13px; color: #6b7280;">${coordinators}</td>
                     <td style="font-size: 13px; color: #6b7280;">${flags}</td>
+                    <td>${cpu}</td><td>${gpu}</td>
                     <td class="col-actions"><div class="data-table-actions">
+                        <button class="btn btn-secondary" style="padding:4px 8px;font-size:12px" onclick="showAccountTresModal('${account.name}')">额度</button>
                         <button class="btn btn-secondary"
                                 style="padding: 4px 12px; font-size: 12px; margin-right: 4px;"
                                 onclick="showEditAccountModal('${account.name}')">编辑</button>
@@ -216,6 +240,30 @@
             .join("");
 
         document.getElementById("accountCount").textContent = accounts.length;
+    }
+
+    async function showAccountTresModal(accountName) {
+        const response = await fetch(`/api/slurm/accounts/${encodeURIComponent(accountName)}/tres-minutes`);
+        const data = response.ok ? await response.json() : {};
+        document.getElementById("account_tres_name").value = accountName;
+        document.getElementById("accountTresModalTitle").textContent = `账户核时/卡时限额：${accountName}`;
+        document.getElementById("account_cpu_hours").value = data.cpu_minutes == null ? "" : (data.cpu_minutes / 60);
+        document.getElementById("account_gpu_hours").value = data.gpu_minutes == null ? "" : (data.gpu_minutes / 60);
+        document.getElementById("account_tres_comment").value = "";
+        document.getElementById("accountTresModal").style.display = "flex";
+    }
+    function closeAccountTresModal() { document.getElementById("accountTresModal").style.display = "none"; }
+    async function handleAccountTresSubmit(event) {
+        event.preventDefault();
+        const cpu = document.getElementById("account_cpu_hours").value;
+        const gpu = document.getElementById("account_gpu_hours").value;
+        if (cpu === "" && gpu === "") { showToast("至少填写一种额度", "error"); return; }
+        const payload = { comment: document.getElementById("account_tres_comment").value };
+        if (cpu !== "") payload.cpu_minutes = Math.round(Number(cpu) * 60);
+        if (gpu !== "") payload.gpu_minutes = Math.round(Number(gpu) * 60);
+        if (await updateAccountTRES(document.getElementById("account_tres_name").value, payload)) {
+            closeAccountTresModal(); loadAccounts();
+        }
     }
 
     /* ── 创建账户 ───────────────────────────────────────────── */

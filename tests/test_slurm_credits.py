@@ -42,6 +42,22 @@ class SlurmCreditManagerTests(unittest.TestCase):
         self.assertEqual(result["remaining_cpu_minutes"], 170)
         self.assertEqual(result["remaining_gpu_minutes"], 180)
 
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
+    def test_account_tres_limit_reads_pipe_format(self, run):
+        run.return_value = Mock(stdout="Account||cpu=60000000,gres/gpu=120\n")
+        self.assertEqual(
+            self.manager.get_account_tres_minutes("Account"),
+            {"cpu": 60000000, "gres/gpu": 120},
+        )
+
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
+    def test_account_tres_limit_writes_account_association(self, run):
+        self.assertTrue(self.manager.set_account_tres_minutes("Account", 600, 120, "annual grant"))
+        self.assertEqual(run.call_args.args[0], [
+            "sacctmgr", "-i", "modify", "account", "name=Account", "set",
+            "GrpTRESMins=cpu=600,gres/gpu=120", "Comment=annual grant",
+        ])
+
     def test_grant_repairs_an_already_exceeded_limit(self):
         self.manager.get_user_default_account = Mock(return_value="phadcloud")
         self.manager.get_association_tres_minutes = Mock(

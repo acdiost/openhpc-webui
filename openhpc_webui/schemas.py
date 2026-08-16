@@ -64,6 +64,14 @@ class AccountUpdate(BaseModel):
     organization: Optional[str] = None
 
 
+class AccountTRESMinutesUpdate(BaseModel):
+    """设置账户级 CPU/GPU TRES 分钟上限。"""
+
+    cpu_minutes: Optional[int] = Field(None, ge=0)
+    gpu_minutes: Optional[int] = Field(None, ge=0)
+    comment: Optional[str] = Field(None, max_length=478)
+
+
 class QosCreate(BaseModel):
     name: str
     description: Optional[str] = ""
