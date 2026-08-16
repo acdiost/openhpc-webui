@@ -17,6 +17,8 @@ from .config import STATIC_DIR, TEMPLATES_DIR, settings
 from .schemas import (
     AccountCreate,
     AccountUpdate,
+    QosCreate,
+    QosUpdate,
     AdminUserRequest,
     AssocCreate,
     AssocTRESMinutesUpdate,
@@ -320,6 +322,14 @@ async def accounts_page(request: Request, user: dict = Depends(get_current_user)
     if not user.get("is_admin"):
         return RedirectResponse(url="/jobs", status_code=302)
     return templates.TemplateResponse("accounts.html", {"request": request, "user": user})
+
+
+@router.get("/qos", response_class=HTMLResponse)
+async def qos_page(request: Request, user: dict = Depends(get_current_user)):
+    """Slurm QoS 管理：仅管理员可访问。"""
+    if not user.get("is_admin"):
+        return RedirectResponse(url="/jobs", status_code=302)
+    return templates.TemplateResponse("qos.html", {"request": request, "user": user})
 
 
 @router.get("/cluster-users", response_class=HTMLResponse)
@@ -782,6 +792,46 @@ async def delete_account(account_name: str, user: dict = Depends(get_current_use
     if not success:
         raise HTTPException(status_code=500, detail="删除账户失败")
     return {"message": f"账户 {account_name} 已删除"}
+
+
+@router.get("/api/slurm/qos")
+async def get_qos(user: dict = Depends(get_current_user)):
+    _require_admin(user)
+    qos = slurm_mgr.list_qos()
+    return {"qos": qos, "count": len(qos)}
+
+
+@router.post("/api/slurm/qos")
+async def create_qos(payload: QosCreate, user: dict = Depends(get_current_user)):
+    _require_admin(user)
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", payload.name):
+        raise HTTPException(status_code=400, detail="QoS 名称格式无效")
+    values = payload.dict()
+    success = slurm_mgr.create_qos(values.pop("name"), **values)
+    if not success:
+        raise HTTPException(status_code=500, detail="创建 QoS 失败")
+    return {"message": f"QoS {payload.name} 创建成功"}
+
+
+@router.put("/api/slurm/qos/{qos_name}")
+async def update_qos(qos_name: str, payload: QosUpdate, user: dict = Depends(get_current_user)):
+    _require_admin(user)
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", qos_name):
+        raise HTTPException(status_code=400, detail="QoS 名称格式无效")
+    success = slurm_mgr.update_qos(qos_name, **payload.dict(exclude_unset=True))
+    if not success:
+        raise HTTPException(status_code=500, detail="更新 QoS 失败")
+    return {"message": f"QoS {qos_name} 更新成功"}
+
+
+@router.delete("/api/slurm/qos/{qos_name}")
+async def delete_qos(qos_name: str, user: dict = Depends(get_current_user)):
+    _require_admin(user)
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", qos_name):
+        raise HTTPException(status_code=400, detail="QoS 名称格式无效")
+    if not slurm_mgr.delete_qos(qos_name):
+        raise HTTPException(status_code=500, detail="删除 QoS 失败")
+    return {"message": f"QoS {qos_name} 已删除"}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

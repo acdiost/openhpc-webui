@@ -951,6 +951,69 @@ class SlurmManager:
             print(f"Slurm 删除账户失败: {e}")
             return False
 
+    def list_qos(self) -> List[Dict]:
+        """列出 Slurm QoS 配置。"""
+        try:
+            result = subprocess.run(["sacctmgr", "show", "qos", "--json"], capture_output=True, text=True, check=True)
+            records = json.loads(result.stdout or "{}").get("qos", []) or []
+            return sorted([{
+                "name": q.get("name") or "",
+                "description": q.get("description") or "",
+                "priority": q.get("priority") or 0,
+                "flags": q.get("flags") or [],
+                "max_wall": q.get("max_wall") or q.get("max_wall_pj") or "",
+                "max_jobs_pa": q.get("max_jobs_pa"),
+                "max_submit_jobs_pa": q.get("max_submit_jobs_pa"),
+                "max_tres": q.get("max_tres_pa") or q.get("max_tres") or "",
+                "usage_factor": q.get("usage_factor"),
+            } for q in records], key=lambda item: item["name"])
+        except Exception as exc:
+            print(f"获取 Slurm QoS 失败: {exc}")
+            return []
+
+    @staticmethod
+    def _qos_changes(description=None, priority=None, max_wall=None,
+                     max_jobs_pa=None, max_submit_jobs_pa=None, max_tres=None):
+        changes = []
+        if description is not None: changes.append(f"Description={description}")
+        if priority is not None: changes.append(f"Priority={priority}")
+        if max_wall is not None: changes.append(f"MaxWall={max_wall or 'NONE'}")
+        if max_jobs_pa is not None: changes.append(f"MaxJobsPA={max_jobs_pa or '0'}")
+        if max_submit_jobs_pa is not None: changes.append(f"MaxSubmitJobsPA={max_submit_jobs_pa or '0'}")
+        if max_tres is not None: changes.append(f"MaxTRES={max_tres or 'NONE'}")
+        return changes
+
+    def create_qos(self, name: str, **kwargs) -> bool:
+        try:
+            args = ["sacctmgr", "-i", "add", "qos", f"name={name}"]
+            args.extend(self._qos_changes(**kwargs))
+            subprocess.run(args, capture_output=True, text=True, check=True)
+            return True
+        except Exception as exc:
+            print(f"创建 Slurm QoS 失败: {exc}")
+            return False
+
+    def update_qos(self, name: str, **kwargs) -> bool:
+        try:
+            changes = self._qos_changes(**kwargs)
+            if not changes:
+                return True
+            args = ["sacctmgr", "-i", "modify", "qos", f"name={name}", "set"]
+            args.extend(changes)
+            subprocess.run(args, capture_output=True, text=True, check=True)
+            return True
+        except Exception as exc:
+            print(f"更新 Slurm QoS 失败: {exc}")
+            return False
+
+    def delete_qos(self, name: str) -> bool:
+        try:
+            subprocess.run(["sacctmgr", "-i", "delete", "qos", f"name={name}"], capture_output=True, text=True, check=True)
+            return True
+        except Exception as exc:
+            print(f"删除 Slurm QoS 失败: {exc}")
+            return False
+
     def list_associations(self, account: Optional[str] = None) -> List[Dict]:
         """列出 Slurm 账户关联（association）。"""
         try:

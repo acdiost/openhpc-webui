@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}QoS 管理{% endblock %}
+{% block breadcrumb_title %}QoS 管理{% endblock %}
+{% block content %}
+<div class="flex justify-between items-center" style="margin-bottom:24px">
+  <h2 style="font-size:28px;font-weight:700">Slurm QoS 管理</h2>
+  <button class="btn btn-primary" onclick="openQosModal()">+ 创建 QoS</button>
+</div>
+<div class="card">
+  <div class="flex justify-between items-center" style="margin-bottom:16px">
+    <h3 class="card-title" style="margin-bottom:0">QoS 列表</h3>
+    <span style="color:#6b7280;font-size:14px">总计: <strong id="qosCount">—</strong> 个</span>
+  </div>
+  <div class="data-table-scroll" role="region" aria-label="QoS 列表" tabindex="0">
+    <table class="table data-table" id="qosTable">
+      <thead><tr><th>名称</th><th>描述</th><th>优先级</th><th>最长运行时间</th><th>最大并发作业</th><th>最大提交数</th><th>MaxTRES</th><th>标记</th><th>操作</th></tr></thead>
+      <tbody id="qosBody"><tr><td colspan="9" class="text-center py-8 text-gray-500">加载中…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+{% block modals %}
+<div id="qosModal" class="modal" style="display:none">
+ <div class="modal-content">
+  <div class="modal-header"><h3 id="qosModalTitle">创建 QoS</h3><button class="modal-close" onclick="closeQosModal()">&times;</button></div>
+  <form onsubmit="saveQos(event)">
+   <input type="hidden" id="qosOriginalName">
+   <div class="form-group"><label for="qosName">名称</label><input id="qosName" required pattern="[A-Za-z0-9_.-]{1,64}" autocomplete="off"></div>
+   <div class="form-group"><label for="qosDescription">描述</label><input id="qosDescription"></div>
+   <div class="form-group"><label for="qosPriority">优先级</label><input id="qosPriority" type="number" min="0" step="1" value="0"></div>
+   <div class="form-group"><label for="qosMaxWall">最长运行时间</label><input id="qosMaxWall" placeholder="如 2-00:00:00，留空不限"></div>
+   <div class="form-group"><label for="qosMaxJobs">账户最大并发作业数</label><input id="qosMaxJobs" type="number" min="0" step="1" placeholder="0 表示不限"></div>
+   <div class="form-group"><label for="qosMaxSubmit">账户最大提交数</label><input id="qosMaxSubmit" type="number" min="0" step="1" placeholder="0 表示不限"></div>
+   <div class="form-group"><label for="qosMaxTres">MaxTRES</label><input id="qosMaxTres" placeholder="如 cpu=64,gres/gpu=2，留空不限"></div>
+   <div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="closeQosModal()">取消</button><button class="btn btn-primary">保存</button></div>
+  </form>
+ </div>
+</div>
+{% endblock %}
+{% block page_scripts %}
+<script>
+let qosItems = [];
+const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function loadQos() {
+  const response = await fetch('/api/slurm/qos'); const data = await response.json();
+  if (!response.ok) { showToast(data.detail || '获取 QoS 失败', 'error'); return; }
+  qosItems = data.qos || []; document.getElementById('qosCount').textContent = qosItems.length;
+  document.getElementById('qosBody').innerHTML = qosItems.length ? qosItems.map((q, i) => `<tr><td><strong>${esc(q.name)}</strong></td><td>${esc(q.description) || '—'}</td><td>${esc(q.priority)}</td><td>${esc(q.max_wall) || '不限'}</td><td>${q.max_jobs_pa ?? '不限'}</td><td>${q.max_submit_jobs_pa ?? '不限'}</td><td>${esc(q.max_tres) || '不限'}</td><td>${esc((q.flags || []).join(', ')) || '—'}</td><td class="col-actions"><button class="btn btn-secondary" onclick="openQosModal(${i})">编辑</button> <button class="btn" style="background:#dc3023;color:#fff" onclick="removeQos(${i})">删除</button></td></tr>`).join('') : '<tr><td colspan="9" class="text-center py-8 text-gray-500">暂无 QoS 数据</td></tr>';
+}
+function openQosModal(index = null) { const q = index === null ? {} : qosItems[index]; document.getElementById('qosModalTitle').textContent = index === null ? '创建 QoS' : '编辑 QoS'; document.getElementById('qosOriginalName').value = q.name || ''; document.getElementById('qosName').value = q.name || ''; document.getElementById('qosName').disabled = index !== null; document.getElementById('qosDescription').value = q.description || ''; document.getElementById('qosPriority').value = q.priority ?? 0; document.getElementById('qosMaxWall').value = q.max_wall || ''; document.getElementById('qosMaxJobs').value = q.max_jobs_pa ?? ''; document.getElementById('qosMaxSubmit').value = q.max_submit_jobs_pa ?? ''; document.getElementById('qosMaxTres').value = q.max_tres || ''; document.getElementById('qosModal').style.display = 'flex'; }
+function closeQosModal() { document.getElementById('qosModal').style.display = 'none'; }
+async function saveQos(event) { event.preventDefault(); const original = document.getElementById('qosOriginalName').value; const value = { description: document.getElementById('qosDescription').value, priority: Number(document.getElementById('qosPriority').value || 0), max_wall: document.getElementById('qosMaxWall').value || null, max_jobs_pa: document.getElementById('qosMaxJobs').value === '' ? null : Number(document.getElementById('qosMaxJobs').value), max_submit_jobs_pa: document.getElementById('qosMaxSubmit').value === '' ? null : Number(document.getElementById('qosMaxSubmit').value), max_tres: document.getElementById('qosMaxTres').value || null }; const name = document.getElementById('qosName').value; const response = await fetch('/api/slurm/qos' + (original ? '/' + encodeURIComponent(original) : ''), {method: original ? 'PUT' : 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(original ? value : {...value, name})}); const data = await response.json(); if (!response.ok) { showToast(data.detail || '保存 QoS 失败', 'error'); return; } showToast(data.message || 'QoS 已保存', 'success'); closeQosModal(); loadQos(); }
+async function removeQos(index) { const name = qosItems[index].name; if (!confirm(`确定删除 QoS "${name}" 吗？`)) return; const response = await fetch('/api/slurm/qos/' + encodeURIComponent(name), {method:'DELETE'}); const data = await response.json(); if (!response.ok) { showToast(data.detail || '删除 QoS 失败', 'error'); return; } showToast(data.message || 'QoS 已删除', 'success'); loadQos(); }
+document.addEventListener('DOMContentLoaded', loadQos);
+</script>
+{% endblock %}

@@ -64,6 +64,25 @@ class AccountUpdate(BaseModel):
     organization: Optional[str] = None
 
 
+class QosCreate(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    priority: Optional[int] = 0
+    max_wall: Optional[str] = None
+    max_jobs_pa: Optional[int] = None
+    max_submit_jobs_pa: Optional[int] = None
+    max_tres: Optional[str] = None
+
+
+class QosUpdate(BaseModel):
+    description: Optional[str] = None
+    priority: Optional[int] = None
+    max_wall: Optional[str] = None
+    max_jobs_pa: Optional[int] = None
+    max_submit_jobs_pa: Optional[int] = None
+    max_tres: Optional[str] = None
+
+
 class AssocCreate(BaseModel):
     username: str
     account: str
