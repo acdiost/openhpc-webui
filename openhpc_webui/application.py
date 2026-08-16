@@ -359,6 +359,14 @@ async def jobs_page(request: Request, user: dict = Depends(get_current_user)):
     return templates.TemplateResponse("jobs.html", {"request": request, "user": user})
 
 
+@router.get("/slurm-guide", response_class=HTMLResponse)
+async def slurm_guide_page(request: Request, user: dict = Depends(get_current_user)):
+    """Slurm 操作手册：所有登录用户均可访问。"""
+    return templates.TemplateResponse(
+        "slurm_guide.html", {"request": request, "user": user}
+    )
+
+
 @router.get("/account", response_class=HTMLResponse)
 async def account_page(request: Request, user: dict = Depends(get_current_user)):
     """账户设置：当前用户可修改自己的密码。"""

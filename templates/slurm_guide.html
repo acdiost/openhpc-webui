@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+{% block title %}Slurm 操作手册{% endblock %}
+{% block breadcrumb_title %}Slurm 操作手册{% endblock %}
+
+{% block head_extra %}
+<style>
+    .guide-intro {
+        margin: 0 0 20px;
+        padding: 16px 20px;
+        border-left: 4px solid #dc3023;
+        background: #fff7f5;
+        color: #7f1d1d;
+        line-height: 1.7;
+    }
+    .guide-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 20px;
+    }
+    .guide-card { min-width: 0; }
+    .guide-card h3 { margin-bottom: 12px; }
+    .guide-card h4 {
+        margin: 18px 0 6px;
+        color: #374151;
+        font-size: 14px;
+    }
+    .guide-card h4:first-of-type { margin-top: 0; }
+    .guide-card p, .guide-card li {
+        color: #4b5563;
+        font-size: 14px;
+        line-height: 1.75;
+    }
+    .guide-card ul { margin: 0 0 0 20px; list-style: disc; }
+    .guide-card code, .guide-card pre {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    .guide-card pre {
+        overflow-x: auto;
+        margin: 8px 0 0;
+        padding: 12px 14px;
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        background: #111827;
+        color: #e5e7eb;
+        font-size: 12px;
+        line-height: 1.65;
+        white-space: pre;
+    }
+    .guide-command {
+        display: grid;
+        grid-template-columns: 92px minmax(0, 1fr);
+        gap: 10px;
+        padding: 9px 0;
+        border-bottom: 1px solid #f3f4f6;
+        align-items: baseline;
+    }
+    .guide-command:last-child { border-bottom: 0; padding-bottom: 0; }
+    .guide-command code { color: #991b1b; font-weight: 700; }
+    .guide-command span { color: #4b5563; font-size: 13px; line-height: 1.6; }
+    .guide-note {
+        margin-top: 20px;
+        padding: 16px 20px;
+        border-left: 4px solid #f59e0b;
+        background: #fffbeb;
+        color: #92400e;
+        font-size: 14px;
+        line-height: 1.8;
+    }
+    @media (max-width: 760px) {
+        .guide-grid { grid-template-columns: 1fr; gap: 16px; }
+        .guide-command { grid-template-columns: 78px minmax(0, 1fr); }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header" style="margin-bottom: 18px">
+    <div>
+        <h2 style="font-size: 28px; font-weight: 700">Slurm 操作手册</h2>
+        <p style="margin-top: 6px; color: #6b7280">从登录节点准备环境、提交作业，到查看状态和结果的常用参考。</p>
+    </div>
+</div>
+
+<div class="guide-intro">
+    <strong>快速开始：</strong>登录计算集群后，先用 <code>cd</code> 进入工作目录；建议优先使用 <code>sbatch</code> 提交可重复的脚本作业，使用 <code>squeue</code> 查看队列，并在作业结束后检查输出文件和退出状态。
+</div>
+
+<div class="guide-grid">
+    <section class="card guide-card">
+        <h3 class="card-title">Linux 基础命令</h3>
+        <div class="guide-command"><code>ssh</code><span>连接登录节点：<code>ssh user@login.example.com</code>；不要在登录节点运行长时间计算</span></div>
+        <div class="guide-command"><code>cd</code><span>切换目录：<code>cd ~/project</code>；<code>cd ..</code> 返回上级目录</span></div>
+        <div class="guide-command"><code>vi</code><span>编辑脚本：<code>vi job.slurm</code>；按 <code>i</code> 编辑，按 <code>Esc</code> 后输入 <code>:wq</code> 保存退出</span></div>
+        <div class="guide-command"><code>cp</code><span>复制文件或目录：<code>cp input.dat backup.dat</code>；目录使用 <code>cp -r</code></span></div>
+        <div class="guide-command"><code>scp</code><span>在本地与远程主机间复制：<code>scp result.csv user@login.example.com:~/results/</code>；目录使用 <code>scp -r</code></span></div>
+        <div class="guide-command"><code>rsync</code><span>增量同步目录：<code>rsync -avP data/ user@login.example.com:~/data/</code>；适合大文件和中断后续传</span></div>
+        <div class="guide-command"><code>tmux</code><span>保持终端会话：<code>tmux new -s work</code> 创建，按 <code>Ctrl-b d</code> 暂离，<code>tmux attach -t work</code> 恢复</span></div>
+        <div class="guide-command"><code>find</code><span>查找文件：<code>find . -name '*.sh'</code>；可配合 <code>-type f</code> 限定文件</span></div>
+        <div class="guide-command"><code>cat</code><span>查看文件：<code>cat job.sh</code>；大文件可使用 <code>less output.log</code></span></div>
+        <div class="guide-command"><code>grep</code><span>搜索日志或文本：<code>grep -n 'ERROR' logs/*.err</code>；<code>-i</code> 可忽略大小写</span></div>
+        <div class="guide-command"><code>tail</code><span>跟踪输出文件：<code>tail -f logs/demo-12345.out</code>；按 <code>Ctrl-c</code> 停止跟踪</span></div>
+        <div class="guide-command"><code>mkdir / chmod</code><span>创建目录和设置脚本权限：<code>mkdir -p logs</code>、<code>chmod +x job.sh</code></span></div>
+        <div class="guide-command"><code>pwd / ls</code><span>查看当前路径和目录内容：<code>pwd</code>、<code>ls -lh</code></span></div>
+    </section>
+
+    <section class="card guide-card">
+        <h3 class="card-title">Slurm 作业命令</h3>
+        <div class="guide-command"><code>srun</code><span>交互式运行，适合短时测试：<code>srun -p cpu -c 4 --mem=8G --time=00:30:00 --pty bash</code></span></div>
+        <div class="guide-command"><code>sbatch</code><span>提交批处理脚本：<code>sbatch job.sh</code>；返回作业 ID</span></div>
+        <div class="guide-command"><code>squeue</code><span>查看队列：<code>squeue -u $USER</code> 查看自己的作业</span></div>
+        <div class="guide-command"><code>scancel</code><span>取消作业：<code>scancel 12345</code>；取消自己的作业或确认已获授权</span></div>
+        <div class="guide-command"><code>sstat</code><span>查看运行中作业资源：<code>sstat 12345</code>；可观察内存和 CPU 使用情况</span></div>
+        <div class="guide-command"><code>sacct</code><span>查询历史作业和退出码：<code>sacct -j 12345 --format=JobID,State,Elapsed,ExitCode</code></span></div>
+        <div class="guide-command"><code>sreport</code><span>查看集群资源统计：<code>sreport cluster utilization start=2026-01-01</code></span></div>
+        <div class="guide-command"><code>sinfo</code><span>查看分区和节点状态：<code>sinfo -o '%P %a %l %D %C'</code></span></div>
+        <div class="guide-command"><code>scontrol</code><span>查看作业详情：<code>scontrol show job 12345</code>；可确认实际分配的节点和资源</span></div>
+    </section>
+</div>
+
+<section class="card guide-card" style="margin-top: 20px">
+    <h3 class="card-title">作业脚本模板</h3>
+    <p>将下面内容保存为 <code>job.sh</code>。每行 <code>#SBATCH</code> 都是提交参数，先按集群实际分区和资源名称修改，再提交。</p>
+    <pre><code>#!/bin/bash
+# 作业名称，便于在 squeue 中识别
+#SBATCH --job-name=demo
+# 分区名称，按集群实际配置填写
+#SBATCH --partition=cpu
+# 申请节点数
+#SBATCH --nodes=1
+# 申请的任务/进程数
+#SBATCH --ntasks=1
+# 每个任务使用的 CPU 核数
+#SBATCH --cpus-per-task=4
+# 每个节点申请的内存
+#SBATCH --mem=8G
+# 最长运行时间，格式为 天-时:分:秒
+#SBATCH --time=02:00:00
+# 标准输出；%x=作业名，%j=作业 ID
+#SBATCH --output=logs/%x-%j.out
+# 标准错误输出
+#SBATCH --error=logs/%x-%j.err
+# 排除不希望使用的节点，可用逗号分隔
+#SBATCH --exclude=node[01-03]
+# 可选：只选择满足特性标签的节点
+#SBATCH --constraint=avx2
+
+set -euo pipefail
+mkdir -p logs
+cd "$SLURM_SUBMIT_DIR"
+
+echo "Job $SLURM_JOB_ID runs on $(hostname)"
+echo "Started at $(date)"
+# module load your-software/版本
+# python train.py --input data/input.csv
+srun ./your_program --threads "$SLURM_CPUS_PER_TASK"
+
+echo "Finished at $(date)"</code></pre>
+    <h4>提交与跟踪</h4>
+    <pre><code>chmod +x job.sh
+sbatch job.sh
+squeue -j JOB_ID
+sacct -j JOB_ID --format=JobID,State,Elapsed,MaxRSS,ExitCode</code></pre>
+    <h4>资源参数速查</h4>
+    <ul>
+        <li><code>--time=01:30:00</code> 表示 1 小时 30 分钟；也支持 <code>2-00:00:00</code> 表示 2 天。超过限时的作业会被 Slurm 终止。</li>
+        <li><code>--mem=32G</code> 是节点内存；需要按 CPU 申请内存时可使用 <code>--mem-per-cpu=4G</code>，两者不要同时设置。</li>
+        <li><code>--nodelist=node05</code> 强制指定节点，<code>--exclude=node05,node06</code> 排除节点；除非调试或有明确原因，不建议长期固定节点。</li>
+        <li><code>--constraint=feature</code> 按节点特性筛选，特性名称需要向管理员或通过 <code>sinfo -O NodeHost,AvailableFeatures</code> 确认。</li>
+    </ul>
+</section>
+
+<div class="guide-grid" style="margin-top: 20px">
+    <section class="card guide-card">
+        <h3 class="card-title">常见作业类型</h3>
+        <h4>短时交互调试</h4>
+        <pre><code>srun -p cpu -c 2 --mem=4G --time=00:30:00 --pty bash</code></pre>
+        <p>适合检查环境、编译程序和验证输入；测试完成后应退出交互会话。</p>
+        <h4>多任务作业</h4>
+        <pre><code>#SBATCH --ntasks=4
+srun ./mpi_program</code></pre>
+        <p>使用 <code>srun</code> 启动并行任务，避免在脚本中直接后台启动大量进程。</p>
+        <h4>GPU 交互调试</h4>
+        <pre><code>srun -p gpu --gres=gpu:1 -c 4 --mem=16G --time=00:30:00 --pty bash</code></pre>
+        <p><code>--gres=gpu:1</code> 表示申请 1 张 GPU；部分集群使用 <code>--gpus=1</code> 或 <code>--gpus-per-node=1</code>，以本集群配置为准。</p>
+    </section>
+    <section class="card guide-card">
+        <h3 class="card-title">GPU 作业模板</h3>
+        <pre><code>#!/bin/bash
+# 作业名称
+#SBATCH --job-name=gpu-demo
+# GPU 分区
+#SBATCH --partition=gpu
+# 申请 1 张 GPU（常见写法）
+#SBATCH --gres=gpu:1
+# 配套 CPU 核数
+#SBATCH --cpus-per-task=8
+# 配套主机内存
+#SBATCH --mem=32G
+# 最长 4 小时
+#SBATCH --time=04:00:00
+# 标准输出
+#SBATCH --output=logs/%x-%j.out
+# 可选：排除故障或维护节点
+#SBATCH --exclude=gpu-node[07-08]
+
+set -euo pipefail
+mkdir -p logs
+cd "$SLURM_SUBMIT_DIR"
+# module load cuda/版本
+nvidia-smi
+srun python train.py --epochs 10</code></pre>
+        <p>GPU 型号限制通常通过 <code>--constraint=a100</code> 等特性标签实现；不要仅凭节点名称猜测 GPU 类型。</p>
+    </section>
+    <section class="card guide-card">
+        <h3 class="card-title">作业注意事项</h3>
+        <ul>
+            <li>登录节点只用于编辑、编译和提交作业，不要直接运行高 CPU/内存程序。</li>
+            <li><code>tmux</code> 只能保持终端会话，不会替代 Slurm；长时间计算仍应写入脚本并使用 <code>sbatch</code> 提交。</li>
+            <li>使用 <code>rsync</code> 同步目录时注意源路径末尾的斜杠：<code>data/</code> 同步目录内容，<code>data</code> 会连同目录名一起同步。</li>
+            <li>申请资源要贴近实际需求；申请过大可能排队更久，超出内存会导致作业失败。</li>
+            <li>脚本中的输出目录、输入文件和软件环境要写清楚，避免依赖当前终端状态。</li>
+            <li>使用 <code>$SLURM_SUBMIT_DIR</code>、<code>$SLURM_JOB_ID</code> 等变量提高脚本可复现性。</li>
+            <li>作业失败先查看 <code>*.err</code>、<code>sacct</code> 的 <code>State</code> 和 <code>ExitCode</code>，再调整资源或代码。</li>
+            <li>大规模提交前先用小数据集和短时间参数验证脚本，确认无误后再正式运行。</li>
+            <li>GPU 作业要同时申请 GPU、CPU 和内存；程序应确认能看到分配的 GPU（例如运行 <code>nvidia-smi</code>）。</li>
+            <li>不要把 <code>--nodelist</code> 或 <code>--exclude</code> 写死在长期模板中，否则可能造成不必要的排队。</li>
+            <li>限时应覆盖正常运行时间并留出少量余量；需要更长时间时应重新提交或联系管理员，不要无限申请。</li>
+        </ul>
+    </section>
+</div>
+
+<div class="guide-note"><strong>提示：</strong>分区名称、可用资源、软件模块和账户权限由集群管理员配置，实际提交参数请以本集群页面中的分区信息和管理员说明为准。</div>
+{% endblock %}
