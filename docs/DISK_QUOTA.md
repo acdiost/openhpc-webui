@@ -1,9 +1,14 @@
 # 用户磁盘配额
 
-本项目通过 `NFS_QUOTA_FS` 指定配额文件系统，并使用 `quota`/`setquota` 读取和修改用户配额。XFS 文件系统必须先在挂载参数中启用用户配额，否则页面中的配额操作会明确返回“未配置或未启用”，不会假报成功。
+本项目通过 `NFS_QUOTA_FS` 指定配额文件系统，并使用 `quota`/`setquota` 读取和修改用户配额。XFS 和 ext4 都受支持，但必须先在实际挂载点启用用户配额，否则页面中的配额操作会明确返回“未配置或未启用”，不会假报成功。
 
 `NFS_QUOTA_FS` 必须填写 `findmnt -T <用户家目录>` 返回的实际挂载点。`/home`
 只是根文件系统中的普通目录时，应填写 `/`，不能填写 `/home`。
+
+| 文件系统 | 挂载选项 | 初始化方式 | WebUI 读写命令 |
+|---|---|---|---|
+| XFS | `uquota` 或 `usrquota` | 配额元数据由 XFS 管理，不运行 `quotacheck` | `quota` / `setquota` |
+| ext4 | `usrquota` | 维护窗口执行 `quotacheck`，再执行 `quotaon` | `quota` / `setquota` |
 
 ## Rocky Linux 9 根 XFS 实操
 
@@ -51,6 +56,107 @@ sudo xfs_quota -x -c 'report -h -u' /
 ```dotenv
 NFS_QUOTA_FS=/
 ```
+
+## Rocky Linux 9 ext4 启用步骤
+
+先安装工具并确认 `/home` 所属的设备、文件系统和实际挂载点：
+
+```bash
+sudo dnf install -y quota
+findmnt -T /home -o TARGET,SOURCE,FSTYPE,OPTIONS
+```
+
+以下命令仅适用于 `FSTYPE` 为 `ext4`。若结果中的 `TARGET` 为 `/home`，说明
+`/home` 是独立分区；若 `TARGET` 为 `/`，应按照后面的“根 ext4”说明操作。
+
+### 独立的 `/home` ext4 分区
+
+先备份 `/etc/fstab`，再为 `/home` 的 ext4 挂载项加入 `usrquota`：
+
+```bash
+sudo cp -p /etc/fstab /etc/fstab.backup.$(date +%Y%m%d%H%M%S)
+```
+
+```text
+UUID=<home-uuid> /home ext4 defaults,usrquota 0 2
+```
+
+在没有用户会话、NFS 服务或应用进程占用 `/home` 的维护窗口重新挂载，然后创建
+并启用用户配额数据：
+
+```bash
+sudo systemctl daemon-reload
+sudo umount /home
+sudo mount /home
+sudo quotacheck -cum /home
+sudo quotaon -v /home
+```
+
+不要强制卸载正在使用的 `/home`。无法安全卸载时，应安排维护窗口重启，并在没有
+用户写入的情况下执行 `quotacheck`。
+
+设置 `dawn` 的 1 GiB 软、硬限额并验证：
+
+```bash
+sudo setquota -u dawn 1048576 1048576 0 0 /home
+quota -w -v -u --filesystem=/home dawn
+sudo repquota -u /home
+```
+
+WebUI 配置必须填写实际挂载点：
+
+```dotenv
+NFS_QUOTA_FS=/home
+```
+
+### `/home` 位于根 ext4 分区
+
+若 `findmnt -T /home` 返回的 `TARGET` 是 `/`，应为根 ext4 挂载项加入
+`usrquota`：
+
+```text
+UUID=<root-uuid> / ext4 defaults,usrquota 0 1
+```
+
+根文件系统无法像独立 `/home` 一样在线卸载。应安排维护窗口重启，并在业务写入
+停止的情况下执行：
+
+```bash
+sudo quotacheck -cum /
+sudo quotaon -v /
+sudo setquota -u dawn 1048576 1048576 0 0 /
+quota -w -v -u --filesystem=/ dawn
+```
+
+对应的 WebUI 配置为：
+
+```dotenv
+NFS_QUOTA_FS=/
+```
+
+此时 ext4 的配额数据属于根文件系统。不要在普通目录 `/home` 中单独创建
+`aquota.user`，也不要将 `NFS_QUOTA_FS` 错写成 `/home`。
+
+### ext4 验证和关闭
+
+检查挂载参数、配额状态和用户报告：
+
+```bash
+QUOTA_FS=/home  # 根 ext4 时改为 /
+findmnt -T /home -o TARGET,SOURCE,FSTYPE,OPTIONS
+sudo quotaon -p "$QUOTA_FS"
+sudo repquota -u "$QUOTA_FS"
+```
+
+清除 `dawn` 的限额时，将软、硬限制都设为 `0`：
+
+```bash
+QUOTA_FS=/home  # 根 ext4 时改为 /
+sudo setquota -u dawn 0 0 0 0 "$QUOTA_FS"
+```
+
+需要完全关闭 ext4 用户配额时，先在维护窗口运行 `quotaoff`，再从 `/etc/fstab`
+移除 `usrquota` 并重新挂载或重启。不要在配额启用期间直接删除配额数据文件。
 
 ## CentOS/RHEL 7 XFS 启用步骤
 
