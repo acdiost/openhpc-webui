@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 import subprocess
@@ -13,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import __version__
+from .audit import AuditMiddleware, sanitize
 from .config import STATIC_DIR, TEMPLATES_DIR, settings
 from .schemas import (
     AccountCreate,
@@ -102,6 +104,122 @@ ldap_mgr = LDAPManager()
 slurm_mgr = SlurmManager()
 auth_mgr = AuthManager()
 quota_mgr = NFSQuotaManager()
+logger = logging.getLogger(__name__)
+
+
+def _pick_fields(value: Optional[dict], fields: tuple[str, ...]) -> Optional[dict]:
+    if not value:
+        return None
+    return {field: value.get(field) for field in fields if field in value}
+
+
+async def _audit_snapshot(request: Request, body: dict):
+    """Read the current persisted state for the resource changed by a request."""
+    path = request.url.path
+
+    if not AUTH_ENABLED:
+        request.state.audit_actor = _DEBUG_USER["username"]
+
+    if path.startswith("/api/auth/"):
+        if path.endswith("change-password"):
+            return {"password": "[REDACTED]"}
+        return {"authenticated": bool(request.session.get("user"))}
+
+    if AUTH_ENABLED and not request.session.get("user"):
+        return {"access": "unauthenticated"}
+
+    match = re.fullmatch(r"/api/admin(?:/([^/]+))?", path)
+    if match:
+        username = match.group(1) or body.get("username")
+        return {"username": username, "is_admin": admin_mgr.is_admin(username or "")}
+
+    match = re.fullmatch(r"/api/ldap/users(?:/([^/]+)(?:/(?:disable|quota|ssh-key))?)?", path)
+    if match:
+        username = match.group(1) or body.get("username")
+        record = _pick_fields(
+            ldap_mgr.get_user(username) if username else None,
+            ("username", "uid", "gid", "home", "shell", "cn"),
+        )
+        if record is not None:
+            record["is_admin"] = admin_mgr.is_admin(username)
+            if path.endswith("/quota"):
+                record["storage_quota"] = quota_mgr.get_user_quota(username)
+        return record
+
+    if path.endswith("/add-member") or path.endswith("/remove-member"):
+        group_name = body.get("group_name")
+        return _pick_fields(
+            ldap_mgr.get_group(group_name) if group_name else None,
+            ("name", "gid", "description", "members"),
+        )
+
+    match = re.fullmatch(r"/api/ldap/groups(?:/([^/]+))?", path)
+    if match:
+        group_name = match.group(1) or body.get("name")
+        return _pick_fields(
+            ldap_mgr.get_group(group_name) if group_name else None,
+            ("name", "gid", "description", "members"),
+        )
+
+    match = re.fullmatch(r"/api/slurm/accounts(?:/([^/]+)(?:/tres-minutes)?)?", path)
+    if match:
+        account_name = match.group(1) or body.get("name")
+        account = next(
+            (item for item in slurm_mgr.list_accounts() if item.get("name") == account_name),
+            None,
+        )
+        snapshot = _pick_fields(account, ("name", "description", "organization"))
+        if snapshot is not None and path.endswith("/tres-minutes"):
+            snapshot["tres_minutes"] = slurm_mgr.get_account_tres_minutes(account_name)
+        return snapshot
+
+    match = re.fullmatch(r"/api/slurm/qos(?:/([^/]+))?", path)
+    if match:
+        qos_name = match.group(1) or body.get("name")
+        return next((item for item in slurm_mgr.list_qos() if item.get("name") == qos_name), None)
+
+    match = re.fullmatch(r"/api/slurm/associations(?:/([^/]+)/([^/]+)(?:/tres-minutes)?)?", path)
+    if match:
+        account_name = match.group(1) or body.get("account")
+        username = match.group(2) or body.get("username")
+        return next(
+            (
+                item
+                for item in slurm_mgr.list_associations(account=account_name)
+                if item.get("user") == username
+                and (not body.get("partition") or item.get("partition") == body.get("partition"))
+            ),
+            None,
+        )
+
+    match = re.fullmatch(r"/api/slurm/partitions(?:/([^/]+))?", path)
+    if match:
+        name = match.group(1) or body.get("name")
+        return slurm_mgr.config_mgr.get_partition(name) if name else None
+
+    match = re.fullmatch(r"/api/slurm/nodes(?:/([^/]+)(?:/(?:config|drain|resume|state))?)?", path)
+    if match:
+        name = match.group(1) or body.get("name")
+        if not name:
+            return None
+        if path.endswith("/config") or request.method == "DELETE" or (request.method == "POST" and path == "/api/slurm/nodes"):
+            return slurm_mgr.get_node_from_config(name)
+        return _pick_fields(
+            slurm_mgr.get_node_detail(name),
+            ("name", "state", "reason", "cpus", "memory", "gres"),
+        )
+
+    match = re.fullmatch(r"/api/slurm/jobs/([^/]+)", path)
+    if match:
+        return _pick_fields(slurm_mgr.get_job_detail(match.group(1)), ("JobId", "JobState", "UserId", "Partition"))
+
+    match = re.fullmatch(r"/api/slurm/users/([^/]+)/credit", path)
+    if match:
+        username = match.group(1)
+        limits = slurm_mgr.get_users_tres_limits().get(username)
+        return sanitize(limits)
+
+    return None
 
 
 # ── 异常处理 ────────────────────────────────────────────────────────────────
@@ -518,7 +636,7 @@ async def create_user(user_data: UserCreate, user: dict = Depends(get_current_us
     # 同步到 Slurm 账户系统
     slurm_success = slurm_mgr.add_user_account(user_data.username)
     if not slurm_success:
-        print(f"警告: Slurm 账户添加失败，但 LDAP 用户 {user_data.username} 已创建")
+        logger.warning("Slurm 账户添加失败，但 LDAP 用户 %s 已创建", user_data.username)
 
     # 处理管理员权限
     if user_data.is_admin:
@@ -1375,9 +1493,9 @@ async def allocate_user_credits(
     if grant is None:
         raise HTTPException(status_code=500, detail="核时/卡时拨付失败")
 
-    print(
-        "核时/卡时拨付",
-        {
+    logger.info(
+        "核时/卡时拨付完成",
+        extra={"fields": {
             "username": username,
             "account": grant["account"],
             "cpu_hours": cpu_hours,
@@ -1385,7 +1503,7 @@ async def allocate_user_credits(
             "reason": payload.reason,
             "comment": stamped_comment,
             "operator": user.get("username"),
-        },
+        }},
     )
 
     return {
@@ -1540,6 +1658,7 @@ async def update_node_state(
 def create_app() -> FastAPI:
     """Construct and configure a FastAPI application instance."""
     application = FastAPI(title=settings.app_title)
+    application.add_middleware(AuditMiddleware, snapshot_resolver=_audit_snapshot)
     application.add_middleware(
         SessionMiddleware,
         secret_key=_get_session_secret(),

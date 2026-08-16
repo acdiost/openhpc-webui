@@ -6,6 +6,7 @@ import os
 from typing import Optional, Dict
 from ldap3 import Server, Connection, ALL, SIMPLE
 from dotenv import load_dotenv
+from ..audit import structured_print as print
 
 load_dotenv()
 

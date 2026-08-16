@@ -6,6 +6,7 @@ from typing import List, Dict, Optional
 from pathlib import Path
 
 from ..config import slurm_config_file
+from ..audit import structured_print as print
 
 
 class PartitionConfigManager:

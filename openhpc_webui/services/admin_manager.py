@@ -6,6 +6,7 @@
 import os
 import re
 from typing import List
+from ..audit import structured_print as print
 
 
 def get_admin_list() -> List[str]:

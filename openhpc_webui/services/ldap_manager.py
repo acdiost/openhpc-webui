@@ -5,6 +5,7 @@ import hashlib
 import base64
 from typing import List, Dict, Optional
 from dotenv import load_dotenv
+from ..audit import log_current_exception, structured_print as print
 
 # Load environment variables
 load_dotenv()
@@ -137,8 +138,7 @@ class LDAPManager:
             return users
         except Exception as e:
             print(f"查询用户失败: {e}")
-            import traceback
-            traceback.print_exc()
+            log_current_exception("查询用户失败的调用栈")
             return []
         finally:
             conn.unbind()
@@ -313,8 +313,7 @@ class LDAPManager:
             return groups
         except Exception as e:
             print(f"查询组失败: {e}")
-            import traceback
-            traceback.print_exc()
+            log_current_exception("查询组失败的调用栈")
             return []
         finally:
             conn.unbind()

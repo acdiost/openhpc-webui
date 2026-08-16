@@ -2,6 +2,7 @@ import os
 import re
 import subprocess
 from typing import Dict, Optional
+from ..audit import structured_print as print
 
 
 class NFSQuotaManager:

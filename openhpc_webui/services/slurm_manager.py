@@ -10,6 +10,7 @@ from .partition_config import PartitionConfigManager
 import os
 from collections import deque
 from pathlib import Path
+from ..audit import log_current_exception, structured_print as print
 
 
 class SlurmManager:
@@ -78,8 +79,7 @@ class SlurmManager:
             return partitions
         except Exception as e:
             print(f"查询分区失败: {e}")
-            import traceback
-            traceback.print_exc()
+            log_current_exception("查询分区失败的调用栈")
             return []
 
     def _get_runtime_status(self) -> Dict[str, Dict]:
@@ -201,8 +201,7 @@ class SlurmManager:
 
         except Exception as e:
             print(f"获取运行时状态失败: {e}")
-            import traceback
-            traceback.print_exc()
+            log_current_exception("获取运行时状态失败的调用栈")
 
         return status_map
 
@@ -1988,8 +1987,7 @@ class SlurmManager:
 
         except Exception as e:
             print(f"读取作业输出文件失败: {e}")
-            import traceback
-            traceback.print_exc()
+            log_current_exception("读取作业输出文件失败的调用栈")
             return {
                 'success': False,
                 'error': f'读取文件失败: {str(e)}',
