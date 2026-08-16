@@ -959,28 +959,62 @@ class SlurmManager:
             return sorted([{
                 "name": q.get("name") or "",
                 "description": q.get("description") or "",
-                "priority": q.get("priority") or 0,
+                "priority": self._qos_number(q.get("priority")),
                 "flags": q.get("flags") or [],
-                "max_wall": q.get("max_wall") or q.get("max_wall_pj") or "",
-                "max_jobs_pa": q.get("max_jobs_pa"),
-                "max_submit_jobs_pa": q.get("max_submit_jobs_pa"),
-                "max_tres": q.get("max_tres_pa") or q.get("max_tres") or "",
-                "usage_factor": q.get("usage_factor"),
+                "max_wall": self._qos_limit(q, "wall_clock", "per", "qos"),
+                "max_jobs_pu": self._qos_limit(q, "jobs", "active_jobs", "per", "user"),
+                "max_submit_jobs_pu": self._qos_limit(q, "jobs", "per", "user"),
+                "max_tres_pu": self._qos_tres(q),
+                "usage_factor": self._qos_number(q.get("usage_factor")),
             } for q in records], key=lambda item: item["name"])
         except Exception as exc:
             print(f"获取 Slurm QoS 失败: {exc}")
             return []
 
     @staticmethod
+    def _qos_number(value):
+        """从 Slurm JSON 的 {number, infinite, set} 包装值取数字。"""
+        if isinstance(value, dict):
+            if value.get("infinite"):
+                return None
+            return value.get("number")
+        return value
+
+    @classmethod
+    def _qos_limit(cls, qos: Dict, *path):
+        value = qos.get("limits", {}).get("max", {})
+        for key in path:
+            value = value.get(key, {}) if isinstance(value, dict) else {}
+        if isinstance(value, dict) and {"number", "infinite", "set"}.intersection(value):
+            return cls._qos_number(value)
+        return value or None
+
+    @classmethod
+    def _qos_tres(cls, qos: Dict):
+        values = qos.get("limits", {}).get("max", {}).get("tres", {}).get("per", {}).get("user", [])
+        if not isinstance(values, list):
+            return values or ""
+        rendered = []
+        for item in values:
+            if isinstance(item, dict):
+                name = item.get("type") or item.get("name") or item.get("tres")
+                number = cls._qos_number(item.get("count", item.get("value")))
+                if name:
+                    rendered.append(f"{name}={number}" if number is not None else str(name))
+            elif item:
+                rendered.append(str(item))
+        return ",".join(rendered)
+
+    @staticmethod
     def _qos_changes(description=None, priority=None, max_wall=None,
-                     max_jobs_pa=None, max_submit_jobs_pa=None, max_tres=None):
+                     max_jobs_pu=None, max_submit_jobs_pu=None, max_tres_pu=None):
         changes = []
         if description is not None: changes.append(f"Description={description}")
         if priority is not None: changes.append(f"Priority={priority}")
         if max_wall is not None: changes.append(f"MaxWall={max_wall or 'NONE'}")
-        if max_jobs_pa is not None: changes.append(f"MaxJobsPA={max_jobs_pa or '0'}")
-        if max_submit_jobs_pa is not None: changes.append(f"MaxSubmitJobsPA={max_submit_jobs_pa or '0'}")
-        if max_tres is not None: changes.append(f"MaxTRES={max_tres or 'NONE'}")
+        if max_jobs_pu is not None: changes.append(f"MaxJobsPU={max_jobs_pu or '0'}")
+        if max_submit_jobs_pu is not None: changes.append(f"MaxSubmitJobsPU={max_submit_jobs_pu or '0'}")
+        if max_tres_pu is not None: changes.append(f"MaxTRESPU={max_tres_pu or 'NONE'}")
         return changes
 
     def create_qos(self, name: str, **kwargs) -> bool:

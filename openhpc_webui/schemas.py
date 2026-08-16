@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class LoginRequest(BaseModel):
@@ -67,20 +67,20 @@ class AccountUpdate(BaseModel):
 class QosCreate(BaseModel):
     name: str
     description: Optional[str] = ""
-    priority: Optional[int] = 0
+    priority: Optional[int] = Field(0, ge=0)
     max_wall: Optional[str] = None
-    max_jobs_pa: Optional[int] = None
-    max_submit_jobs_pa: Optional[int] = None
-    max_tres: Optional[str] = None
+    max_jobs_pu: Optional[int] = Field(None, ge=0)
+    max_submit_jobs_pu: Optional[int] = Field(None, ge=0)
+    max_tres_pu: Optional[str] = None
 
 
 class QosUpdate(BaseModel):
     description: Optional[str] = None
-    priority: Optional[int] = None
+    priority: Optional[int] = Field(None, ge=0)
     max_wall: Optional[str] = None
-    max_jobs_pa: Optional[int] = None
-    max_submit_jobs_pa: Optional[int] = None
-    max_tres: Optional[str] = None
+    max_jobs_pu: Optional[int] = Field(None, ge=0)
+    max_submit_jobs_pu: Optional[int] = Field(None, ge=0)
+    max_tres_pu: Optional[str] = None
 
 
 class AssocCreate(BaseModel):
