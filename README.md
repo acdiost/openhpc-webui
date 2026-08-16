@@ -118,6 +118,7 @@ uv run openhpc_webui
 | `AUTHORIZED` | 是否启用登录认证，生产环境必须为 `True` |
 | `ADMIN_USERS` | 管理员用户名，多个值使用英文逗号分隔 |
 | `SLURM_DEFAULT_ACCOUNT` | 创建 LDAP 用户时使用的默认 Slurm 账户 |
+| `SLURM_CONFIG_DIR` | 节点与分区配置文件目录，默认 `/etc/slurm` |
 
 完整配置说明见[技术指南](./docs/TECHNICAL_GUIDE.md)。
 

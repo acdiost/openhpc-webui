@@ -73,6 +73,7 @@ openssl rand -hex 32
 | 变量 | 说明 | 默认值 |
 | --- | --- | --- |
 | `SLURM_DEFAULT_ACCOUNT` | 新建 LDAP 用户时使用的默认 Slurm 账户 | `dawn` |
+| `SLURM_CONFIG_DIR` | 节点与分区配置文件目录（`node.conf`、`partition.conf`） | `/etc/slurm` |
 | `JOB_OUTPUT_ALLOWED_ROOTS` | 允许读取作业输出的额外根目录；Linux 下以冒号分隔 | - |
 | `NFS_QUOTA_FS` | 启用用户存储配额时使用的文件系统路径 | - |
 

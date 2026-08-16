@@ -18,6 +18,7 @@ def _resource_dir(name: str) -> Path:
 
 STATIC_DIR = _resource_dir("static")
 TEMPLATES_DIR = _resource_dir("templates")
+DEFAULT_SLURM_CONFIG_DIR = "/etc/slurm"
 
 load_dotenv(PROJECT_ROOT / ".env")
 
@@ -28,6 +29,12 @@ def env_bool(name: str, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"true", "1", "yes", "on"}
+
+
+def slurm_config_file(filename: str) -> str:
+    """Resolve a managed Slurm config file from the configured directory."""
+    config_dir = os.getenv("SLURM_CONFIG_DIR", DEFAULT_SLURM_CONFIG_DIR)
+    return str(Path(config_dir).expanduser() / filename)
 
 
 @dataclass(frozen=True)

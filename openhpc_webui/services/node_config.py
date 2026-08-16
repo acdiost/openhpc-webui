@@ -5,12 +5,14 @@ import tempfile
 from typing import List, Dict, Optional
 from pathlib import Path
 
+from ..config import slurm_config_file
+
 
 class NodeConfigManager:
     """Slurm 节点配置文件管理器"""
 
-    def __init__(self, config_file: str = "/usr/local/etc/node.conf"):
-        self.config_file = config_file
+    def __init__(self, config_file: Optional[str] = None):
+        self.config_file = config_file or slurm_config_file("node.conf")
 
     def read_nodes(self) -> List[Dict]:
         """读取配置文件中的所有节点"""

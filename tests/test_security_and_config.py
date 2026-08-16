@@ -196,6 +196,25 @@ class JobOutputSecurityTests(unittest.TestCase):
 
 
 class ConfigPreservationTests(unittest.TestCase):
+    def test_config_managers_use_slurm_config_dir(self):
+        with patch.dict(os.environ, {"SLURM_CONFIG_DIR": "/srv/slurm"}):
+            self.assertEqual(NodeConfigManager().config_file, "/srv/slurm/node.conf")
+            self.assertEqual(
+                PartitionConfigManager().config_file, "/srv/slurm/partition.conf"
+            )
+
+    def test_config_managers_default_to_etc_slurm(self):
+        with patch.dict(os.environ, {}, clear=False):
+            previous = os.environ.pop("SLURM_CONFIG_DIR", None)
+            try:
+                self.assertEqual(NodeConfigManager().config_file, "/etc/slurm/node.conf")
+                self.assertEqual(
+                    PartitionConfigManager().config_file, "/etc/slurm/partition.conf"
+                )
+            finally:
+                if previous is not None:
+                    os.environ["SLURM_CONFIG_DIR"] = previous
+
     def test_partition_update_preserves_comments_and_unknown_fields(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             config_path = Path(temp_dir) / "partition.conf"

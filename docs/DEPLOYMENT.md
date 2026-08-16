@@ -9,7 +9,7 @@
 - Python 3.9 或更高版本，并已安装 `uv`、Git、OpenSSH 客户端和 Supervisor。
 - 能访问 LDAP 服务以及 Slurm 控制端。
 - 已安装 `sinfo`、`squeue`、`sacct`、`scontrol`、`sacctmgr`、`scancel`；启用存储配额时还需 `quota`、`setquota`。
-- Slurm 配置包含项目管理的 `/usr/local/etc/partition.conf` 和 `/usr/local/etc/node.conf`。
+- Slurm 配置包含项目管理的 `/etc/slurm/partition.conf` 和 `/etc/slurm/node.conf`；可通过 `SLURM_CONFIG_DIR` 覆盖目录。
 - 防火墙只向受控网络开放 Nginx 的 80/443 端口，不开放 6827。
 
 先确认系统命令可用：
@@ -56,6 +56,7 @@ LDAP_DEFAULT_AUTHTOK=<LDAP 管理密码>
 
 ADMIN_USERS=admin
 SLURM_DEFAULT_ACCOUNT=dawn
+SLURM_CONFIG_DIR=/etc/slurm
 NFS_QUOTA_FS=
 JOB_OUTPUT_ALLOWED_ROOTS=
 ```
@@ -72,20 +73,20 @@ openssl rand -hex 32
 
 ## 4. 校验 Slurm 集成
 
-门户固定维护以下两个普通文件：
+门户默认维护以下两个普通文件：
 
 ```text
-/usr/local/etc/partition.conf
-/usr/local/etc/node.conf
+/etc/slurm/partition.conf
+/etc/slurm/node.conf
 ```
 
-它们必须被当前生效的 `slurm.conf` 包含。部署前先备份 Slurm 配置，并确认两个文件所在目录可写：
+设置 `SLURM_CONFIG_DIR` 后，门户会改为维护该目录下的同名文件。它们必须被当前生效的 `slurm.conf` 包含。部署前先备份 Slurm 配置，并确认两个文件所在目录可写：
 
 ```bash
-sudo test -f /usr/local/etc/partition.conf
-sudo test -f /usr/local/etc/node.conf
-sudo cp -a /usr/local/etc/partition.conf /usr/local/etc/partition.conf.bak
-sudo cp -a /usr/local/etc/node.conf /usr/local/etc/node.conf.bak
+sudo test -f /etc/slurm/partition.conf
+sudo test -f /etc/slurm/node.conf
+sudo cp -a /etc/slurm/partition.conf /etc/slurm/partition.conf.bak
+sudo cp -a /etc/slurm/node.conf /etc/slurm/node.conf.bak
 
 sinfo
 squeue
@@ -239,7 +240,7 @@ sudo stat /opt/openhpc_webui/.env
 
 ### Slurm 页面无数据或管理操作失败
 
-以 Supervisor 配置中的运行用户执行 `sinfo`、`squeue`、`sacct`、`sacctmgr show account` 和 `scontrol reconfigure`。同时确认 `/usr/local/etc` 目录权限、SlurmDBD 状态和控制端连通性。
+以 Supervisor 配置中的运行用户执行 `sinfo`、`squeue`、`sacct`、`sacctmgr show account` 和 `scontrol reconfigure`。同时确认 `SLURM_CONFIG_DIR` 对应目录权限、SlurmDBD 状态和控制端连通性。
 
 ### 配额操作失败
 
