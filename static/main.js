@@ -539,6 +539,28 @@ async function updateUser(username, userData) {
     }
 }
 
+// Update storage quota without modifying other LDAP attributes
+async function updateUserQuota(username, quotaGb) {
+    try {
+        const response = await fetch(
+            `${config.apiBase}/users/${encodeURIComponent(username)}/quota`,
+            {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ storage_quota_gb: quotaGb })
+            }
+        );
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Failed to update quota');
+        showToast(data.message || '磁盘配额已更新', 'success');
+        return true;
+    } catch (error) {
+        console.error('Failed to update user quota:', error);
+        showToast(error.message, 'error');
+        return false;
+    }
+}
+
 // Reset user SSH key and download private key
 async function resetUserSshKey(username) {
     if (!confirm(`确定要为用户 "${username}" 生成并重置 SSH 密钥吗？旧密钥将失效。`)) {

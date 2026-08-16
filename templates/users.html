@@ -541,6 +541,34 @@ modals %}
     </div>
 </div>
 
+<!-- 修改磁盘配额弹窗 -->
+<div id="userQuotaModal" class="modal" style="display: none">
+    <div class="modal-content" style="max-width: 440px">
+        <div class="modal-header">
+            <h3 id="userQuotaTitle">修改磁盘配额</h3>
+            <button class="modal-close" onclick="closeUserQuotaModal()">&times;</button>
+        </div>
+        <form id="userQuotaForm" onsubmit="handleUserQuota(event)">
+            <input type="hidden" id="quota_username" />
+            <div class="form-group">
+                <label for="quota_value">存储配额 (GB)</label>
+                <div style="display: flex; gap: 10px; align-items: center">
+                    <input type="number" id="quota_value" min="1" step="0.1" placeholder="如 500" style="flex: 1" />
+                    <label for="quota_unlimited" style="display:flex;align-items:center;gap:6px;font-weight:normal;margin-bottom:0">
+                        <input type="checkbox" id="quota_unlimited" checked style="width:16px;height:16px;margin-top:0" />
+                        不限制
+                    </label>
+                </div>
+                <div style="font-size:12px;color:#9ca3af;margin-top:6px">配额仅作用于 /home 挂载点，保存后立即生效。</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeUserQuotaModal()">取消</button>
+                <button type="submit" class="btn btn-primary">保存配额</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <!-- 用户报表弹窗 -->
 <div id="userReportModal" class="modal" style="display: none">
     <div class="modal-content report-modal-content">
@@ -762,6 +790,7 @@ page_scripts %}
         trigger.setAttribute("aria-expanded", "true");
 
         appendUserAction(menu, "编辑用户", () => showEditUserModal(user.username));
+        appendUserAction(menu, "修改磁盘配额", () => showUserQuotaModal(user.username));
         appendUserAction(menu, "生成 / 重置 SSH 密钥", () => resetUserSshKey(user.username));
 
         const separator = document.createElement("div");
@@ -996,6 +1025,41 @@ page_scripts %}
 
     function closeEditUserModal() {
         document.getElementById("editUserModal").style.display = "none";
+    }
+
+    async function showUserQuotaModal(username) {
+        const user = await fetchUser(username);
+        if (!user) {
+            showToast("获取用户信息失败", "error");
+            return;
+        }
+        document.getElementById("quota_username").value = username;
+        document.getElementById("userQuotaTitle").textContent = `修改磁盘配额：${username}`;
+        const limited = Number(user.storage_quota_gb) > 0;
+        document.getElementById("quota_value").value = limited ? user.storage_quota_gb : "";
+        document.getElementById("quota_unlimited").checked = !limited;
+        setupQuotaToggle("quota");
+        document.getElementById("userQuotaModal").style.display = "flex";
+    }
+
+    function closeUserQuotaModal() {
+        document.getElementById("userQuotaModal").style.display = "none";
+    }
+
+    async function handleUserQuota(event) {
+        event.preventDefault();
+        const unlimited = document.getElementById("quota_unlimited").checked;
+        const value = document.getElementById("quota_value").value;
+        if (!unlimited && !value) {
+            showToast("请输入配额大小，或选择不限制", "error");
+            return;
+        }
+        const username = document.getElementById("quota_username").value;
+        const success = await updateUserQuota(username, unlimited ? 0 : parseFloat(value));
+        if (success) {
+            closeUserQuotaModal();
+            loadUsers();
+        }
     }
 
     async function handleEditUser(event) {
@@ -1254,7 +1318,9 @@ page_scripts %}
     /* ── 页面初始化 ───────────────────────────────────────── */
 
     function setupQuotaToggle(prefix) {
-        const input = document.getElementById(`${prefix}_quota`);
+        const input = document.getElementById(
+            prefix === "quota" ? "quota_value" : `${prefix}_quota`,
+        );
         const checkbox = document.getElementById(`${prefix}_quota_unlimited`);
         if (!input || !checkbox) return;
         const applyState = () => {

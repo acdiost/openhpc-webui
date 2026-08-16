@@ -33,6 +33,7 @@ from .schemas import (
     PasswordChangeRequest,
     UserCreate,
     UserCreditRequest,
+    UserQuotaUpdate,
     UserUpdate,
 )
 from .services import admin_manager as admin_mgr
@@ -505,8 +506,11 @@ async def create_user(user_data: UserCreate, user: dict = Depends(get_current_us
         admin_mgr.add_admin(user_data.username)
 
     # 处理 NFS 配额（默认不限制）
-    if quota_mgr:
-        quota_mgr.set_user_quota(user_data.username, user_data.storage_quota_gb)
+    if user_data.storage_quota_gb and user_data.storage_quota_gb > 0:
+        if not quota_mgr.is_enabled():
+            raise HTTPException(status_code=503, detail="NFS quota 未配置或未启用")
+        if not quota_mgr.set_user_quota(user_data.username, user_data.storage_quota_gb):
+            raise HTTPException(status_code=500, detail="设置磁盘配额失败")
 
     return {
         "message": f"用户 {user_data.username} 创建成功",
@@ -583,13 +587,38 @@ async def update_user(
             admin_mgr.remove_admin(username)
 
     # 处理 NFS 配额更新（None = 不更新；0/负数 = 不限制）
-    if user_data.storage_quota_gb is not None and quota_mgr:
-        quota_mgr.set_user_quota(username, user_data.storage_quota_gb)
+    if user_data.storage_quota_gb is not None:
+        if not quota_mgr.is_enabled():
+            raise HTTPException(status_code=503, detail="NFS quota 未配置或未启用")
+        if not quota_mgr.set_user_quota(username, user_data.storage_quota_gb):
+            raise HTTPException(status_code=500, detail="设置磁盘配额失败")
 
     return {
         "message": f"用户 {username} 更新成功",
         "is_admin": admin_mgr.is_admin(username),
     }
+
+
+@router.put("/api/ldap/users/{username}/quota")
+async def update_user_quota(
+    username: str,
+    quota_data: UserQuotaUpdate,
+    user: dict = Depends(get_current_user),
+):
+    """仅修改用户存储配额，避免为配额操作触发 LDAP 用户更新。"""
+    _require_admin(user)
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", username):
+        raise HTTPException(status_code=400, detail="用户名格式无效")
+    if not ldap_mgr.get_user(username):
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if not quota_mgr.is_enabled():
+        raise HTTPException(status_code=503, detail="NFS quota 未配置或未启用")
+    if quota_data.storage_quota_gb is not None and quota_data.storage_quota_gb < 0:
+        raise HTTPException(status_code=400, detail="配额必须为 0 或正数")
+    if not quota_mgr.set_user_quota(username, quota_data.storage_quota_gb):
+        raise HTTPException(status_code=500, detail="设置磁盘配额失败，请检查 quota 工具和挂载配置")
+    quota = quota_mgr.get_user_quota(username) or {"used_gb": 0, "limit_gb": 0}
+    return {"message": f"用户 {username} 的磁盘配额已更新", "quota": quota}
 
 
 @router.post("/api/ldap/users/{username}/ssh-key")

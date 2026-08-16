@@ -31,6 +31,12 @@ class UserUpdate(BaseModel):
     storage_quota_gb: Optional[float] = None
 
 
+class UserQuotaUpdate(BaseModel):
+    """独立修改用户存储配额；0 或 null 表示不限制。"""
+
+    storage_quota_gb: Optional[float] = 0
+
+
 class GroupCreate(BaseModel):
     name: str
     gid: int
