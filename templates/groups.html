@@ -45,6 +45,18 @@ title %}组管理{% endblock %} {% block breadcrumb_title %}组管理{% endblock
     </div>
 </div>
 
+<!-- 操作说明卡片 -->
+<div class="card" style="margin-top: 20px; background-color: #eff6ff; border-left: 4px solid #3b82f6">
+    <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 8px; color: #1e40af">
+        <span aria-hidden="true" style="margin-right: 8px">ⓘ</span>组管理说明
+    </h3>
+    <ul style="list-style: disc; margin-left: 24px; color: #1e40af; font-size: 14px; line-height: 1.8">
+        <li>点击“创建组”新增 LDAP 用户组，GID 需保持唯一</li>
+        <li>编辑组可维护组描述和成员列表，成员变更会同步到 LDAP</li>
+        <li>删除组前请先确认没有用户或业务依赖该组，删除操作无法撤销</li>
+    </ul>
+</div>
+
 {% endblock %} {# ══════════════════════════════════════════════════════════
 弹窗层 ══════════════════════════════════════════════════════════ #} {% block
 modals %}

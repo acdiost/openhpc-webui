@@ -140,6 +140,18 @@ content %}
     </div>
 </div>
 
+<!-- 操作说明卡片 -->
+<div class="card" style="margin-top: 20px; background-color: #eff6ff; border-left: 4px solid #3b82f6">
+    <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 8px; color: #1e40af">
+        <span aria-hidden="true" style="margin-right: 8px">ⓘ</span>作业管理说明
+    </h3>
+    <ul style="list-style: disc; margin-left: 24px; color: #1e40af; font-size: 14px; line-height: 1.8">
+        <li>使用分区、状态和作业归属筛选器快速定位目标作业，点击“刷新队列”获取最新状态</li>
+        <li>运行中或排队中的作业可在操作列取消，取消后通常无法恢复</li>
+        <li>作业状态由 Slurm 调度器维护，完成记录会保留在“最近完成的作业”中</li>
+    </ul>
+</div>
+
 {% endblock %} {# ══════════════════════════════════════════════════════════
 页面脚本（logout 已在 base.html 全局定义，此处无需重复）
 ══════════════════════════════════════════════════════════ #} {% block

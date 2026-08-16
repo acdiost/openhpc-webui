@@ -50,6 +50,18 @@
     </div>
 </div>
 
+<!-- 操作说明卡片 -->
+<div class="card" style="margin-top: 20px; background-color: #eff6ff; border-left: 4px solid #3b82f6">
+    <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 8px; color: #1e40af">
+        <span aria-hidden="true" style="margin-right: 8px">ⓘ</span>账户管理说明
+    </h3>
+    <ul style="list-style: disc; margin-left: 24px; color: #1e40af; font-size: 14px; line-height: 1.8">
+        <li>先创建 Slurm 账户，再到“集群用户管理”为用户建立账户关联</li>
+        <li>可通过“额度”操作设置 CPU 核时和 GPU 卡时上限，留空表示不修改</li>
+        <li>删除账户前请确认没有关联用户或正在运行的作业，操作无法撤销</li>
+    </ul>
+</div>
+
 <div id="accountTresModal" class="modal" style="display:none">
     <div class="modal-content" style="max-width:520px">
         <div class="modal-header"><h3 id="accountTresModalTitle">账户核时/卡时限额</h3>

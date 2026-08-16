@@ -65,6 +65,18 @@
         </table>
     </div>
 </div>
+
+<!-- 操作说明卡片 -->
+<div class="card" style="margin-top: 20px; background-color: #eff6ff; border-left: 4px solid #3b82f6">
+    <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 8px; color: #1e40af">
+        <span aria-hidden="true" style="margin-right: 8px">ⓘ</span>关联管理说明
+    </h3>
+    <ul style="list-style: disc; margin-left: 24px; color: #1e40af; font-size: 14px; line-height: 1.8">
+        <li>选择账户后点击“添加关联”，为用户分配可使用的 Slurm 账户和集群</li>
+        <li>默认账户用于用户未指定账户时提交作业，可按需设置默认 QOS 和分区</li>
+        <li>核时/卡时限额会参与调度校验，修改后对后续作业生效</li>
+    </ul>
+</div>
 {% endblock %}
 
 {% block modals %}

@@ -18,6 +18,17 @@
     </table>
   </div>
 </div>
+
+<!-- 操作说明卡片 -->
+<div class="card" style="margin-top: 20px; background-color: #eff6ff; border-left: 4px solid #3b82f6">
+  <h3 style="font-size:16px;font-weight:600;margin-bottom:8px;color:#1e40af"><span aria-hidden="true" style="margin-right:8px">ⓘ</span>QoS 管理说明</h3>
+  <ul style="list-style:disc;margin-left:24px;color:#1e40af;font-size:14px;line-height:1.8">
+    <li>优先级越高越容易获得调度资源，最长运行时间留空表示不限</li>
+    <li>并发/提交限制分别控制同时运行和累计提交的作业数量</li>
+    <li>MaxTRES 支持如 <code>cpu=64,gres/gpu=2</code> 的资源限制格式</li>
+    <li>删除或调整 QoS 会影响使用它的后续作业，请先确认关联关系</li>
+  </ul>
+</div>
 {% endblock %}
 {% block modals %}
 <div id="qosModal" class="modal" style="display:none">

@@ -120,6 +120,18 @@
         </table>
     </div>
 </div>
+
+<!-- 操作说明卡片 -->
+<div class="card" style="margin-top: 20px; background-color: #eff6ff; border-left: 4px solid #3b82f6">
+    <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 8px; color: #1e40af">
+        <span aria-hidden="true" style="margin-right: 8px">ⓘ</span>总览使用说明
+    </h3>
+    <ul style="list-style: disc; margin-left: 24px; color: #1e40af; font-size: 14px; line-height: 1.8">
+        <li>顶部指标展示当前作业数量及本月 CPU/GPU 额度使用情况，点击“刷新”同步最新数据</li>
+        <li>近期作业区域显示个人作业状态，点击“查看全部”可进入作业管理页筛选和取消作业</li>
+        <li>分区状态中的空闲、占用和离线节点用于判断提交作业的资源可用性</li>
+    </ul>
+</div>
 {% endblock %}
 
 {% block page_scripts %}
