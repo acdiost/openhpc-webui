@@ -103,21 +103,12 @@
             </div>
             <div class="form-group">
                 <label for="create_assoc_qos">QOS 列表</label>
-                <input
-                    type="text"
-                    id="create_assoc_qos"
-                    name="qos"
-                    placeholder="用英文逗号分隔，如 normal,qos_test"
-                />
+                <select id="create_assoc_qos" name="qos" multiple size="4"></select>
+                <div style="font-size:12px;color:#9ca3af;margin-top:5px">按住 Ctrl/Command 可多选</div>
             </div>
             <div class="form-group">
                 <label for="create_assoc_default_qos">默认 QOS</label>
-                <input
-                    type="text"
-                    id="create_assoc_default_qos"
-                    name="default_qos"
-                    placeholder="如 qos_test"
-                />
+                <select id="create_assoc_default_qos" name="default_qos"></select>
             </div>
             <div class="modal-footer">
                 <button
@@ -165,20 +156,12 @@
             </div>
             <div class="form-group">
                 <label for="edit_assoc_qos">QOS 列表</label>
-                <input
-                    type="text"
-                    id="edit_assoc_qos"
-                    name="qos"
-                    placeholder="用英文逗号分隔"
-                />
+                <select id="edit_assoc_qos" name="qos" multiple size="4"></select>
+                <div style="font-size:12px;color:#9ca3af;margin-top:5px">按住 Ctrl/Command 可多选</div>
             </div>
             <div class="form-group">
                 <label for="edit_assoc_default_qos">默认 QOS</label>
-                <input
-                    type="text"
-                    id="edit_assoc_default_qos"
-                    name="default_qos"
-                />
+                <select id="edit_assoc_default_qos" name="default_qos"></select>
             </div>
             <div class="modal-footer">
                 <button
@@ -288,6 +271,29 @@
         }
     }
 
+    async function loadQosOptions() {
+        const qos = await fetchQos();
+        const options = qos
+            .map((item) => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)}</option>`)
+            .join("");
+        ["create_assoc_qos", "edit_assoc_qos"].forEach((id) => {
+            const select = document.getElementById(id);
+            if (select) select.innerHTML = options;
+        });
+        ["create_assoc_default_qos", "edit_assoc_default_qos"].forEach((id) => {
+            const select = document.getElementById(id);
+            if (select) select.innerHTML = '<option value="">不设置默认 QoS</option>' + options;
+        });
+    }
+
+    function setSelectedQos(selectId, values) {
+        const select = document.getElementById(selectId);
+        const selected = new Set(values || []);
+        if (select) Array.from(select.options).forEach((option) => {
+            option.selected = selected.has(option.value);
+        });
+    }
+
     async function loadAssociations() {
         const tbody = document.getElementById("associationsTableBody");
         const accountFilter =
@@ -343,6 +349,8 @@
 
     function showCreateAssocModal() {
         document.getElementById("createAssocForm").reset();
+        setSelectedQos("create_assoc_qos", []);
+        document.getElementById("create_assoc_default_qos").value = "";
         document.getElementById("createAssocModal").style.display = "flex";
     }
 
@@ -357,7 +365,7 @@
             username: fd.get("username"),
             account: fd.get("account"),
             partition: fd.get("partition") || null,
-            qos: fd.get("qos") || null,
+            qos: Array.from(document.getElementById("create_assoc_qos").selectedOptions).map((option) => option.value).join(",") || null,
             default_qos: fd.get("default_qos") || null,
         };
 
@@ -383,10 +391,8 @@
         document.getElementById("edit_assoc_identity").value = `${username} / ${account}`;
         document.getElementById("edit_assoc_partition").value =
             target.partition || "";
-        document.getElementById("edit_assoc_qos").value =
-            target.qos && target.qos.length > 0 ? target.qos.join(",") : "";
-        document.getElementById("edit_assoc_default_qos").value =
-            target.default_qos || "";
+        setSelectedQos("edit_assoc_qos", target.qos || []);
+        document.getElementById("edit_assoc_default_qos").value = target.default_qos || "";
         document.getElementById("editAssocModal").style.display = "flex";
     }
 
@@ -401,7 +407,7 @@
         const username = fd.get("username");
         const payload = {
             partition: fd.get("partition") || "",
-            qos: fd.get("qos") || "",
+            qos: Array.from(document.getElementById("edit_assoc_qos").selectedOptions).map((option) => option.value).join(","),
             default_qos: fd.get("default_qos") || "",
         };
 
@@ -491,6 +497,7 @@
 
     document.addEventListener("DOMContentLoaded", async () => {
         await loadAccountOptions();
+        await loadQosOptions();
         await loadAssociations();
         enableTableSorting("associationsTable");
         const filter = document.getElementById("assocAccountFilter");

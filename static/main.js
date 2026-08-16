@@ -28,6 +28,19 @@ async function fetchAccounts() {
     }
 }
 
+async function fetchQos() {
+    try {
+        const response = await fetch('/api/slurm/qos');
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Failed to fetch QoS');
+        return data.qos || [];
+    } catch (error) {
+        console.error('Failed to fetch QoS:', error);
+        showToast('获取 QoS 列表失败', 'error');
+        return [];
+    }
+}
+
 // Create new account
 async function createAccount(accountData) {
     try {
@@ -1178,6 +1191,7 @@ window.removeUserFromGroup = removeUserFromGroup;
 
 // Export Slurm API functions
 window.fetchAccounts = fetchAccounts;
+window.fetchQos = fetchQos;
 window.createAccount = createAccount;
 window.updateAccount = updateAccount;
 window.deleteAccount = deleteAccount;

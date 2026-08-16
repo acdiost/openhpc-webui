@@ -72,6 +72,9 @@ class QosCreate(BaseModel):
     max_jobs_pu: Optional[int] = Field(None, ge=0)
     max_submit_jobs_pu: Optional[int] = Field(None, ge=0)
     max_tres_pu: Optional[str] = None
+    max_jobs_pa: Optional[int] = Field(None, ge=0)
+    max_submit_jobs_pa: Optional[int] = Field(None, ge=0)
+    max_tres_pa: Optional[str] = None
 
 
 class QosUpdate(BaseModel):
@@ -81,6 +84,9 @@ class QosUpdate(BaseModel):
     max_jobs_pu: Optional[int] = Field(None, ge=0)
     max_submit_jobs_pu: Optional[int] = Field(None, ge=0)
     max_tres_pu: Optional[str] = None
+    max_jobs_pa: Optional[int] = Field(None, ge=0)
+    max_submit_jobs_pa: Optional[int] = Field(None, ge=0)
+    max_tres_pa: Optional[str] = None
 
 
 class AssocCreate(BaseModel):

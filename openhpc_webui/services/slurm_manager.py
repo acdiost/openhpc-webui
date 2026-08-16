@@ -965,6 +965,9 @@ class SlurmManager:
                 "max_jobs_pu": self._qos_limit(q, "jobs", "active_jobs", "per", "user"),
                 "max_submit_jobs_pu": self._qos_limit(q, "jobs", "per", "user"),
                 "max_tres_pu": self._qos_tres(q),
+                "max_jobs_pa": self._qos_limit(q, "jobs", "active_jobs", "per", "account"),
+                "max_submit_jobs_pa": self._qos_limit(q, "jobs", "per", "account"),
+                "max_tres_pa": self._qos_tres(q, "account"),
                 "usage_factor": self._qos_number(q.get("usage_factor")),
             } for q in records], key=lambda item: item["name"])
         except Exception as exc:
@@ -990,8 +993,8 @@ class SlurmManager:
         return value or None
 
     @classmethod
-    def _qos_tres(cls, qos: Dict):
-        values = qos.get("limits", {}).get("max", {}).get("tres", {}).get("per", {}).get("user", [])
+    def _qos_tres(cls, qos: Dict, scope: str = "user"):
+        values = qos.get("limits", {}).get("max", {}).get("tres", {}).get("per", {}).get(scope, [])
         if not isinstance(values, list):
             return values or ""
         rendered = []
@@ -1007,7 +1010,8 @@ class SlurmManager:
 
     @staticmethod
     def _qos_changes(description=None, priority=None, max_wall=None,
-                     max_jobs_pu=None, max_submit_jobs_pu=None, max_tres_pu=None):
+                     max_jobs_pu=None, max_submit_jobs_pu=None, max_tres_pu=None,
+                     max_jobs_pa=None, max_submit_jobs_pa=None, max_tres_pa=None):
         changes = []
         if description is not None: changes.append(f"Description={description}")
         if priority is not None: changes.append(f"Priority={priority}")
@@ -1015,6 +1019,11 @@ class SlurmManager:
         if max_jobs_pu is not None: changes.append(f"MaxJobsPU={max_jobs_pu or '0'}")
         if max_submit_jobs_pu is not None: changes.append(f"MaxSubmitJobsPU={max_submit_jobs_pu or '0'}")
         if max_tres_pu is not None: changes.append(f"MaxTRESPU={max_tres_pu or 'NONE'}")
+        if max_jobs_pa is not None: changes.append(f"MaxJobsPA={max_jobs_pa or '0'}")
+        if max_submit_jobs_pa is not None: changes.append(f"MaxSubmitJobsPA={max_submit_jobs_pa or '0'}")
+        # Slurm exposes the account/QoS-wide TRES limit as MaxTRES;
+        # the per-user variant is MaxTRESPU.
+        if max_tres_pa is not None: changes.append(f"MaxTRES={max_tres_pa or 'NONE'}")
         return changes
 
     def create_qos(self, name: str, **kwargs) -> bool:
