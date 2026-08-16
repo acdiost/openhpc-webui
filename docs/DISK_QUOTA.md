@@ -1,6 +1,56 @@
-# `/home` 磁盘配额
+# 用户磁盘配额
 
 本项目通过 `NFS_QUOTA_FS` 指定配额文件系统，并使用 `quota`/`setquota` 读取和修改用户配额。XFS 文件系统必须先在挂载参数中启用用户配额，否则页面中的配额操作会明确返回“未配置或未启用”，不会假报成功。
+
+`NFS_QUOTA_FS` 必须填写 `findmnt -T <用户家目录>` 返回的实际挂载点。`/home`
+只是根文件系统中的普通目录时，应填写 `/`，不能填写 `/home`。
+
+## Rocky Linux 9 根 XFS 实操
+
+以下步骤已在 Rocky Linux 9.7、XFS 根文件系统上使用 LDAP 用户 `dawn`
+（UID/GID `10001`）验证。
+
+先确认 `/home` 所属的实际文件系统：
+
+```bash
+findmnt -T /home -o TARGET,SOURCE,FSTYPE,OPTIONS
+```
+
+若 `TARGET` 为 `/` 且选项包含 `noquota`，备份并编辑 `/etc/fstab`，为根 XFS
+增加 `uquota`：
+
+```text
+/dev/mapper/rlm-root / xfs defaults,uquota 0 0
+```
+
+根文件系统在读取 `/etc/fstab` 前已经挂载，还需要为所有内核增加启动参数：
+
+```bash
+sudo grubby --update-kernel=ALL --args='rootflags=uquota'
+sudo findmnt --verify --verbose
+sudo reboot
+```
+
+重启后验证 accounting 和 enforcement 均为 `ON`：
+
+```bash
+findmnt -T /home -o TARGET,SOURCE,FSTYPE,OPTIONS
+sudo xfs_quota -x -c 'state' /
+```
+
+为 `dawn` 设置 1 GiB 软、硬限额并查询：
+
+```bash
+sudo setquota -u dawn 1048576 1048576 0 0 /
+quota -w -v -u --filesystem=/ dawn
+sudo xfs_quota -x -c 'report -h -u' /
+```
+
+对应的 WebUI 配置为：
+
+```dotenv
+NFS_QUOTA_FS=/
+```
 
 ## CentOS/RHEL 7 XFS 启用步骤
 
