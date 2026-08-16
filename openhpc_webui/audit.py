@@ -287,6 +287,9 @@ class AuditMiddleware(BaseHTTPMiddleware):
                     "status_code": status_code,
                     "duration_ms": duration_ms,
                 }
+                result_detail = getattr(request.state, "audit_result_detail", None)
+                if result_detail:
+                    fields["result_detail"] = result_detail
                 if error is not None:
                     fields["error_type"] = type(error).__name__
                 log_event(

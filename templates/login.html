@@ -630,6 +630,32 @@ l79 -11 9 -43 c8 -42 11 -45 195 -167 163 -109 195 -126 247 -135 107 -19 105
             var loginForm = document.getElementById("loginForm");
             var loginButton = document.getElementById("loginButton");
             var buttonText = document.getElementById("buttonText");
+            var lockCountdownTimer = null;
+
+            function startLockCountdown(seconds) {
+                var remaining = Math.max(1, Number(seconds) || 1);
+                clearInterval(lockCountdownTimer);
+                loginButton.disabled = true;
+
+                function renderCountdown() {
+                    var minutes = Math.floor(remaining / 60);
+                    var secs = String(remaining % 60).padStart(2, "0");
+                    document.getElementById("errorText").textContent =
+                        "登录失败次数过多，请在 " + minutes + ":" + secs + " 后重试";
+                    document.getElementById("errorMessage").classList.add("show");
+                    buttonText.textContent = "账户已锁定";
+                    if (remaining <= 0) {
+                        clearInterval(lockCountdownTimer);
+                        loginButton.disabled = false;
+                        buttonText.textContent = "登 录";
+                        return;
+                    }
+                    remaining -= 1;
+                }
+
+                renderCountdown();
+                lockCountdownTimer = setInterval(renderCountdown, 1000);
+            }
 
             loginForm.addEventListener("submit", function (e) {
                 e.preventDefault();
@@ -652,7 +678,12 @@ l79 -11 9 -43 c8 -42 11 -45 195 -167 163 -109 195 -126 247 -135 107 -19 105
                 })
                     .then(function (r) {
                         return r.json().then(function (d) {
-                            return { ok: r.ok, data: d };
+                            return {
+                                ok: r.ok,
+                                status: r.status,
+                                retryAfter: r.headers.get("Retry-After"),
+                                data: d,
+                            };
                         });
                     })
                     .then(function (result) {
@@ -662,6 +693,11 @@ l79 -11 9 -43 c8 -42 11 -45 195 -167 163 -109 195 -126 247 -135 107 -19 105
                                 window.location.href = "/";
                             }, 500);
                         } else {
+                            document.getElementById("password").value = "";
+                            if (result.status === 429 && result.retryAfter) {
+                                startLockCountdown(result.retryAfter);
+                                return;
+                            }
                             document.getElementById("errorText").textContent =
                                 result.data.detail || "登录失败";
                             document

@@ -65,8 +65,12 @@ openssl rand -hex 32
 | --- | --- | --- |
 | `SECRET_KEY` | Session 签名密钥；启用认证时至少 32 个字符 | 必须配置 |
 | `SESSION_HTTPS_ONLY` | 是否只通过 HTTPS 发送 Session Cookie | `False` |
+| `LOGIN_MAX_FAILED_ATTEMPTS` | 同一用户名连续登录失败多少次后锁定 | `5` |
+| `LOGIN_LOCKOUT_MINUTES` | 登录锁定时长；同时也是连续失败计数窗口 | `30` |
 
 直接通过 HTTP 访问时保持 `SESSION_HTTPS_ONLY=False`。经 HTTPS 反向代理访问时必须设为 `True`，并确保代理正确传递协议和客户端信息。
+
+登录失败计数按用户名维护。默认在 30 分钟内连续失败 5 次后锁定 30 分钟，第 5 次失败立即返回 `429` 和 `Retry-After`；锁定期间不会请求 LDAP，成功登录会清零计数。状态保存在当前应用进程内，重启会清空；如部署多个 Uvicorn worker，应改用 Redis 等共享存储后再启用多进程。
 
 ### 结构化日志与审计
 

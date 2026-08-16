@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import NoReturn, Optional
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -42,8 +42,9 @@ from .schemas import (
     UserUpdate,
 )
 from .services import admin_manager as admin_mgr
-from .services.auth_manager import AuthManager
+from .services.auth_manager import AuthenticationServiceError, AuthManager
 from .services.ldap_manager import LDAPManager
+from .services.login_limiter import LoginAttemptLimiter
 from .services.nfs_quota_manager import NFSQuotaManager
 from .services.slurm_manager import SlurmManager
 
@@ -104,6 +105,10 @@ ldap_mgr = LDAPManager()
 slurm_mgr = SlurmManager()
 auth_mgr = AuthManager()
 quota_mgr = NFSQuotaManager()
+login_limiter = LoginAttemptLimiter(
+    max_failures=settings.login_max_failed_attempts,
+    lockout_seconds=settings.login_lockout_minutes * 60,
+)
 logger = logging.getLogger(__name__)
 
 
@@ -229,13 +234,21 @@ async def custom_http_exception_handler(request: Request, exc: HTTPException):
     """未登录 → 登录页；非管理员访问管理页 → 作业页；其余返回 JSON。"""
     if exc.status_code == 401:
         if request.url.path.startswith("/api/"):
-            return JSONResponse(status_code=401, content={"detail": exc.detail})
+            return JSONResponse(
+                status_code=401, content={"detail": exc.detail}, headers=exc.headers
+            )
         return RedirectResponse(url="/login", status_code=302)
     if exc.status_code == 403:
         if request.url.path.startswith("/api/"):
-            return JSONResponse(status_code=403, content={"detail": exc.detail})
+            return JSONResponse(
+                status_code=403, content={"detail": exc.detail}, headers=exc.headers
+            )
         return RedirectResponse(url="/jobs", status_code=302)
-    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=exc.headers,
+    )
 
 
 # ── 认证依赖 ─────────────────────────────────────────────────────────────────
@@ -297,6 +310,22 @@ def _require_admin(user: dict) -> None:
         )
 
 
+def _raise_login_failure(request: Request, username: str) -> NoReturn:
+    retry_after = login_limiter.record_failure(username)
+    request.state.audit_result_detail = (
+        "account_locked" if retry_after else "invalid_credentials"
+    )
+    if retry_after:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="登录失败次数过多，账户已临时锁定",
+            headers={"Retry-After": str(retry_after)},
+        )
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误"
+    )
+
+
 def _job_owner(job: dict) -> str:
     return job.get("UserId", "").split("(", 1)[0].strip()
 
@@ -348,18 +377,35 @@ async def login_page(request: Request):
 @router.post("/api/auth/login")
 async def login(request: Request, login_data: LoginRequest):
     """处理登录请求，成功后将用户信息写入 session。"""
-    user_info = auth_mgr.authenticate_user(login_data.username, login_data.password)
-    if not user_info:
+    retry_after = login_limiter.retry_after(login_data.username)
+    if retry_after:
+        request.state.audit_result_detail = "account_locked"
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误"
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="登录失败次数过多，账户已临时锁定",
+            headers={"Retry-After": str(retry_after)},
         )
+
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", login_data.username):
+        _raise_login_failure(request, login_data.username)
+
+    try:
+        user_info = auth_mgr.authenticate_user(login_data.username, login_data.password)
+    except AuthenticationServiceError:
+        request.state.audit_result_detail = "authentication_service_unavailable"
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="认证服务暂时不可用，请稍后重试",
+        )
+    if not user_info:
+        _raise_login_failure(request, login_data.username)
     login_shell = user_info.get("shell")
     if login_shell is None:
         login_shell = ldap_mgr.get_user_login_shell(login_data.username)
     if _is_disabled_login_shell(login_shell):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误"
-        )
+        _raise_login_failure(request, login_data.username)
+    login_limiter.record_success(login_data.username)
+    request.state.audit_result_detail = "authenticated"
     # is_admin 不写入 session，每次请求动态计算（保证权限变更即时生效）
     request.session["user"] = user_info
     # 返回时附上当前 is_admin 状态供前端使用
@@ -388,7 +434,13 @@ async def change_password(
     if payload.current_password == payload.new_password:
         raise HTTPException(status_code=400, detail="新密码不能与当前密码相同")
 
-    verified = auth_mgr.authenticate_user(username, payload.current_password)
+    try:
+        verified = auth_mgr.authenticate_user(username, payload.current_password)
+    except AuthenticationServiceError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="认证服务暂时不可用，请稍后重试",
+        )
     if not verified:
         raise HTTPException(status_code=400, detail="当前密码不正确")
 

@@ -10,7 +10,8 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-0123456789abcdef")
 
 import openhpc_webui.application as main
 from openhpc_webui.services import auth_manager
-from openhpc_webui.services.auth_manager import AuthManager
+from openhpc_webui.services.auth_manager import AuthenticationServiceError, AuthManager
+from ldap3.core.exceptions import LDAPInvalidCredentialsResult
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
@@ -44,6 +45,23 @@ class SessionSecurityTests(unittest.TestCase):
 
         self.assertEqual(result["shell"], "/sbin/nologin")
         connection.unbind.assert_called_once()
+
+    def test_invalid_ldap_credentials_are_not_treated_as_service_failure(self):
+        with patch.object(auth_manager, "Server"), patch.object(
+            auth_manager,
+            "Connection",
+            side_effect=LDAPInvalidCredentialsResult(),
+        ):
+            result = AuthManager().authenticate_user("alice", "wrong")
+
+        self.assertIsNone(result)
+
+    def test_ldap_connection_error_is_reported_as_service_failure(self):
+        with patch.object(auth_manager, "Server"), patch.object(
+            auth_manager, "Connection", side_effect=OSError("LDAP unavailable")
+        ):
+            with self.assertRaises(AuthenticationServiceError):
+                AuthManager().authenticate_user("alice", "secret")
 
     def test_authenticated_mode_rejects_short_secret(self):
         with patch.object(main, "AUTH_ENABLED", True), patch.dict(

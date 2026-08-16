@@ -31,6 +31,15 @@ def env_bool(name: str, default: bool) -> bool:
     return value.strip().lower() in {"true", "1", "yes", "on"}
 
 
+def env_positive_int(name: str, default: int) -> int:
+    """Read a positive integer, falling back when configuration is invalid."""
+    try:
+        value = int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
 def slurm_config_file(filename: str) -> str:
     """Resolve a managed Slurm config file from the configured directory."""
     config_dir = os.getenv("SLURM_CONFIG_DIR", DEFAULT_SLURM_CONFIG_DIR)
@@ -44,6 +53,8 @@ class Settings:
     app_title: str = "智算中心管理门户"
     auth_enabled: bool = env_bool("AUTHORIZED", True)
     session_https_only: bool = env_bool("SESSION_HTTPS_ONLY", False)
+    login_max_failed_attempts: int = env_positive_int("LOGIN_MAX_FAILED_ATTEMPTS", 5)
+    login_lockout_minutes: int = env_positive_int("LOGIN_LOCKOUT_MINUTES", 30)
 
 
 settings = Settings()

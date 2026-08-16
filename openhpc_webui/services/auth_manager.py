@@ -5,10 +5,15 @@ LDAP认证管理模块
 import os
 from typing import Optional, Dict
 from ldap3 import Server, Connection, ALL, SIMPLE
+from ldap3.core.exceptions import LDAPInvalidCredentialsResult
 from dotenv import load_dotenv
 from ..audit import structured_print as print
 
 load_dotenv()
+
+
+class AuthenticationServiceError(RuntimeError):
+    """LDAP authentication could not complete due to an infrastructure error."""
 
 
 class AuthManager:
@@ -46,7 +51,8 @@ class AuthManager:
                 user=user_dn,
                 password=password,
                 authentication=SIMPLE,
-                auto_bind=True
+                auto_bind=True,
+                raise_exceptions=True,
             )
 
             # 如果绑定成功，获取用户信息
@@ -80,9 +86,11 @@ class AuthManager:
 
             return None
 
+        except LDAPInvalidCredentialsResult:
+            return None
         except Exception as e:
             print(f"认证失败: {str(e)}")
-            return None
+            raise AuthenticationServiceError("LDAP authentication unavailable") from e
 
     def verify_user_exists(self, username: str) -> bool:
         """
