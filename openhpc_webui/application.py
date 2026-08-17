@@ -776,13 +776,6 @@ async def update_user(
         else:
             admin_mgr.remove_admin(username)
 
-    # 处理 NFS 配额更新（None = 不更新；0/负数 = 不限制）
-    if user_data.storage_quota_gb is not None:
-        if not quota_mgr.is_enabled():
-            raise HTTPException(status_code=503, detail="NFS quota 未配置或未启用")
-        if not quota_mgr.set_user_quota(username, user_data.storage_quota_gb):
-            raise HTTPException(status_code=500, detail="设置磁盘配额失败")
-
     return {
         "message": f"用户 {username} 更新成功",
         "is_admin": admin_mgr.is_admin(username),

@@ -20,6 +20,9 @@ from openhpc_webui.services.partition_config import PartitionConfigManager
 from openhpc_webui.services.slurm_manager import SlurmManager
 
 
+PROJECT_ROOT = Path(__file__).parents[1]
+
+
 class SessionSecurityTests(unittest.TestCase):
     def test_disabled_shell_variants_are_recognized(self):
         for shell in ("/sbin/nologin", "/usr/sbin/nologin", "/bin/false"):
@@ -297,6 +300,38 @@ class UserUpdateValidationTests(unittest.TestCase):
 
         self.assertEqual(context.exception.status_code, 400)
         update_user.assert_not_called()
+
+    def test_profile_update_ignores_quota_and_succeeds_when_quota_is_disabled(self):
+        payload = main.UserUpdate(sn="张三", storage_quota_gb=0)
+        with patch.object(
+            main.ldap_mgr,
+            "get_user",
+            return_value={"username": "zhangsan"},
+        ), patch.object(
+            main.ldap_mgr, "update_user", return_value=True
+        ), patch.object(
+            main.quota_mgr, "is_enabled", return_value=False
+        ) as quota_enabled:
+            result = asyncio.run(
+                main.update_user(
+                    "zhangsan",
+                    payload,
+                    {"username": "admin", "is_admin": True},
+                )
+            )
+
+        self.assertEqual(result["message"], "用户 zhangsan 更新成功")
+        quota_enabled.assert_not_called()
+
+    def test_edit_user_form_does_not_include_quota_controls(self):
+        template = (PROJECT_ROOT / "templates/users.html").read_text(encoding="utf-8")
+        edit_modal = template.split('id="editUserModal"', 1)[1].split(
+            "<!-- 修改磁盘配额弹窗 -->", 1
+        )[0]
+
+        self.assertNotIn('id="edit_quota"', edit_modal)
+        self.assertNotIn('id="edit_quota_unlimited"', edit_modal)
+        self.assertNotIn("editQuota", template)
 
 
 class UserDisableTests(unittest.TestCase):

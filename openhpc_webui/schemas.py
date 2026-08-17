@@ -29,7 +29,6 @@ class UserUpdate(BaseModel):
     password: Optional[str] = None
     sn: Optional[str] = Field(None, max_length=128)
     is_admin: Optional[bool] = None
-    storage_quota_gb: Optional[float] = None
 
 
 class UserQuotaUpdate(BaseModel):

@@ -445,43 +445,6 @@ modals %}
                 <input type="text" id="edit_home" name="home" />
             </div>
             <div class="form-group">
-                <label for="edit_quota">存储配额 (GB)</label>
-                <div style="display: flex; gap: 10px; align-items: center">
-                    <input
-                        type="number"
-                        id="edit_quota"
-                        name="storage_quota_gb"
-                        min="1"
-                        step="0.1"
-                        placeholder="如 500"
-                        style="flex: 1"
-                    />
-                    <label
-                        for="edit_quota_unlimited"
-                        style="
-                            display: flex;
-                            align-items: center;
-                            gap: 6px;
-                            font-weight: normal;
-                            cursor: pointer;
-                            margin-bottom: 0;
-                        "
-                    >
-                        <input
-                            type="checkbox"
-                            id="edit_quota_unlimited"
-                            name="quota_unlimited"
-                            checked
-                            style="width: 16px; height: 16px; margin-top: 0"
-                        />
-                        不限制
-                    </label>
-                </div>
-                <div style="font-size: 12px; color: #9ca3af; margin-top: 6px">
-                    修改后立即更新 NFS quota
-                </div>
-            </div>
-            <div class="form-group">
                 <label for="edit_shell">Shell</label>
                 <select id="edit_shell" name="shell">
                     <option value="/bin/bash">/bin/bash</option>
@@ -1035,13 +998,6 @@ page_scripts %}
         document.getElementById("edit_sn").value = user.sn || "";
         document.getElementById("edit_gid").value = user.gid || "";
         document.getElementById("edit_home").value = user.home || "";
-        const editQuotaInput = document.getElementById("edit_quota");
-        const editQuotaUnlimited = document.getElementById(
-            "edit_quota_unlimited",
-        );
-        const hasQuota = user.storage_quota_gb && user.storage_quota_gb > 0;
-        if (editQuotaInput) editQuotaInput.value = hasQuota ? user.storage_quota_gb : "";
-        if (editQuotaUnlimited) editQuotaUnlimited.checked = !hasQuota;
         document.getElementById("edit_shell").value = isDisabledShell(user.shell)
             ? "/sbin/nologin"
             : user.shell || "/bin/bash";
@@ -1056,7 +1012,6 @@ page_scripts %}
         const selfNote = document.getElementById("edit_is_admin_self_note");
         if (selfNote) selfNote.style.display = isSelf ? "inline" : "none";
         document.getElementById("editUserModal").style.display = "flex";
-        setupQuotaToggle("edit");
     }
 
     function closeEditUserModal() {
@@ -1114,15 +1069,6 @@ page_scripts %}
         if (shell) userData.shell = shell;
         const password = fd.get("password");
         if (password) userData.password = password;
-        const editQuotaUnlimited = document.getElementById(
-            "edit_quota_unlimited",
-        ).checked;
-        const editQuotaValue = document.getElementById("edit_quota").value;
-        if (editQuotaUnlimited) {
-            userData.storage_quota_gb = 0;
-        } else if (editQuotaValue) {
-            userData.storage_quota_gb = parseFloat(editQuotaValue);
-        }
         // is_admin：仅在非编辑自己时传递，避免触发后端自我撤权保护
         const editingUsername = fd.get("username");
         if (editingUsername !== __USER__.username) {
