@@ -282,7 +282,7 @@ class ConfigPreservationTests(unittest.TestCase):
 
 class UserUpdateValidationTests(unittest.TestCase):
     def test_self_admin_revocation_is_rejected_before_ldap_write(self):
-        payload = main.UserUpdate(cn="Changed", is_admin=False)
+        payload = main.UserUpdate(sn="Changed", is_admin=False)
         with patch.object(main.ldap_mgr, "get_user", return_value={"username": "admin"}), patch.object(
             main.ldap_mgr, "update_user"
         ) as update_user:

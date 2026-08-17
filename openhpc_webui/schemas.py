@@ -12,6 +12,7 @@ class LoginRequest(BaseModel):
 
 class UserCreate(BaseModel):
     username: str
+    sn: Optional[str] = Field(None, max_length=128)
     uid: int
     gid: int
     home: str
@@ -26,7 +27,7 @@ class UserUpdate(BaseModel):
     home: Optional[str] = None
     shell: Optional[str] = None
     password: Optional[str] = None
-    cn: Optional[str] = None
+    sn: Optional[str] = Field(None, max_length=128)
     is_admin: Optional[bool] = None
     storage_quota_gb: Optional[float] = None
 

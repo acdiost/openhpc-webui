@@ -143,7 +143,7 @@ async def _audit_snapshot(request: Request, body: dict):
         username = match.group(1) or body.get("username")
         record = _pick_fields(
             ldap_mgr.get_user(username) if username else None,
-            ("username", "uid", "gid", "home", "shell", "cn"),
+            ("username", "uid", "gid", "home", "shell", "cn", "sn"),
         )
         if record is not None:
             record["is_admin"] = admin_mgr.is_admin(username)
@@ -681,6 +681,7 @@ async def create_user(user_data: UserCreate, user: dict = Depends(get_current_us
         home=user_data.home,
         shell=user_data.shell,
         password=user_data.password,
+        sn=user_data.sn,
     )
     if not success:
         raise HTTPException(status_code=500, detail="创建用户失败")
@@ -763,7 +764,7 @@ async def update_user(
         home=user_data.home,
         shell=user_data.shell,
         password=user_data.password,
-        cn=user_data.cn,
+        sn=user_data.sn,
     )
     if not success:
         raise HTTPException(status_code=500, detail="更新用户失败")

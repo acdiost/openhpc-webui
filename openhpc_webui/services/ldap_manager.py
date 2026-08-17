@@ -88,7 +88,7 @@ class LDAPManager:
             success = conn.search(
                 search_base,
                 search_filter,
-                attributes=['uid', 'uidNumber', 'gidNumber', 'homeDirectory', 'loginShell', 'cn', 'mail', 'displayName']
+                attributes=['uid', 'uidNumber', 'gidNumber', 'homeDirectory', 'loginShell', 'cn', 'sn', 'mail', 'displayName']
             )
 
             if not success:
@@ -108,6 +108,7 @@ class LDAPManager:
                 home = str(entry.homeDirectory.value) if hasattr(entry, 'homeDirectory') and entry.homeDirectory else ''
                 shell = str(entry.loginShell.value) if hasattr(entry, 'loginShell') and entry.loginShell else ''
                 cn = str(entry.cn.value) if hasattr(entry, 'cn') and entry.cn else ''
+                sn = str(entry.sn.value) if hasattr(entry, 'sn') and entry.sn else ''
 
                 # Find primary group name
                 groups = []
@@ -130,6 +131,7 @@ class LDAPManager:
                     'home': home,
                     'shell': shell,
                     'cn': cn,
+                    'sn': sn,
                     'groups': groups
                 }
                 users.append(user)
@@ -174,7 +176,16 @@ class LDAPManager:
         finally:
             conn.unbind()
 
-    def create_user(self, username: str, uid: int, gid: int, home: str, shell: str = "/bin/bash", password: str = None) -> bool:
+    def create_user(
+        self,
+        username: str,
+        uid: int,
+        gid: int,
+        home: str,
+        shell: str = "/bin/bash",
+        password: str = None,
+        sn: str = None,
+    ) -> bool:
         """创建新用户"""
         conn = self.connect()
         if not conn:
@@ -182,11 +193,12 @@ class LDAPManager:
 
         try:
             dn = f"uid={username},ou=People,{self.base_dn}"
+            surname = sn.strip() if sn and sn.strip() else username
             attrs = {
                 'objectClass': ['top', 'posixAccount', 'inetOrgPerson'],
                 'uid': username,
                 'cn': username,
-                'sn': username,
+                'sn': surname,
                 'uidNumber': str(uid),
                 'gidNumber': str(gid),
                 'homeDirectory': home,
@@ -220,7 +232,7 @@ class LDAPManager:
         finally:
             conn.unbind()
 
-    def update_user(self, username: str, gid: int = None, home: str = None, shell: str = None, password: str = None, cn: str = None) -> bool:
+    def update_user(self, username: str, gid: int = None, home: str = None, shell: str = None, password: str = None, sn: str = None) -> bool:
         """更新用户信息"""
         conn = self.connect()
         if not conn:
@@ -236,9 +248,9 @@ class LDAPManager:
                 changes['homeDirectory'] = [(MODIFY_REPLACE, [home])]
             if shell is not None:
                 changes['loginShell'] = [(MODIFY_REPLACE, [shell])]
-            if cn is not None:
-                changes['cn'] = [(MODIFY_REPLACE, [cn])]
-                changes['sn'] = [(MODIFY_REPLACE, [cn])]
+            if sn is not None:
+                surname = sn.strip() or username
+                changes['sn'] = [(MODIFY_REPLACE, [surname])]
             if password is not None:
                 changes['userPassword'] = [(MODIFY_REPLACE, [self.hash_password(password)])]
 
