@@ -1280,15 +1280,15 @@ class SlurmManager:
         qos: Optional[str] = None,
         default_qos: Optional[str] = None,
     ) -> bool:
-        """更新 Slurm 用户关联。"""
+        """更新 Slurm 用户关联的 QoS 属性；partition 仅用于定位关联。"""
         try:
             changes = []
-            if partition is not None:
-                changes.append(f"Partition={partition}")
             if qos is not None:
-                changes.append(f"Qos={qos}")
+                changes.append(f"Qos={qos}" if qos else "Qos=''")
             if default_qos is not None:
-                changes.append(f"DefaultQOS={default_qos}")
+                changes.append(
+                    f"DefaultQOS={default_qos}" if default_qos else "DefaultQOS=-1"
+                )
             if not changes:
                 return True
 
@@ -1299,8 +1299,10 @@ class SlurmManager:
                 "user",
                 f"name={username}",
                 f"account={account}",
-                "set",
             ]
+            if partition is not None:
+                args.append(f"partition={partition}" if partition else 'partition=""')
+            args.append("set")
             args.extend(changes)
             result = subprocess.run(args, capture_output=True, text=True, check=True)
             print(f"Slurm 更新关联 {username}/{account} 成功: {result.stdout}")

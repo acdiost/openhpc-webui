@@ -106,9 +106,9 @@ class AssocCreate(BaseModel):
 
 
 class AssocUpdate(BaseModel):
-    partition: Optional[str] = None
-    qos: Optional[str] = None
-    default_qos: Optional[str] = None
+    partition: str = Field(..., max_length=64)
+    qos: Optional[str] = Field(None, max_length=1024)
+    default_qos: Optional[str] = Field(None, max_length=64)
 
 
 class AssocTRESMinutesUpdate(BaseModel):

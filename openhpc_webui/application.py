@@ -1088,6 +1088,21 @@ async def update_association(
 ):
     """更新 Slurm 用户关联。"""
     _require_admin(user)
+    if not slurm_mgr._is_valid_slurm_name(username):
+        raise HTTPException(status_code=400, detail="用户名格式无效")
+    if not slurm_mgr._is_valid_slurm_name(account_name):
+        raise HTTPException(status_code=400, detail="账户名格式无效")
+    if payload.partition and not slurm_mgr._is_valid_slurm_name(
+        payload.partition
+    ):
+        raise HTTPException(status_code=400, detail="分区名格式无效")
+    qos_names = [] if not payload.qos else payload.qos.split(",")
+    if any(not slurm_mgr._is_valid_slurm_name(name) for name in qos_names):
+        raise HTTPException(status_code=400, detail="QoS 名称格式无效")
+    if payload.default_qos and not slurm_mgr._is_valid_slurm_name(
+        payload.default_qos
+    ):
+        raise HTTPException(status_code=400, detail="默认 QoS 名称格式无效")
     success = slurm_mgr.update_association(
         username=username,
         account=account_name,

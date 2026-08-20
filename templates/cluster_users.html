@@ -74,6 +74,7 @@
     <ul style="list-style: disc; margin-left: 24px; color: #1e40af; font-size: 14px; line-height: 1.8">
         <li>选择账户后点击“添加关联”，为用户分配可使用的 Slurm 账户和集群</li>
         <li>默认账户用于用户未指定账户时提交作业，可按需设置默认 QOS 和分区</li>
+        <li>分区属于关联标识，创建后不可编辑；更换分区需新建关联并删除旧关联</li>
         <li>核时/卡时限额会参与调度校验，修改后对后续作业生效</li>
     </ul>
 </div>
@@ -148,6 +149,7 @@
         <form id="editAssocForm" onsubmit="handleEditAssoc(event)">
             <input type="hidden" id="edit_assoc_account" name="account" />
             <input type="hidden" id="edit_assoc_user" name="username" />
+            <input type="hidden" id="edit_assoc_partition" name="partition" />
             <div class="form-group">
                 <label>用户 / 账户</label>
                 <input
@@ -158,12 +160,12 @@
                 />
             </div>
             <div class="form-group">
-                <label for="edit_assoc_partition">分区</label>
+                <label for="edit_assoc_partition_display">分区（关联标识，不可修改）</label>
                 <input
                     type="text"
-                    id="edit_assoc_partition"
-                    name="partition"
-                    placeholder="留空表示全局"
+                    id="edit_assoc_partition_display"
+                    disabled
+                    style="background-color: #f3f4f6; cursor: not-allowed"
                 />
             </div>
             <div class="form-group">
@@ -332,7 +334,7 @@
                                 onclick="showTRESMinutesModal('${assoc.account}', '${assoc.user}', '${assoc.partition || ""}')">拨付</button>
                         <button class="btn btn-secondary"
                                 style="padding: 4px 12px; font-size: 12px; margin-right: 4px;"
-                                onclick="showEditAssocModal('${assoc.account}', '${assoc.user}')">编辑</button>
+                                onclick="showEditAssocModal('${assoc.account}', '${assoc.user}', '${assoc.partition || ""}')">编辑</button>
                         <button class="btn"
                                 style="padding: 4px 12px; font-size: 12px; background-color: #dc3023; color: white;"
                                 onclick="deleteAssocConfirm('${assoc.account}', '${assoc.user}', '${assoc.partition || ""}')">删除</button>
@@ -390,19 +392,28 @@
 
     /* ── 编辑关联 ───────────────────────────────────────────── */
 
-    async function showEditAssocModal(account, username) {
+    let editingAssociation = null;
+
+    async function showEditAssocModal(account, username, partition) {
         const assocs = await fetchAssociations(account);
-        const target = assocs.find((a) => a.account === account && a.user === username);
+        const target = assocs.find(
+            (a) =>
+                a.account === account &&
+                a.user === username &&
+                (a.partition || "") === (partition || ""),
+        );
         if (!target) {
             showToast("获取关联信息失败", "error");
             return;
         }
 
+        editingAssociation = target;
         document.getElementById("edit_assoc_account").value = account;
         document.getElementById("edit_assoc_user").value = username;
         document.getElementById("edit_assoc_identity").value = `${username} / ${account}`;
-        document.getElementById("edit_assoc_partition").value =
-            target.partition || "";
+        document.getElementById("edit_assoc_partition").value = target.partition || "";
+        document.getElementById("edit_assoc_partition_display").value =
+            target.partition || "全局";
         setSelectedQos("edit_assoc_qos", target.qos || []);
         document.getElementById("edit_assoc_default_qos").value = target.default_qos || "";
         document.getElementById("editAssocModal").style.display = "flex";
@@ -410,6 +421,7 @@
 
     function closeEditAssocModal() {
         document.getElementById("editAssocModal").style.display = "none";
+        editingAssociation = null;
     }
 
     async function handleEditAssoc(event) {
@@ -417,11 +429,18 @@
         const fd = new FormData(event.target);
         const account = fd.get("account");
         const username = fd.get("username");
-        const payload = {
-            partition: fd.get("partition") || "",
-            qos: Array.from(document.getElementById("edit_assoc_qos").selectedOptions).map((option) => option.value).join(","),
-            default_qos: fd.get("default_qos") || "",
-        };
+        const selectedQos = Array.from(
+            document.getElementById("edit_assoc_qos").selectedOptions,
+        ).map((option) => option.value);
+        const defaultQos = fd.get("default_qos") || "";
+        const payload = { partition: fd.get("partition") || "" };
+        const originalQos = (editingAssociation?.qos || []).slice().sort().join(",");
+        if (selectedQos.slice().sort().join(",") !== originalQos) {
+            payload.qos = selectedQos.join(",");
+        }
+        if (defaultQos !== (editingAssociation?.default_qos || "")) {
+            payload.default_qos = defaultQos;
+        }
 
         const success = await updateAssociation(account, username, payload);
         if (success) {
