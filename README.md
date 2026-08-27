@@ -92,6 +92,18 @@ Web 管理员身份不会绕过 Linux 文件权限或 Slurm 权限。
 
 ## 快速开始
 
+从 PyPI 安装固定版本：
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install "openhpc-webui==0.2.0"
+```
+
+PyPI 安装不包含仓库级 `env.example` 和部署示例，完整配置及 systemd、升级、离线
+安装方法见[PyPI 安装与使用指南](./docs/PYPI_USAGE.md)。
+
+从源码启动开发环境：
+
 ```bash
 uv sync
 cp env.example .env
@@ -130,6 +142,7 @@ uv run openhpc_webui
 
 ## 文档
 
+- [PyPI 安装与使用指南](./docs/PYPI_USAGE.md)：虚拟环境、配置、systemd、升级和离线安装
 - [用户使用手册](./docs/USER_MANUAL.md)：管理员和普通用户的页面操作说明
 - [技术指南](./docs/TECHNICAL_GUIDE.md)：配置、运行、架构、测试与故障排查
 - [生产部署指南](./docs/DEPLOYMENT.md)：Supervisor、Nginx、HTTPS 和升级
