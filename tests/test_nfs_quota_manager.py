@@ -47,7 +47,7 @@ class NFSQuotaManagerTests(unittest.TestCase):
             self.assertTrue(manager.is_enabled())
 
         run.assert_called_once_with(
-            ["quota", "-w", "-v", "-u", "--filesystem=/", "root"],
+            ["quota", "-w", "-v", "-u", "root"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -74,7 +74,7 @@ class NFSQuotaManagerTests(unittest.TestCase):
 
         self.assertEqual(quota, {"used_gb": 0.0, "limit_gb": 1.0})
         run.assert_called_once_with(
-            ["quota", "-w", "-v", "-u", "--filesystem=/", "dawn"],
+            ["quota", "-w", "-v", "-u", "dawn"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -94,6 +94,14 @@ class NFSQuotaManagerTests(unittest.TestCase):
                 "blocks_hard_kb": 1048576,
             },
         )
+
+    def test_quota_command_is_compatible_with_centos_7_quota_tools(self):
+        manager = self._manager("/home")
+
+        command = manager._quota_command("dawn")
+
+        self.assertEqual(command, ["quota", "-w", "-v", "-u", "dawn"])
+        self.assertFalse(any(arg.startswith("--filesystem") for arg in command))
 
     def test_get_user_quota_returns_none_on_command_failure(self):
         manager = self._manager()

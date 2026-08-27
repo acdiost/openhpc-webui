@@ -47,7 +47,7 @@ sudo xfs_quota -x -c 'state' /
 
 ```bash
 sudo setquota -u dawn 1048576 1048576 0 0 /
-quota -w -v -u --filesystem=/ dawn
+quota -w -v -u dawn
 sudo xfs_quota -x -c 'report -h -u' /
 ```
 
@@ -99,7 +99,7 @@ sudo quotaon -v /home
 
 ```bash
 sudo setquota -u dawn 1048576 1048576 0 0 /home
-quota -w -v -u --filesystem=/home dawn
+quota -w -v -u dawn
 sudo repquota -u /home
 ```
 
@@ -125,7 +125,7 @@ UUID=<root-uuid> / ext4 defaults,usrquota 0 1
 sudo quotacheck -cum /
 sudo quotaon -v /
 sudo setquota -u dawn 1048576 1048576 0 0 /
-quota -w -v -u --filesystem=/ dawn
+quota -w -v -u dawn
 ```
 
 对应的 WebUI 配置为：

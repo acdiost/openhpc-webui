@@ -114,12 +114,14 @@ class NFSQuotaManager:
             return False
 
     def _quota_command(self, username: str) -> list:
+        # CentOS 7 ships quota-tools 4.01, which supports -w but not the
+        # --filesystem option (added in quota-tools 4.06).  Query all mounted
+        # quota filesystems and select quota_fs while parsing the output.
         return [
             "quota",
             "-w",
             "-v",
             "-u",
-            f"--filesystem={self.quota_fs}",
             username,
         ]
 
@@ -156,8 +158,9 @@ class NFSQuotaManager:
                 selected = parts
                 break
 
-        # The command is already restricted with --filesystem, while quota
-        # commonly prints the backing device rather than the mount point.
+        # quota commonly prints the backing device rather than the mount
+        # point.  A single row is therefore the configured filesystem in the
+        # usual one-quota-filesystem deployment even if their names differ.
         if selected is None and len(data_rows) == 1:
             selected = data_rows[0]
 
