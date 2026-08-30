@@ -2,7 +2,7 @@
 
 `openhpc_webui` 是面向高校、科研机构和企业智算中心的轻量级中文管理门户。项目将 OpenLDAP 身份管理、Slurm 账户与关联、分区和节点配置、作业状态及输出查看集中到同一个 Web 界面，适合内网和离线环境。
 
-当前版本：`0.2.0`
+当前版本：`0.2.1`
 
 ## 功能概览
 
@@ -96,7 +96,7 @@ Web 管理员身份不会绕过 Linux 文件权限或 Slurm 权限。
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install "openhpc-webui==0.2.0"
+.venv/bin/python -m pip install "openhpc-webui==0.2.1"
 ```
 
 PyPI 安装不包含仓库级 `env.example` 和部署示例，完整配置及 systemd、升级、离线

@@ -1,6 +1,6 @@
 # openhpc_webui 生产部署
 
-本文档适用于 `openhpc_webui 0.2.0`，使用 Supervisor 托管单个 Uvicorn 进程，并通过 Nginx 提供 HTTPS。示例安装目录为 `/opt/openhpc_webui`，应用仅监听 `127.0.0.1:6827`。
+本文档适用于 `openhpc_webui 0.2.1`，使用 Supervisor 托管单个 Uvicorn 进程，并通过 Nginx 提供 HTTPS。示例安装目录为 `/opt/openhpc_webui`，应用仅监听 `127.0.0.1:6827`。
 
 ## 1. 部署前提
 
