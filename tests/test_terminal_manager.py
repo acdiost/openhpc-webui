@@ -15,6 +15,7 @@ from openhpc_webui.services.terminal_manager import (
 class TerminalIdentityTests(unittest.TestCase):
     def test_resolves_system_identity(self):
         record = SimpleNamespace(
+            pw_name="alice",
             pw_uid=1001,
             pw_gid=1002,
             pw_dir="/home/alice",
@@ -22,6 +23,9 @@ class TerminalIdentityTests(unittest.TestCase):
         )
         with patch(
             "openhpc_webui.services.terminal_manager.pwd.getpwnam",
+            return_value=record,
+        ), patch(
+            "openhpc_webui.services.terminal_manager.pwd.getpwuid",
             return_value=record,
         ), patch(
             "openhpc_webui.services.terminal_manager.Path.is_dir",
@@ -42,6 +46,7 @@ class TerminalIdentityTests(unittest.TestCase):
 
     def test_rejects_account_with_disabled_shell(self):
         record = SimpleNamespace(
+            pw_name="alice",
             pw_uid=1001,
             pw_gid=1001,
             pw_dir="/home/alice",
@@ -49,6 +54,9 @@ class TerminalIdentityTests(unittest.TestCase):
         )
         with patch(
             "openhpc_webui.services.terminal_manager.pwd.getpwnam",
+            return_value=record,
+        ), patch(
+            "openhpc_webui.services.terminal_manager.pwd.getpwuid",
             return_value=record,
         ), patch(
             "openhpc_webui.services.terminal_manager.Path.is_dir",
@@ -59,6 +67,7 @@ class TerminalIdentityTests(unittest.TestCase):
 
     def test_rejects_service_that_cannot_switch_user(self):
         record = SimpleNamespace(
+            pw_name="alice",
             pw_uid=1001,
             pw_gid=1001,
             pw_dir="/home/alice",
@@ -66,6 +75,9 @@ class TerminalIdentityTests(unittest.TestCase):
         )
         with patch(
             "openhpc_webui.services.terminal_manager.pwd.getpwnam",
+            return_value=record,
+        ), patch(
+            "openhpc_webui.services.terminal_manager.pwd.getpwuid",
             return_value=record,
         ), patch(
             "openhpc_webui.services.terminal_manager.Path.is_dir",
@@ -78,6 +90,25 @@ class TerminalIdentityTests(unittest.TestCase):
             return_value=999,
         ):
             with self.assertRaisesRegex(TerminalError, "无权切换"):
+                TerminalManager.resolve_identity("alice")
+
+    def test_rejects_duplicate_uid_owned_by_another_username(self):
+        record = SimpleNamespace(
+            pw_name="alice",
+            pw_uid=1001,
+            pw_gid=1001,
+            pw_dir="/home/alice",
+            pw_shell="/bin/bash",
+        )
+        canonical = SimpleNamespace(pw_name="another-user")
+        with patch(
+            "openhpc_webui.services.terminal_manager.pwd.getpwnam",
+            return_value=record,
+        ), patch(
+            "openhpc_webui.services.terminal_manager.pwd.getpwuid",
+            return_value=canonical,
+        ):
+            with self.assertRaisesRegex(TerminalError, "UID 与其他用户冲突"):
                 TerminalManager.resolve_identity("alice")
 
 

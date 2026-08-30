@@ -120,6 +120,13 @@ class TerminalManager:
         except KeyError as exc:
             raise TerminalError("当前 LDAP 用户尚未同步为系统账户") from exc
 
+        try:
+            canonical_record = pwd.getpwuid(record.pw_uid)
+        except KeyError as exc:
+            raise TerminalError("当前系统账户的 UID 无法解析") from exc
+        if canonical_record.pw_name != username:
+            raise TerminalError("当前系统账户的 UID 与其他用户冲突，请联系管理员")
+
         shell = record.pw_shell or "/bin/bash"
         if shell in _DISABLED_SHELLS:
             raise TerminalError("当前账户已禁用终端登录")

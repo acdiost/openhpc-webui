@@ -141,7 +141,14 @@ sudo supervisorctl status openhpc_webui
 
 安装 Nginx 并准备由可信 CA 或内部 CA 签发的证书。示例站点配置：
 
+仓库同时提供可直接复制修改的 [Nginx HTTPS/WebSocket 示例](../deploy/nginx/openhpc_webui.conf.example)。
+
 ```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ""      close;
+}
+
 server {
     listen 80;
     server_name hpc.example.edu;
@@ -159,8 +166,8 @@ server {
         proxy_pass http://127.0.0.1:6827;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $http_host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
