@@ -11,6 +11,8 @@ endblock %} {% block head_extra %}
     .job-monitor-toolbar select,.job-monitor-tool-button { border:1px solid #dbe2ea; border-radius:6px; background:#fff; padding:5px 9px; color:#475569; font-size:12px; }
     .job-monitor-tool-button { cursor:pointer; }
     .job-monitor-tool-button:hover { background:#f1f5f9; }
+    .btn-monitor { background:#ff9830; color:#111217; }
+    .btn-monitor:hover { background:#e88b2d; }
     .job-monitor-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin:14px 0; }
     .job-monitor-card { min-width:0; padding:14px; border:1px solid #e2e8f0; border-radius:9px; background:linear-gradient(145deg,#fff,#f8fafc); box-shadow:0 1px 2px rgba(15,23,42,.04); }
     .job-monitor-label { color:#64748b; font-size:12px; margin-bottom:5px; }
@@ -322,7 +324,11 @@ page_scripts %}
                     createActionButton("详情", () => showJobDetail(job.job_id)),
                 );
                 actionGroup.appendChild(
-                    createActionButton("监控", () => showJobMonitor(job.job_id)),
+                    createActionButton(
+                        "监控",
+                        () => showJobMonitor(job.job_id),
+                        "monitor",
+                    ),
                 );
                 const cancelButton = createActionButton(
                     "取消",
@@ -1096,7 +1102,11 @@ page_scripts %}
     function createActionButton(label, handler, mode = "secondary") {
         const button = document.createElement("button");
         button.type = "button";
-        button.className = mode === "danger" ? "btn" : "btn btn-secondary";
+        button.className = mode === "danger"
+            ? "btn"
+            : mode === "monitor"
+                ? "btn btn-monitor"
+                : "btn btn-secondary";
         button.textContent = label;
         button.style.cssText =
             "padding:4px 12px;font-size:12px;margin-right:4px;";
