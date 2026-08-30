@@ -171,6 +171,19 @@
             文件管理
         </a>
 
+        {% if terminal_enabled %}
+        <a
+            href="/terminal"
+            class="nav-item{% if request.url.path == '/terminal' %} active{% endif %}"
+        >
+            <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="3" y="4" width="18" height="16" rx="2" stroke-width="2" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 9l3 3-3 3m5 0h5" />
+            </svg>
+            Web 终端
+        </a>
+        {% endif %}
+
         <a
             href="/slurm-guide"
             class="nav-item{% if request.url.path == '/slurm-guide' %} active{% endif %}"

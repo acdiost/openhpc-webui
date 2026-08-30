@@ -57,6 +57,9 @@ class Settings:
     login_lockout_minutes: int = env_positive_int("LOGIN_LOCKOUT_MINUTES", 30)
     file_upload_max_mb: int = env_positive_int("FILE_UPLOAD_MAX_MB", 1024)
     file_edit_max_kb: int = env_positive_int("FILE_EDIT_MAX_KB", 2048)
+    terminal_enabled: bool = env_bool("TERMINAL_ENABLED", True)
+    terminal_idle_minutes: int = env_positive_int("TERMINAL_IDLE_MINUTES", 30)
+    terminal_max_sessions: int = env_positive_int("TERMINAL_MAX_SESSIONS", 2)
 
 
 settings = Settings()

@@ -1,11 +1,15 @@
+import asyncio
+import json
 import logging
 import os
 import re
 import subprocess
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import NoReturn, Optional
+from urllib.parse import urlsplit
 
 from fastapi import (
     APIRouter,
@@ -16,6 +20,8 @@ from fastapi import (
     Query,
     Request,
     UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
     status,
 )
 from fastapi.responses import (
@@ -31,7 +37,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import __version__
-from .audit import AuditMiddleware, sanitize
+from .audit import AuditMiddleware, log_event, sanitize
 from .config import STATIC_DIR, TEMPLATES_DIR, settings
 from .schemas import (
     AccountCreate,
@@ -68,6 +74,7 @@ from .services.ldap_manager import LDAPManager
 from .services.login_limiter import LoginAttemptLimiter
 from .services.nfs_quota_manager import NFSQuotaManager
 from .services.slurm_manager import SlurmManager
+from .services.terminal_manager import TerminalError, TerminalManager, TerminalSession
 
 AUTH_ENABLED = settings.auth_enabled
 
@@ -120,6 +127,7 @@ router = APIRouter()
 # Paths are anchored to the package, so the server can start from any directory.
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.globals["app_version"] = __version__
+templates.env.globals["terminal_enabled"] = settings.terminal_enabled and AUTH_ENABLED
 
 # Initialize managers
 ldap_mgr = LDAPManager()
@@ -134,6 +142,7 @@ login_limiter = LoginAttemptLimiter(
     max_failures=settings.login_max_failed_attempts,
     lockout_seconds=settings.login_lockout_minutes * 60,
 )
+terminal_mgr = TerminalManager(max_sessions_per_user=settings.terminal_max_sessions)
 logger = logging.getLogger(__name__)
 
 
@@ -607,6 +616,182 @@ async def admin_page(request: Request, user: dict = Depends(get_current_user)):
     if not user.get("is_admin"):
         return RedirectResponse(url="/jobs", status_code=302)
     return templates.TemplateResponse("admin.html", {"request": request, "user": user})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Web 终端
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@router.get("/terminal", response_class=HTMLResponse)
+async def terminal_page(request: Request, user: dict = Depends(get_current_user)):
+    """xterm.js terminal page for authenticated system users."""
+    if not settings.terminal_enabled or not AUTH_ENABLED:
+        raise HTTPException(status_code=404, detail="终端功能未启用")
+    return templates.TemplateResponse(
+        "terminal.html", {"request": request, "user": user}
+    )
+
+
+def _websocket_origin_is_valid(websocket: WebSocket) -> bool:
+    """Prevent another website from opening a credentialed terminal socket."""
+    origin = websocket.headers.get("origin", "").strip()
+    host = websocket.headers.get("host", "").strip().lower()
+    if not origin or not host:
+        return False
+    parsed = urlsplit(origin)
+    return parsed.scheme in {"http", "https"} and parsed.netloc.lower() == host
+
+
+async def _send_terminal_output(
+    websocket: WebSocket,
+    session: TerminalSession,
+    last_activity: list[float],
+) -> None:
+    while True:
+        data = await asyncio.to_thread(session.read)
+        if not data:
+            return
+        last_activity[0] = time.monotonic()
+        await websocket.send_bytes(data)
+
+
+async def _receive_terminal_input(
+    websocket: WebSocket,
+    session: TerminalSession,
+    last_activity: list[float],
+) -> None:
+    while True:
+        message = await websocket.receive()
+        if message["type"] == "websocket.disconnect":
+            return
+        text = message.get("text")
+        if text is None or len(text) > 70_000:
+            await websocket.send_json({"type": "error", "message": "终端消息无效"})
+            continue
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            await websocket.send_json({"type": "error", "message": "终端消息格式无效"})
+            continue
+        if not isinstance(payload, dict):
+            continue
+
+        message_type = payload.get("type")
+        if message_type == "input":
+            data = str(payload.get("data", "")).encode("utf-8")
+            if len(data) > 65_536:
+                await websocket.send_json({"type": "error", "message": "单次输入过长"})
+                continue
+            session.write(data)
+            last_activity[0] = time.monotonic()
+        elif message_type == "resize":
+            try:
+                cols = max(20, min(500, int(payload.get("cols", 120))))
+                rows = max(5, min(200, int(payload.get("rows", 32))))
+            except (TypeError, ValueError):
+                continue
+            session.resize(cols, rows)
+            last_activity[0] = time.monotonic()
+        elif message_type == "ping":
+            await websocket.send_json({"type": "pong"})
+
+
+async def _watch_terminal_idle(
+    websocket: WebSocket,
+    last_activity: list[float],
+) -> None:
+    idle_seconds = settings.terminal_idle_minutes * 60
+    while True:
+        await asyncio.sleep(min(30, idle_seconds))
+        if time.monotonic() - last_activity[0] >= idle_seconds:
+            await websocket.send_json(
+                {"type": "error", "message": "终端因长时间无操作已断开"}
+            )
+            return
+
+
+@router.websocket("/ws/terminal")
+async def terminal_websocket(websocket: WebSocket):
+    """Bridge xterm.js messages to a login shell running in a PTY."""
+    if not settings.terminal_enabled or not AUTH_ENABLED:
+        await websocket.close(code=4403, reason="终端功能未启用")
+        return
+    if not _websocket_origin_is_valid(websocket):
+        await websocket.close(code=4403, reason="WebSocket 来源无效")
+        return
+
+    user = websocket.session.get("user") if "session" in websocket.scope else None
+    username = str((user or {}).get("username", "")).strip()
+    if not username:
+        await websocket.close(code=4401, reason="未登录")
+        return
+    current_shell = await run_in_threadpool(ldap_mgr.get_user_login_shell, username)
+    if _is_disabled_login_shell(current_shell):
+        await websocket.close(code=4403, reason="账户已禁用")
+        return
+
+    await websocket.accept()
+    session: Optional[TerminalSession] = None
+    tasks: list[asyncio.Task] = []
+    try:
+        session = terminal_mgr.open(username)
+        log_event(
+            logger,
+            logging.INFO,
+            "browser terminal opened",
+            event_type="terminal_session",
+            action="open",
+            actor=username,
+            pid=session.pid,
+        )
+        await websocket.send_json(
+            {
+                "type": "ready",
+                "username": username,
+                "idle_minutes": settings.terminal_idle_minutes,
+            }
+        )
+        last_activity = [time.monotonic()]
+        tasks = [
+            asyncio.create_task(_send_terminal_output(websocket, session, last_activity)),
+            asyncio.create_task(_receive_terminal_input(websocket, session, last_activity)),
+            asyncio.create_task(_watch_terminal_idle(websocket, last_activity)),
+        ]
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            if not task.cancelled():
+                task.result()
+    except TerminalError as exc:
+        await websocket.send_json({"type": "error", "message": str(exc)})
+    except (WebSocketDisconnect, RuntimeError, ConnectionError):
+        pass
+    except Exception:
+        logger.exception("browser terminal failed", extra={"fields": {"actor": username}})
+        try:
+            await websocket.send_json({"type": "error", "message": "终端会话异常结束"})
+        except Exception:
+            pass
+    finally:
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        if session is not None:
+            await asyncio.to_thread(terminal_mgr.close, session)
+            log_event(
+                logger,
+                logging.INFO,
+                "browser terminal closed",
+                event_type="terminal_session",
+                action="close",
+                actor=username,
+                pid=session.pid,
+            )
+        try:
+            await websocket.close(code=1000)
+        except Exception:
+            pass
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

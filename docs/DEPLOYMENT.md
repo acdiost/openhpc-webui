@@ -158,6 +158,8 @@ server {
     location / {
         proxy_pass http://127.0.0.1:6827;
         proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -175,6 +177,8 @@ sudo systemctl reload nginx
 ```
 
 Supervisor 配置只信任来自 `127.0.0.1` 的代理头。Nginx 不在同一台主机时，应使用实际代理地址更新 `--forwarded-allow-ips`，并用防火墙限制 6827 只接受该代理连接。
+
+Web 终端要求登录用户已经通过 SSSD/NSS 同步为本机 Linux 账户，并具有存在的 Home 目录和可执行的登录 Shell。服务以 root 运行时会在启动 Shell 前调用 `initgroups`、`setgid` 和 `setuid` 降权；应用环境变量不会传入终端。可用 `TERMINAL_ENABLED=False` 完全关闭入口。生产环境必须使用 HTTPS/WSS，并保留上面的 WebSocket `Upgrade` 请求头。
 
 ## 7. 上线验证
 

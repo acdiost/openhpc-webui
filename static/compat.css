@@ -3,7 +3,8 @@
 .sidebar { width: 240px; background-color: #1a1a1a; color: white; position: fixed; left: 0; top: 0; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
 .sidebar-header { padding: 24px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); flex-shrink: 0; }
 .sidebar-title { font-size: 18px; font-weight: 600; color: #dc3023; }
-.sidebar-nav { padding: 16px 0; flex: 1; min-height: 0; overflow-y: auto; }
+.sidebar-nav { padding: 16px 0; flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+.sidebar-nav::-webkit-scrollbar { display: none; }
 .nav-item { display: block; padding: 12px 20px; color: rgba(255, 255, 255, 0.7); text-decoration: none; transition: all 0.2s; border-left: 3px solid transparent; }
 .nav-item:hover { background-color: rgba(255, 255, 255, 0.05); color: white; }
 .nav-item.active { background-color: rgba(220, 48, 35, 0.1); color: #dc3023; border-left-color: #dc3023; }

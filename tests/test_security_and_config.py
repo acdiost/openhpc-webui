@@ -545,6 +545,20 @@ class FrontendSecurityTests(unittest.TestCase):
         self.assertIn('onclick="openAboutModal()"', sidebar_template)
         self.assertIn('class="sidebar-actions"', sidebar_template)
 
+    def test_sidebar_navigation_hides_scrollbar_without_disabling_scroll(self):
+        project_root = Path(__file__).parents[1]
+        compat = (project_root / "static" / "compat.css").read_text(
+            encoding="utf-8"
+        )
+        base_template = (project_root / "templates" / "base.html").read_text(
+            encoding="utf-8"
+        )
+
+        for stylesheet in (compat, base_template):
+            self.assertIn("overflow-y: auto", stylesheet)
+            self.assertIn("scrollbar-width: none", stylesheet)
+            self.assertIn(".sidebar-nav::-webkit-scrollbar", stylesheet)
+
 
 if __name__ == "__main__":
     unittest.main()
