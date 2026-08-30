@@ -706,11 +706,16 @@ modals %}
                 <textarea
                     id="credit_comment"
                     name="comment"
-                    rows="3"
+                    class="credit-comment-textarea"
+                    rows="5"
                     maxlength="478"
                     required
+                    wrap="soft"
                     placeholder="填写拨付原因、项目或工单号，便于追溯"
                 ></textarea>
+                <div class="credit-comment-hint">
+                    最多 478 个字符，长内容会自动换行显示；请勿输入换行。
+                </div>
             </div>
             <div class="modal-footer">
                 <button

@@ -398,11 +398,21 @@ class SlurmCreditTemplateTests(unittest.TestCase):
         template = (
             Path(__file__).parents[1] / "templates/users.html"
         ).read_text(encoding="utf-8")
+        styles = (
+            Path(__file__).parents[1] / "static/compat.css"
+        ).read_text(encoding="utf-8")
 
         self.assertIn('name="cpu_hours"', template)
         self.assertIn('name="gpu_hours"', template)
         self.assertIn('name="comment"', template)
         self.assertIn('maxlength="478"', template)
+        self.assertIn('class="credit-comment-textarea"', template)
+        self.assertIn('rows="5"', template)
+        self.assertIn('wrap="soft"', template)
+        self.assertIn('class="credit-comment-hint"', template)
+        self.assertIn(".credit-comment-textarea", styles)
+        self.assertIn("min-height: 132px", styles)
+        self.assertIn("resize: vertical", styles)
         self.assertIn("核时/卡时拨付", template)
         self.assertIn("核时限额 (h)", template)
         self.assertIn("卡时限额 (h)", template)
@@ -427,6 +437,11 @@ class SlurmCreditTemplateTests(unittest.TestCase):
         template = (
             Path(__file__).parents[1] / "templates/cluster_users.html"
         ).read_text(encoding="utf-8")
+
+        self.assertIn('class="credit-comment-textarea"', template)
+        self.assertIn('rows="5"', template)
+        self.assertIn('wrap="soft"', template)
+        self.assertIn('class="credit-comment-hint"', template)
 
         self.assertIn('name="cpu_hours"', template)
         self.assertIn('name="gpu_hours"', template)

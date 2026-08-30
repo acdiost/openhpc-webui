@@ -234,8 +234,12 @@
             <div id="tresCurrentSummary" style="margin-bottom: 16px; padding: 10px 12px; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 6px; color: #475569; font-size: 13px;"></div>
             <div class="form-group">
                 <label for="tres_comment">Comment（拨付说明）</label>
-                <textarea id="tres_comment" name="comment" rows="3" maxlength="478" required
+                <textarea id="tres_comment" name="comment" class="credit-comment-textarea"
+                          rows="5" maxlength="478" required wrap="soft"
                           placeholder="填写拨付原因、项目或工单号，便于追溯"></textarea>
+                <div class="credit-comment-hint">
+                    最多 478 个字符，长内容会自动换行显示；请勿输入换行。
+                </div>
             </div>
             <div class="modal-footer">
                 <button

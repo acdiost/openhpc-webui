@@ -116,6 +116,10 @@
 .form-group label { display: block; margin-bottom: 6px; font-size: 14px; font-weight: 500; color: #374151; }
 .form-group input, .form-group select { width: 100%; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; }
 .form-group input:focus, .form-group select:focus { outline: none; border-color: #dc3023; box-shadow: 0 0 0 3px rgba(220, 48, 35, 0.1); }
+.credit-comment-textarea { width: 100%; min-height: 132px; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; color: #111827; font-size: 14px; line-height: 1.6; box-sizing: border-box; resize: vertical; transition: border-color 150ms ease, box-shadow 150ms ease; }
+.credit-comment-textarea::placeholder { color: #9ca3af; }
+.credit-comment-textarea:focus { outline: none; border-color: #dc3023; box-shadow: 0 0 0 3px rgba(220, 48, 35, 0.1); }
+.credit-comment-hint { margin-top: 6px; color: #6b7280; font-size: 12px; line-height: 1.5; }
 
 /* Tailwind utility classes for Chrome 83 compatibility */
 .fixed { position: fixed; }
