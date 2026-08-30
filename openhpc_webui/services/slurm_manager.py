@@ -1180,6 +1180,8 @@ class SlurmManager:
             )
             candidates: Dict[str, List[Dict]] = {}
             for record in self._parse_assoc_mgr_tres_records(result.stdout):
+                if not record["username"]:
+                    continue
                 candidates.setdefault(record["username"], []).append(record)
 
             values_by_user: Dict[str, Dict[str, Optional[int]]] = {}
@@ -1209,6 +1211,36 @@ class SlurmManager:
             print(f"获取用户核时/卡时限额和用量失败: {e}")
             return {}
 
+    def get_accounts_tres_usage_minutes(self) -> Dict[str, Dict[str, int]]:
+        """批量读取账户 Association 的累计 TRES 用量，优先使用全局关联。"""
+        try:
+            result = subprocess.run(
+                ["scontrol", "show", "assoc_mgr", "flags=assoc"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            candidates: Dict[str, List[Dict]] = {}
+            for record in self._parse_assoc_mgr_tres_records(result.stdout):
+                if record["username"]:
+                    continue
+                candidates.setdefault(record["account"], []).append(record)
+
+            values_by_account: Dict[str, Dict[str, int]] = {}
+            for account, records in candidates.items():
+                selected = next(
+                    (record for record in records if not record["partition"]),
+                    records[0],
+                )
+                values_by_account[account] = {
+                    "cpu_used_minutes": selected["cpu_used_minutes"],
+                    "gpu_used_minutes": selected["gpu_used_minutes"],
+                }
+            return values_by_account
+        except Exception as e:
+            print(f"获取账户核时/卡时用量失败: {e}")
+            return {}
+
     @classmethod
     def _parse_assoc_mgr_tres_records(cls, output: str) -> List[Dict]:
         records: List[Dict] = []
@@ -1222,7 +1254,9 @@ class SlurmManager:
             if not header:
                 continue
             account, username, partition = header.groups()
-            if not cls._is_valid_slurm_name(username):
+            if not cls._is_valid_slurm_name(account) or (
+                username and not cls._is_valid_slurm_name(username)
+            ):
                 continue
             tres_line = re.search(
                 r"^\s*GrpTRESMins=(.+)$", block, flags=re.MULTILINE

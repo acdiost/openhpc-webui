@@ -922,11 +922,23 @@ async def get_accounts(user: dict = Depends(get_current_user)):
     """获取 Slurm 账户列表。"""
     _require_admin(user)
     accounts = slurm_mgr.list_accounts()
+    usage_by_account = slurm_mgr.get_accounts_tres_usage_minutes()
     for account in accounts:
-        limits = slurm_mgr.get_account_tres_minutes(account.get("name", ""))
+        account_name = account.get("name", "")
+        limits = slurm_mgr.get_account_tres_minutes(account_name)
         if limits:
-            account["cpu_minutes"] = limits.get("cpu")
+            cpu_minutes = limits.get("cpu")
+            account["cpu_minutes"] = cpu_minutes
             account["gpu_minutes"] = limits.get("gres/gpu")
+            usage = usage_by_account.get(account_name)
+            if usage is not None:
+                cpu_used_minutes = usage.get("cpu_used_minutes", 0)
+                account["cpu_used_minutes"] = cpu_used_minutes
+                account["cpu_remaining_minutes"] = (
+                    None
+                    if cpu_minutes is None
+                    else max(cpu_minutes - cpu_used_minutes, 0)
+                )
     return {"accounts": accounts, "count": len(accounts)}
 
 

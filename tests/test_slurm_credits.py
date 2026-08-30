@@ -228,6 +228,30 @@ ClusterName=cluster Account=research UserName=alice(1001) Partition= Priority=0 
         )
 
     @patch("openhpc_webui.services.slurm_manager.subprocess.run")
+    def test_lists_account_tres_usage_preferring_global_association(self, run):
+        run.return_value = Mock(
+            stdout="""
+ClusterName=cluster Account=research UserName= Partition=GPU Priority=0 ID=20
+    GrpTRESMins=cpu=600(250),gres/gpu=60(10)
+ClusterName=cluster Account=research UserName= Partition= Priority=0 ID=21
+    GrpTRESMins=cpu=1200(300),gres/gpu=N(5)
+ClusterName=cluster Account=research UserName=alice(1001) Partition= Priority=0 ID=22
+    GrpTRESMins=cpu=300(125),gres/gpu=30(7)
+"""
+        )
+
+        usage = self.manager.get_accounts_tres_usage_minutes()
+
+        self.assertEqual(
+            usage["research"],
+            {"cpu_used_minutes": 300, "gpu_used_minutes": 5},
+        )
+        self.assertEqual(
+            run.call_args.args[0],
+            ["scontrol", "show", "assoc_mgr", "flags=assoc"],
+        )
+
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
     def test_absolute_limit_write_rejects_invalid_names(self, run):
         success = self.manager.set_association_tres_minutes(
             "dawn where account=root", "dawn", cpu_minutes=60
@@ -238,6 +262,28 @@ ClusterName=cluster Account=research UserName=alice(1001) Partition= Priority=0 
 
 
 class SlurmCreditApiTests(unittest.TestCase):
+    def test_accounts_endpoint_includes_remaining_cpu_minutes(self):
+        with patch.object(
+            main.slurm_mgr, "list_accounts", return_value=[{"name": "research"}]
+        ), patch.object(
+            main.slurm_mgr,
+            "get_account_tres_minutes",
+            return_value={"cpu": 1200, "gres/gpu": 60},
+        ), patch.object(
+            main.slurm_mgr,
+            "get_accounts_tres_usage_minutes",
+            return_value={
+                "research": {"cpu_used_minutes": 300, "gpu_used_minutes": 5}
+            },
+        ):
+            result = asyncio.run(
+                main.get_accounts({"username": "admin", "is_admin": True})
+            )
+
+        account = result["accounts"][0]
+        self.assertEqual(account["cpu_used_minutes"], 300)
+        self.assertEqual(account["cpu_remaining_minutes"], 900)
+
     def test_users_endpoint_includes_tres_usage_and_remaining(self):
         tres_values = {
             "dawn": {
@@ -385,6 +431,14 @@ class SlurmCreditTemplateTests(unittest.TestCase):
         self.assertIn('name="partition"', template)
         self.assertIn("partition: partition || null", template)
         self.assertIn("grantUserCredits", template)
+
+    def test_account_table_shows_remaining_cpu_hours(self):
+        template = (
+            Path(__file__).parents[1] / "templates/accounts.html"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("剩余核时", template)
+        self.assertIn("account.cpu_remaining_minutes", template)
 
 
 if __name__ == "__main__":
