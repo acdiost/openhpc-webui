@@ -47,7 +47,7 @@
 <div class="terminal-heading">
     <div>
         <h2>Web 终端</h2>
-        <p class="terminal-description">以系统账户 <strong>{{ user.get('username') }}</strong> 登录，工作目录为该账户的 Home 目录。</p>
+        <p class="terminal-description">以系统账户 <strong>{{ user.get('username') }}</strong> 登录，工作目录始终为该账户的 Home；管理员也不会进入 <code>/root</code>。</p>
     </div>
     <div class="terminal-actions">
         <span id="terminalStatus" class="terminal-status" role="status" aria-live="polite"><span class="terminal-status-dot"></span><span id="terminalStatusText">未连接</span></span>

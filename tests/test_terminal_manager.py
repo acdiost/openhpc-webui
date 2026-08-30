@@ -13,7 +13,7 @@ from openhpc_webui.services.terminal_manager import (
 
 
 class TerminalIdentityTests(unittest.TestCase):
-    def test_resolves_system_identity(self):
+    def test_uses_system_account_home_instead_of_admin_root_scope(self):
         record = SimpleNamespace(
             pw_name="alice",
             pw_uid=1001,
@@ -43,6 +43,7 @@ class TerminalIdentityTests(unittest.TestCase):
         self.assertEqual(identity.uid, 1001)
         self.assertEqual(identity.gid, 1002)
         self.assertEqual(identity.home, "/home/alice")
+        self.assertNotEqual(identity.home, "/root")
 
     def test_rejects_account_with_disabled_shell(self):
         record = SimpleNamespace(

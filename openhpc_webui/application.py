@@ -735,6 +735,8 @@ async def terminal_websocket(websocket: WebSocket):
     session: Optional[TerminalSession] = None
     tasks: list[asyncio.Task] = []
     try:
+        # Portal administrators do not receive a privileged working directory:
+        # TerminalManager resolves the same user's NSS Home and starts there.
         session = terminal_mgr.open(username)
         log_event(
             logger,
