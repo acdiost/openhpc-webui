@@ -344,6 +344,8 @@ class UserUpdateValidationTests(unittest.TestCase):
         self.assertIn("input.disabled = checkbox.checked", quota_logic)
         self.assertIn("input.required = !checkbox.checked", quota_logic)
         self.assertIn("配额数值与不限制不能同时设置", quota_logic)
+        self.assertEqual(quota_logic.count('? "quota_unlimited"'), 2)
+        self.assertNotIn('`${prefix}_quota_unlimited`);', quota_logic)
 
     def test_quota_forms_share_validated_selection_parser(self):
         template = (PROJECT_ROOT / "templates/users.html").read_text(encoding="utf-8")

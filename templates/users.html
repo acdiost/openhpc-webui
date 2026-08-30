@@ -1293,7 +1293,11 @@ page_scripts %}
         const input = document.getElementById(
             prefix === "quota" ? "quota_value" : `${prefix}_quota`,
         );
-        const checkbox = document.getElementById(`${prefix}_quota_unlimited`);
+        const checkbox = document.getElementById(
+            prefix === "quota"
+                ? "quota_unlimited"
+                : `${prefix}_quota_unlimited`,
+        );
         if (!input || !checkbox) return;
 
         const applyUnlimitedState = () => {
@@ -1310,7 +1314,15 @@ page_scripts %}
         const input = document.getElementById(
             prefix === "quota" ? "quota_value" : `${prefix}_quota`,
         );
-        const checkbox = document.getElementById(`${prefix}_quota_unlimited`);
+        const checkbox = document.getElementById(
+            prefix === "quota"
+                ? "quota_unlimited"
+                : `${prefix}_quota_unlimited`,
+        );
+        if (!input || !checkbox) {
+            showToast("配额控件初始化失败，请刷新页面后重试", "error");
+            return { valid: false, value: null };
+        }
         const rawValue = input.value.trim();
 
         if (checkbox.checked && rawValue !== "") {
