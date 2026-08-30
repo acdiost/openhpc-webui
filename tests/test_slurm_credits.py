@@ -283,6 +283,8 @@ class SlurmCreditApiTests(unittest.TestCase):
         account = result["accounts"][0]
         self.assertEqual(account["cpu_used_minutes"], 300)
         self.assertEqual(account["cpu_remaining_minutes"], 900)
+        self.assertEqual(account["gpu_used_minutes"], 5)
+        self.assertEqual(account["gpu_remaining_minutes"], 55)
 
     def test_users_endpoint_includes_tres_usage_and_remaining(self):
         tres_values = {
@@ -439,6 +441,8 @@ class SlurmCreditTemplateTests(unittest.TestCase):
 
         self.assertIn("剩余核时", template)
         self.assertIn("account.cpu_remaining_minutes", template)
+        self.assertIn("剩余卡时", template)
+        self.assertIn("account.gpu_remaining_minutes", template)
 
 
 if __name__ == "__main__":

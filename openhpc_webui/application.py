@@ -928,16 +928,24 @@ async def get_accounts(user: dict = Depends(get_current_user)):
         limits = slurm_mgr.get_account_tres_minutes(account_name)
         if limits:
             cpu_minutes = limits.get("cpu")
+            gpu_minutes = limits.get("gres/gpu")
             account["cpu_minutes"] = cpu_minutes
-            account["gpu_minutes"] = limits.get("gres/gpu")
+            account["gpu_minutes"] = gpu_minutes
             usage = usage_by_account.get(account_name)
             if usage is not None:
                 cpu_used_minutes = usage.get("cpu_used_minutes", 0)
+                gpu_used_minutes = usage.get("gpu_used_minutes", 0)
                 account["cpu_used_minutes"] = cpu_used_minutes
+                account["gpu_used_minutes"] = gpu_used_minutes
                 account["cpu_remaining_minutes"] = (
                     None
                     if cpu_minutes is None
                     else max(cpu_minutes - cpu_used_minutes, 0)
+                )
+                account["gpu_remaining_minutes"] = (
+                    None
+                    if gpu_minutes is None
+                    else max(gpu_minutes - gpu_used_minutes, 0)
                 )
     return {"accounts": accounts, "count": len(accounts)}
 
