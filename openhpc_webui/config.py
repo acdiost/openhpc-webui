@@ -56,6 +56,7 @@ class Settings:
     login_max_failed_attempts: int = env_positive_int("LOGIN_MAX_FAILED_ATTEMPTS", 5)
     login_lockout_minutes: int = env_positive_int("LOGIN_LOCKOUT_MINUTES", 30)
     file_upload_max_mb: int = env_positive_int("FILE_UPLOAD_MAX_MB", 1024)
+    file_edit_max_kb: int = env_positive_int("FILE_EDIT_MAX_KB", 2048)
 
 
 settings = Settings()

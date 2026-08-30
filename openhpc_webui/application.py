@@ -13,6 +13,7 @@ from fastapi import (
     FastAPI,
     File,
     HTTPException,
+    Query,
     Request,
     UploadFile,
     status,
@@ -26,6 +27,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import __version__
@@ -45,6 +47,7 @@ from .schemas import (
     GroupMemberUpdate,
     GroupUpdate,
     FileDirectoryCreate,
+    FileContentUpdate,
     FileRenameRequest,
     LoginRequest,
     NodeCreate,
@@ -123,7 +126,10 @@ ldap_mgr = LDAPManager()
 slurm_mgr = SlurmManager()
 auth_mgr = AuthManager()
 quota_mgr = NFSQuotaManager()
-file_mgr = FileManager(max_upload_bytes=settings.file_upload_max_mb * 1024 * 1024)
+file_mgr = FileManager(
+    max_upload_bytes=settings.file_upload_max_mb * 1024 * 1024,
+    max_edit_bytes=settings.file_edit_max_kb * 1024,
+)
 login_limiter = LoginAttemptLimiter(
     max_failures=settings.login_max_failed_attempts,
     lockout_seconds=settings.login_lockout_minutes * 60,
@@ -609,16 +615,51 @@ async def admin_page(request: Request, user: dict = Depends(get_current_user)):
 
 
 @router.get("/api/files")
-async def list_files(path: str = "/", user: dict = Depends(get_current_user)):
+async def list_files(
+    path: str = "/",
+    show_hidden: bool = False,
+    cursor: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
+    user: dict = Depends(get_current_user),
+):
     root = _file_scope(user)
     try:
-        result = file_mgr.list_directory(path, root)
+        result = await run_in_threadpool(
+            file_mgr.list_directory,
+            path,
+            root,
+            show_hidden=show_hidden,
+            cursor=cursor,
+            limit=limit,
+        )
     except FileManagerError as exc:
         _raise_file_error(exc)
     result["scope"] = "root" if user.get("is_admin") else "home"
     result["root_access"] = bool(user.get("is_admin") and os.geteuid() == 0)
     result["upload_max_mb"] = settings.file_upload_max_mb
+    result["edit_max_kb"] = settings.file_edit_max_kb
     return result
+
+
+@router.get("/api/files/content")
+async def get_file_content(path: str, user: dict = Depends(get_current_user)):
+    root = _file_scope(user)
+    try:
+        return await run_in_threadpool(file_mgr.read_text, path, root)
+    except FileManagerError as exc:
+        _raise_file_error(exc)
+
+
+@router.put("/api/files/content")
+async def update_file_content(
+    payload: FileContentUpdate, user: dict = Depends(get_current_user)
+):
+    root = _file_scope(user)
+    try:
+        await run_in_threadpool(file_mgr.write_text, payload.path, payload.content, root)
+    except FileManagerError as exc:
+        _raise_file_error(exc)
+    return {"message": "文件保存成功", "path": payload.path}
 
 
 @router.get("/api/files/download")
@@ -644,7 +685,8 @@ async def create_file_directory(
 ):
     root = _file_scope(user)
     try:
-        created = file_mgr.create_directory(
+        created = await run_in_threadpool(
+            file_mgr.create_directory,
             payload.path,
             payload.name,
             root,
@@ -663,7 +705,8 @@ async def upload_file(
 ):
     root = _file_scope(user)
     try:
-        created = file_mgr.upload(
+        created = await run_in_threadpool(
+            file_mgr.upload,
             path,
             upload.filename or "",
             upload.file,
@@ -683,7 +726,9 @@ async def rename_file(
 ):
     root = _file_scope(user)
     try:
-        renamed = file_mgr.rename(payload.path, payload.new_name, root)
+        renamed = await run_in_threadpool(
+            file_mgr.rename, payload.path, payload.new_name, root
+        )
     except FileManagerError as exc:
         _raise_file_error(exc)
     return {"message": "重命名成功", "path": renamed}
@@ -693,7 +738,7 @@ async def rename_file(
 async def delete_file(path: str, user: dict = Depends(get_current_user)):
     root = _file_scope(user)
     try:
-        file_mgr.delete(path, root)
+        await run_in_threadpool(file_mgr.delete, path, root)
     except FileManagerError as exc:
         _raise_file_error(exc)
     return {"message": "删除成功"}

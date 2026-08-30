@@ -191,3 +191,8 @@ class FileDirectoryCreate(BaseModel):
 class FileRenameRequest(BaseModel):
     path: str = Field(..., min_length=1, max_length=4096)
     new_name: str = Field(..., min_length=1, max_length=255)
+
+
+class FileContentUpdate(BaseModel):
+    path: str = Field(..., min_length=1, max_length=4096)
+    content: str

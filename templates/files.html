@@ -10,6 +10,7 @@
     .file-path button { border-radius:0 6px 6px 0; }
     .file-scope { display:flex; align-items:center; gap:8px; color:#6b7280; font-size:13px; margin-top:5px; }
     .file-scope-badge { padding:2px 8px; border-radius:999px; background:#f3f4f6; color:#374151; font-weight:600; }
+    .file-toggle[aria-pressed="true"] { border-color:#dc3023; color:#b42318; background:#fff7f6; }
     .file-table-wrap { overflow-x:auto; }
     .file-table { width:100%; border-collapse:collapse; }
     .file-table th { padding:11px 14px; text-align:left; color:#6b7280; font-size:12px; font-weight:600; border-bottom:1px solid #e5e7eb; }
@@ -28,12 +29,31 @@
     .file-empty { text-align:center; padding:64px 20px; color:#9ca3af; }
     .file-loading { opacity:.55; pointer-events:none; }
     .file-warning { display:none; margin-bottom:16px; padding:10px 12px; border:1px solid #fde68a; border-radius:6px; background:#fffbeb; color:#92400e; font-size:13px; }
+    .file-pagination { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:12px; padding-top:16px; }
+    .file-pagination-meta { color:#6b7280; font-size:13px; }
+    .file-pagination-actions { display:flex; align-items:center; gap:8px; }
+    .file-pagination select { width:auto; min-width:92px; padding:7px 28px 7px 9px; }
+    .file-dialog-content { max-width:560px; }
+    .file-dialog-content.is-editor { width:min(1100px, 94vw); max-width:none; }
+    .file-dialog-body { padding:20px; }
+    .file-dialog-message { color:#4b5563; font-size:14px; line-height:1.6; white-space:pre-wrap; }
+    .file-dialog-message:empty { display:none; }
+    .file-dialog-field { margin-top:16px; }
+    .file-dialog-field label { display:block; margin-bottom:7px; color:#374151; font-size:13px; font-weight:600; }
+    .file-editor { width:100%; min-height:52vh; resize:vertical; padding:12px; border:1px solid #d1d5db; border-radius:6px; font:13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; tab-size:4; white-space:pre; overflow:auto; }
+    .file-editor:focus { outline:none; border-color:#dc3023; box-shadow:0 0 0 3px rgba(220,48,35,.10); }
+    .file-dialog-error { display:none; margin-top:12px; color:#b91c1c; font-size:13px; }
+    .file-dialog-content .btn-danger { background:#b91c1c; border-color:#b91c1c; color:#fff; }
+    .file-dialog-content .btn-danger:hover { background:#991b1b; border-color:#991b1b; }
     #uploadInput { display:none; }
-    @media (max-width: 760px) {
+    @media (max-width:760px) {
         .file-toolbar { align-items:stretch; }
         .file-path { min-width:100%; }
         .file-table th:nth-child(2), .file-table td:nth-child(2),
         .file-table th:nth-child(3), .file-table td:nth-child(3) { display:none; }
+        .file-pagination { align-items:flex-start; }
+        .file-pagination-actions { width:100%; justify-content:flex-end; }
+        .file-editor { min-height:60vh; }
     }
 </style>
 {% endblock %}
@@ -42,37 +62,61 @@
 <div class="flex justify-between items-center" style="margin-bottom:20px">
     <div>
         <h2 style="font-size:28px;font-weight:700">文件管理</h2>
-        <div class="file-scope">
-            <span id="scopeBadge" class="file-scope-badge">加载中</span>
-            <span id="scopeDescription"></span>
-        </div>
+        <div class="file-scope"><span id="scopeBadge" class="file-scope-badge">加载中</span><span id="scopeDescription"></span></div>
     </div>
 </div>
-
-<div id="rootWarning" class="file-warning">
-    当前服务进程不是 root，管理员仍可浏览系统根目录，但实际访问能力受服务进程的系统权限限制。
-</div>
+<div id="rootWarning" class="file-warning">当前服务进程不是 root，管理员仍可浏览系统根目录，但实际访问能力受服务进程的系统权限限制。</div>
 
 <div class="card">
     <div class="file-toolbar">
         <button id="upButton" class="btn btn-secondary" type="button" onclick="goUp()" disabled>上一级</button>
         <div class="file-path">
-            <input id="pathInput" type="text" value="/" aria-label="当前路径" onkeydown="if(event.key==='Enter') loadFiles(this.value)" />
-            <button class="btn btn-secondary" type="button" onclick="loadFiles(document.getElementById('pathInput').value)">转到</button>
+            <input id="pathInput" type="text" value="/" aria-label="当前路径" onkeydown="if(event.key==='Enter') loadFiles(this.value, 0)" />
+            <button class="btn btn-secondary" type="button" onclick="loadFiles(document.getElementById('pathInput').value, 0)">转到</button>
         </div>
+        <button id="hiddenToggle" class="btn btn-secondary file-toggle" type="button" aria-pressed="false" onclick="toggleHidden()">显示隐藏项目</button>
         <button class="btn btn-secondary" type="button" onclick="createDirectory()">新建目录</button>
         <button class="btn btn-primary" type="button" onclick="document.getElementById('uploadInput').click()">上传文件</button>
         <input id="uploadInput" type="file" multiple onchange="uploadFiles(this.files)" />
     </div>
-
     <div id="fileTableWrap" class="file-table-wrap">
         <table class="file-table">
-            <thead>
-                <tr><th>名称</th><th>大小</th><th>修改时间</th><th style="text-align:right">操作</th></tr>
-            </thead>
+            <thead><tr><th>名称</th><th>大小</th><th>修改时间</th><th style="text-align:right">操作</th></tr></thead>
             <tbody id="fileTableBody"></tbody>
         </table>
         <div id="emptyState" class="file-empty" style="display:none">此目录为空</div>
+    </div>
+    <div class="file-pagination" aria-label="目录分页">
+        <div id="pageMeta" class="file-pagination-meta">第 1 页</div>
+        <div class="file-pagination-actions">
+            <label for="pageLimit" class="file-pagination-meta">每页</label>
+            <select id="pageLimit" onchange="changePageLimit(this.value)">
+                <option value="50">50 项</option><option value="100" selected>100 项</option><option value="200">200 项</option>
+            </select>
+            <button id="previousPage" class="btn btn-secondary" type="button" onclick="previousPage()" disabled>上一页</button>
+            <button id="nextPage" class="btn btn-secondary" type="button" onclick="nextPage()" disabled>下一页</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<div id="fileDialog" class="modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="fileDialogTitle" onclick="handleDialogBackdrop(event)">
+    <div id="fileDialogContent" class="modal-content file-dialog-content">
+        <div class="modal-header"><h3 id="fileDialogTitle">文件操作</h3><button class="modal-close" type="button" aria-label="关闭" onclick="closeFileDialog()">&times;</button></div>
+        <form id="fileDialogForm" onsubmit="submitFileDialog(event)">
+            <div class="file-dialog-body">
+                <div id="fileDialogMessage" class="file-dialog-message"></div>
+                <div id="fileNameField" class="file-dialog-field" style="display:none">
+                    <label id="fileNameLabel" for="fileNameInput">名称</label><input id="fileNameInput" type="text" maxlength="255" autocomplete="off" />
+                </div>
+                <div id="fileEditorField" class="file-dialog-field" style="display:none">
+                    <label id="fileEditorLabel" for="fileEditor">文件内容</label><textarea id="fileEditor" class="file-editor" spellcheck="false"></textarea>
+                </div>
+                <div id="fileDialogError" class="file-dialog-error" role="alert"></div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-secondary" type="button" onclick="closeFileDialog()">取消</button><button id="fileDialogSubmit" class="btn btn-primary" type="submit">确定</button></div>
+        </form>
     </div>
 </div>
 {% endblock %}
@@ -81,11 +125,15 @@
 <script>
     let currentPath = "/";
     let parentPath = null;
+    let showHidden = false;
+    let pageCursor = 0;
+    let pageLimit = 100;
+    let nextPageCursor = null;
+    let dialogSubmitHandler = null;
+    let dialogGeneration = 0;
 
     function fileIcon(directory, symlink) {
-        if (directory) {
-            return `<svg class="file-icon folder" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7a2 2 0 012-2h5l2 2h7a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>`;
-        }
+        if (directory) return `<svg class="file-icon folder" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7a2 2 0 012-2h5l2 2h7a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>`;
         return `<svg class="file-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 3h7l5 5v13H7zM14 3v6h5"/>${symlink ? '<path stroke-linecap="round" stroke-width="2" d="M3 15h8m0 0l-3-3m3 3l-3 3"/>' : ''}</svg>`;
     }
 
@@ -111,21 +159,22 @@
             nameButton.type = "button";
             nameButton.textContent = entry.name + (entry.is_symlink ? " ↗" : "");
             nameButton.title = entry.path;
-            nameButton.onclick = () => entry.is_directory ? loadFiles(entry.path) : download(entry.path);
+            nameButton.onclick = () => entry.is_directory ? loadFiles(entry.path, 0) : openEditor(entry);
             nameWrap.appendChild(nameButton);
             nameCell.appendChild(nameWrap);
-
             const sizeCell = document.createElement("td");
             sizeCell.className = "file-meta";
             sizeCell.textContent = entry.is_directory ? "—" : formatSize(entry.size);
             const timeCell = document.createElement("td");
             timeCell.className = "file-meta";
             timeCell.textContent = new Date(entry.modified_at).toLocaleString("zh-CN", {hour12:false});
-
             const actionCell = document.createElement("td");
             const actions = document.createElement("div");
             actions.className = "file-actions";
-            if (!entry.is_directory) actions.appendChild(actionButton("下载", () => download(entry.path)));
+            if (!entry.is_directory) {
+                actions.appendChild(actionButton("编辑", () => openEditor(entry)));
+                actions.appendChild(actionButton("下载", () => download(entry.path)));
+            }
             actions.appendChild(actionButton("重命名", () => renameEntry(entry)));
             actions.appendChild(actionButton("删除", () => deleteEntry(entry), true));
             actionCell.appendChild(actions);
@@ -151,15 +200,22 @@
         return data;
     }
 
-    async function loadFiles(path="/") {
+    async function loadFiles(path=currentPath, cursor=0) {
         const wrap = document.getElementById("fileTableWrap");
         wrap.classList.add("file-loading");
         try {
-            const data = await api(`/api/files?path=${encodeURIComponent(path || "/")}`);
+            const params = new URLSearchParams({path:path || "/", show_hidden:String(showHidden), cursor:String(cursor), limit:String(pageLimit)});
+            const data = await api(`/api/files?${params}`);
             currentPath = data.path;
             parentPath = data.parent;
+            pageCursor = data.cursor;
+            nextPageCursor = data.next_cursor;
             document.getElementById("pathInput").value = currentPath;
             document.getElementById("upButton").disabled = !parentPath;
+            document.getElementById("previousPage").disabled = pageCursor === 0;
+            document.getElementById("nextPage").disabled = !data.has_more;
+            const pageNumber = Math.floor(pageCursor / pageLimit) + 1;
+            document.getElementById("pageMeta").textContent = `第 ${pageNumber} 页 · 本页 ${(data.entries || []).length} 项${data.has_more ? " · 还有更多" : ""}`;
             const rootScope = data.scope === "root";
             document.getElementById("scopeBadge").textContent = rootScope ? "ROOT" : "HOME";
             document.getElementById("scopeDescription").textContent = rootScope ? "管理员可访问系统全部路径" : "仅可访问您自己的 Home 目录";
@@ -169,22 +225,78 @@
         } catch (error) {
             showToast(error.message, "error");
             document.getElementById("pathInput").value = currentPath;
-        } finally {
-            wrap.classList.remove("file-loading");
-        }
+        } finally { wrap.classList.remove("file-loading"); }
     }
 
-    function goUp() { if (parentPath) loadFiles(parentPath); }
+    function goUp() { if (parentPath) loadFiles(parentPath, 0); }
     function download(path) { window.location.href = `/api/files/download?path=${encodeURIComponent(path)}`; }
+    function nextPage() { if (nextPageCursor !== null) loadFiles(currentPath, nextPageCursor); }
+    function previousPage() { loadFiles(currentPath, Math.max(0, pageCursor - pageLimit)); }
+    function changePageLimit(value) { pageLimit = Number(value) || 100; loadFiles(currentPath, 0); }
+    function toggleHidden() {
+        showHidden = !showHidden;
+        const button = document.getElementById("hiddenToggle");
+        button.setAttribute("aria-pressed", String(showHidden));
+        button.textContent = showHidden ? "隐藏隐藏项目" : "显示隐藏项目";
+        loadFiles(currentPath, 0);
+    }
 
-    async function createDirectory() {
-        const name = prompt("请输入新目录名称");
-        if (!name) return;
+    function openFileDialog(options) {
+        const generation = ++dialogGeneration;
+        const dialog = document.getElementById("fileDialog");
+        const content = document.getElementById("fileDialogContent");
+        const input = document.getElementById("fileNameInput");
+        const editor = document.getElementById("fileEditor");
+        const submit = document.getElementById("fileDialogSubmit");
+        document.getElementById("fileDialogTitle").textContent = options.title || "文件操作";
+        document.getElementById("fileDialogMessage").textContent = options.message || "";
+        document.getElementById("fileDialogError").style.display = "none";
+        document.getElementById("fileNameField").style.display = options.input ? "block" : "none";
+        document.getElementById("fileEditorField").style.display = options.editor ? "block" : "none";
+        content.classList.toggle("is-editor", Boolean(options.editor));
+        input.value = options.value || "";
+        editor.value = options.editorValue || "";
+        editor.disabled = Boolean(options.loading);
+        document.getElementById("fileNameLabel").textContent = options.label || "名称";
+        submit.textContent = options.confirmText || "确定";
+        submit.classList.toggle("btn-danger", Boolean(options.danger));
+        submit.classList.toggle("btn-primary", !options.danger);
+        submit.disabled = Boolean(options.loading);
+        dialogSubmitHandler = options.onSubmit || null;
+        dialog.style.display = "flex";
+        setTimeout(() => {
+            if (options.input) { input.focus(); input.select(); }
+            if (options.editor && !options.loading) editor.focus();
+        }, 0);
+        return generation;
+    }
+
+    function closeFileDialog() { dialogGeneration += 1; document.getElementById("fileDialog").style.display = "none"; dialogSubmitHandler = null; }
+    function handleDialogBackdrop(event) { if (event.target === document.getElementById("fileDialog")) closeFileDialog(); }
+
+    async function submitFileDialog(event) {
+        event.preventDefault();
+        if (!dialogSubmitHandler) return;
+        const submit = document.getElementById("fileDialogSubmit");
+        const errorBox = document.getElementById("fileDialogError");
+        submit.disabled = true;
+        errorBox.style.display = "none";
         try {
+            await dialogSubmitHandler({name:document.getElementById("fileNameInput").value, content:document.getElementById("fileEditor").value});
+            closeFileDialog();
+        } catch (error) {
+            errorBox.textContent = error.message || "操作失败";
+            errorBox.style.display = "block";
+        } finally { submit.disabled = false; }
+    }
+
+    function createDirectory() {
+        openFileDialog({title:"新建目录", input:true, label:"目录名称", confirmText:"创建", onSubmit:async ({name}) => {
+            if (!name.trim()) throw new Error("目录名称不能为空");
             const data = await api("/api/files/directory", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({path:currentPath, name})});
             showToast(data.message, "success");
-            await loadFiles(currentPath);
-        } catch (error) { showToast(error.message, "error"); }
+            await loadFiles(currentPath, pageCursor);
+        }});
     }
 
     async function uploadFiles(files) {
@@ -198,29 +310,55 @@
             } catch (error) { showToast(`${file.name}: ${error.message}`, "error"); }
         }
         input.value = "";
-        await loadFiles(currentPath);
+        await loadFiles(currentPath, pageCursor);
     }
 
-    async function renameEntry(entry) {
-        const newName = prompt("请输入新名称", entry.name);
-        if (!newName || newName === entry.name) return;
-        try {
-            const data = await api("/api/files/rename", {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify({path:entry.path, new_name:newName})});
+    function renameEntry(entry) {
+        openFileDialog({title:"重命名", message:`当前名称：${entry.name}`, input:true, label:"新名称", value:entry.name, confirmText:"保存", onSubmit:async ({name}) => {
+            if (!name.trim()) throw new Error("名称不能为空");
+            if (name === entry.name) return;
+            const data = await api("/api/files/rename", {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify({path:entry.path, new_name:name})});
             showToast(data.message, "success");
-            await loadFiles(currentPath);
-        } catch (error) { showToast(error.message, "error"); }
+            await loadFiles(currentPath, pageCursor);
+        }});
     }
 
-    async function deleteEntry(entry) {
+    function deleteEntry(entry) {
         const kind = entry.is_directory ? "目录及其中的所有内容" : "文件";
-        if (!confirm(`确定删除${kind}“${entry.name}”吗？此操作不可恢复。`)) return;
-        try {
+        openFileDialog({title:"确认删除", message:`即将删除${kind}“${entry.name}”。此操作不可恢复。`, confirmText:"删除", danger:true, onSubmit:async () => {
             const data = await api(`/api/files?path=${encodeURIComponent(entry.path)}`, {method:"DELETE"});
             showToast(data.message, "success");
-            await loadFiles(currentPath);
-        } catch (error) { showToast(error.message, "error"); }
+            await loadFiles(currentPath, pageCursor);
+        }});
     }
 
-    document.addEventListener("DOMContentLoaded", () => loadFiles("/"));
+    async function openEditor(entry) {
+        const generation = openFileDialog({title:`编辑 ${entry.name}`, message:"正在读取文件…", editor:true, editorValue:"", confirmText:"保存", loading:true});
+        try {
+            const data = await api(`/api/files/content?path=${encodeURIComponent(entry.path)}`);
+            if (generation !== dialogGeneration) return;
+            document.getElementById("fileDialogMessage").textContent = `UTF-8 文本 · ${formatSize(data.size)} · 最大可编辑 ${formatSize(data.max_bytes)}`;
+            const editor = document.getElementById("fileEditor");
+            const submit = document.getElementById("fileDialogSubmit");
+            editor.value = data.content;
+            editor.disabled = false;
+            submit.disabled = false;
+            dialogSubmitHandler = async ({content}) => {
+                const result = await api("/api/files/content", {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify({path:entry.path, content})});
+                showToast(result.message, "success");
+                await loadFiles(currentPath, pageCursor);
+            };
+            editor.focus();
+        } catch (error) {
+            if (generation !== dialogGeneration) return;
+            closeFileDialog();
+            showToast(error.message, "error");
+        }
+    }
+
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && document.getElementById("fileDialog").style.display !== "none") closeFileDialog();
+    });
+    document.addEventListener("DOMContentLoaded", () => loadFiles("/", 0));
 </script>
 {% endblock %}

@@ -25,8 +25,13 @@ class FileManager:
     operation so ``..`` and symlink traversal cannot escape that virtual root.
     """
 
-    def __init__(self, max_upload_bytes: int = 1024 * 1024 * 1024):
+    def __init__(
+        self,
+        max_upload_bytes: int = 1024 * 1024 * 1024,
+        max_edit_bytes: int = 2 * 1024 * 1024,
+    ):
         self.max_upload_bytes = max_upload_bytes
+        self.max_edit_bytes = max_edit_bytes
 
     def scope_root(self, user: dict, ldap_manager) -> Path:
         if user.get("is_admin"):
@@ -102,47 +107,157 @@ class FileManager:
         relative = path.relative_to(root)
         return "/" if str(relative) == "." else f"/{relative.as_posix()}"
 
-    def list_directory(self, virtual_path: str, root: Path) -> dict:
+    def list_directory(
+        self,
+        virtual_path: str,
+        root: Path,
+        *,
+        show_hidden: bool = False,
+        cursor: int = 0,
+        limit: int = 100,
+    ) -> dict:
         directory = self.resolve(virtual_path, root)
         if not directory.is_dir():
             raise FileManagerError("目标路径不是目录")
+        if cursor < 0:
+            raise FileManagerError("分页游标无效")
+        if limit < 1 or limit > 200:
+            raise FileManagerError("每页数量必须在 1 到 200 之间")
 
         entries = []
+        visible_seen = 0
+        page_seen = 0
+        has_more = False
         try:
-            children = list(directory.iterdir())
+            # scandir is consumed lazily. We intentionally keep filesystem
+            # iteration order so a huge directory does not need to be fully
+            # materialized and sorted before the first page can be returned.
+            with os.scandir(directory) as children:
+                for child in children:
+                    if not show_hidden and child.name.startswith("."):
+                        continue
+                    if visible_seen < cursor:
+                        visible_seen += 1
+                        continue
+                    if page_seen >= limit:
+                        has_more = True
+                        break
+                    visible_seen += 1
+                    page_seen += 1
+                    try:
+                        info = child.stat(follow_symlinks=False)
+                        is_symlink = stat.S_ISLNK(info.st_mode)
+                        is_directory = child.is_dir(follow_symlinks=True)
+                        child_path = directory / child.name
+                        entries.append(
+                            {
+                                "name": child.name,
+                                "path": self.virtual_path(child_path, root),
+                                "is_directory": is_directory,
+                                "is_symlink": is_symlink,
+                                "size": None if is_directory else info.st_size,
+                                "modified_at": datetime.fromtimestamp(
+                                    info.st_mtime, tz=timezone.utc
+                                ).isoformat(),
+                                "mode": stat.filemode(info.st_mode),
+                            }
+                        )
+                    except (FileNotFoundError, PermissionError, OSError):
+                        continue
         except PermissionError as exc:
             raise FileAccessDenied("没有读取该目录的系统权限") from exc
         except OSError as exc:
             raise FileManagerError("目录读取失败") from exc
-
-        for child in children:
-            try:
-                info = child.lstat()
-                is_symlink = stat.S_ISLNK(info.st_mode)
-                is_directory = child.is_dir()
-                entries.append(
-                    {
-                        "name": child.name,
-                        "path": self.virtual_path(child, root),
-                        "is_directory": is_directory,
-                        "is_symlink": is_symlink,
-                        "size": None if is_directory else info.st_size,
-                        "modified_at": datetime.fromtimestamp(
-                            info.st_mtime, tz=timezone.utc
-                        ).isoformat(),
-                        "mode": stat.filemode(info.st_mode),
-                    }
-                )
-            except (FileNotFoundError, PermissionError, OSError):
-                # A concurrently removed or unreadable entry should not make the
-                # whole directory unusable.
-                continue
-        entries.sort(key=lambda item: (not item["is_directory"], item["name"].lower()))
         current = self.virtual_path(directory, root)
         parent = None
         if directory != root:
             parent = self.virtual_path(directory.parent, root)
-        return {"path": current, "parent": parent, "entries": entries}
+        return {
+            "path": current,
+            "parent": parent,
+            "entries": entries,
+            "cursor": cursor,
+            "next_cursor": visible_seen if has_more else None,
+            "has_more": has_more,
+            "limit": limit,
+            "show_hidden": show_hidden,
+        }
+
+    def read_text(self, virtual_path: str, root: Path) -> dict:
+        target = self.resolve(virtual_path, root)
+        try:
+            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+            flags |= getattr(os, "O_NONBLOCK", 0)
+            descriptor = os.open(target, flags)
+            with os.fdopen(descriptor, "rb") as source:
+                info = os.fstat(source.fileno())
+                if not stat.S_ISREG(info.st_mode):
+                    raise FileManagerError("仅支持编辑普通文本文件")
+                if info.st_size > self.max_edit_bytes:
+                    raise FileManagerError("文件过大，请下载后使用专用工具编辑")
+                content = source.read(self.max_edit_bytes + 1)
+        except PermissionError as exc:
+            raise FileAccessDenied("没有读取该文件的系统权限") from exc
+        except FileManagerError:
+            raise
+        except OSError as exc:
+            raise FileManagerError("文件读取失败") from exc
+        if len(content) > self.max_edit_bytes:
+            raise FileManagerError("文件过大，请下载后使用专用工具编辑")
+        if b"\x00" in content:
+            raise FileManagerError("二进制文件不能在线编辑，请下载后处理")
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise FileManagerError("文件不是 UTF-8 文本，不能在线编辑") from exc
+        return {
+            "path": self.virtual_path(target, root),
+            "name": target.name,
+            "content": text,
+            "size": len(content),
+            "max_bytes": self.max_edit_bytes,
+        }
+
+    def write_text(self, virtual_path: str, content: str, root: Path) -> None:
+        target = self.resolve(virtual_path, root)
+        encoded = content.encode("utf-8")
+        if len(encoded) > self.max_edit_bytes:
+            raise FileManagerError("编辑内容超过大小限制")
+        try:
+            info = target.stat()
+            if not stat.S_ISREG(info.st_mode):
+                raise FileManagerError("仅支持编辑普通文本文件")
+        except PermissionError as exc:
+            raise FileAccessDenied("没有修改该文件的系统权限") from exc
+        except FileManagerError:
+            raise
+        except OSError as exc:
+            raise FileManagerError("文件状态读取失败") from exc
+
+        temporary_name = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=target.parent, prefix=".edit-", delete=False
+            ) as output:
+                temporary_name = output.name
+                output.write(encoded)
+                output.flush()
+                os.fsync(output.fileno())
+            temporary = Path(temporary_name)
+            shutil.copystat(target, temporary, follow_symlinks=False)
+            if os.geteuid() == 0:
+                os.chown(temporary, info.st_uid, info.st_gid)
+            os.replace(temporary, target)
+        except PermissionError as exc:
+            raise FileAccessDenied("没有修改该文件的系统权限") from exc
+        except OSError as exc:
+            raise FileManagerError("文件保存失败") from exc
+        finally:
+            if temporary_name:
+                try:
+                    Path(temporary_name).unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     @staticmethod
     def _validate_name(name: str) -> str:

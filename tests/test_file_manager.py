@@ -31,7 +31,7 @@ class FileManagerTests(unittest.TestCase):
                 "gid": os.getgid(),
             }
         )
-        self.manager = FileManager(max_upload_bytes=8)
+        self.manager = FileManager(max_upload_bytes=8, max_edit_bytes=16)
         self.user = {"username": "alice", "is_admin": False}
 
     def tearDown(self):
@@ -91,6 +91,63 @@ class FileManagerTests(unittest.TestCase):
 
         self.assertFalse((self.root / "large.bin").exists())
         self.assertEqual(list(self.root.glob(".upload-*")), [])
+
+    def test_hidden_entries_are_optional(self):
+        (self.root / ".secret").write_text("hidden", encoding="utf-8")
+        (self.root / "visible").write_text("shown", encoding="utf-8")
+
+        hidden_off = self.manager.list_directory("/", self.root)
+        hidden_on = self.manager.list_directory("/", self.root, show_hidden=True)
+
+        self.assertEqual(
+            {entry["name"] for entry in hidden_off["entries"]}, {"visible"}
+        )
+        self.assertEqual(
+            {entry["name"] for entry in hidden_on["entries"]},
+            {".secret", "visible"},
+        )
+
+    def test_large_directory_is_returned_in_bounded_pages(self):
+        for index in range(7):
+            (self.root / f"item-{index}").write_text(str(index), encoding="utf-8")
+
+        first = self.manager.list_directory("/", self.root, limit=3)
+        second = self.manager.list_directory(
+            "/", self.root, cursor=first["next_cursor"], limit=3
+        )
+        third = self.manager.list_directory(
+            "/", self.root, cursor=second["next_cursor"], limit=3
+        )
+
+        names = {
+            entry["name"]
+            for page in (first, second, third)
+            for entry in page["entries"]
+        }
+        self.assertEqual(names, {f"item-{index}" for index in range(7)})
+        self.assertTrue(first["has_more"])
+        self.assertTrue(second["has_more"])
+        self.assertFalse(third["has_more"])
+        self.assertLessEqual(max(len(page["entries"]) for page in (first, second, third)), 3)
+
+    def test_utf8_text_can_be_read_and_saved(self):
+        target = self.root / "notes.txt"
+        target.write_text("旧内容", encoding="utf-8")
+
+        opened = self.manager.read_text("/notes.txt", self.root)
+        self.assertEqual(opened["content"], "旧内容")
+        self.manager.write_text("/notes.txt", "新内容\n", self.root)
+
+        self.assertEqual(target.read_text(encoding="utf-8"), "新内容\n")
+
+    def test_binary_and_oversized_files_cannot_be_edited(self):
+        (self.root / "binary.bin").write_bytes(b"abc\x00def")
+        (self.root / "large.txt").write_bytes(b"12345678901234567")
+
+        with self.assertRaisesRegex(FileManagerError, "二进制文件"):
+            self.manager.read_text("/binary.bin", self.root)
+        with self.assertRaisesRegex(FileManagerError, "文件过大"):
+            self.manager.read_text("/large.txt", self.root)
 
     def test_root_directory_cannot_be_renamed_or_deleted(self):
         with self.assertRaisesRegex(FileManagerError, "不能删除根目录"):
@@ -152,6 +209,30 @@ class FileApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual((self.home / "upload.txt").read_bytes(), b"uploaded")
+
+    def test_content_api_reads_and_updates_text_file(self):
+        with patch.object(main.ldap_mgr, "get_user", side_effect=self.user_record), TestClient(
+            self.app
+        ) as client:
+            opened = client.get("/api/files/content", params={"path": "/hello.txt"})
+            saved = client.put(
+                "/api/files/content",
+                json={"path": "/hello.txt", "content": "updated\n"},
+            )
+
+        self.assertEqual(opened.status_code, 200)
+        self.assertEqual(opened.json()["content"], "hello")
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual((self.home / "hello.txt").read_text(encoding="utf-8"), "updated\n")
+
+    def test_file_page_uses_custom_dialog_and_editor(self):
+        template = main.TEMPLATES_DIR.joinpath("files.html").read_text(encoding="utf-8")
+        self.assertIn('id="hiddenToggle"', template)
+        self.assertIn('id="fileDialog"', template)
+        self.assertIn("openEditor(entry)", template)
+        self.assertIn('id="nextPage"', template)
+        self.assertNotIn("prompt(", template)
+        self.assertNotIn("confirm(", template)
 
 
 if __name__ == "__main__":
