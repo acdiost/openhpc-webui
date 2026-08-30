@@ -337,7 +337,7 @@ modals %}
                     </label>
                 </div>
                 <div style="font-size: 12px; color: #9ca3af; margin-top: 6px">
-                    使用 NFS quota，留空且勾选「不限制」表示默认不限额
+                    输入数值会自动取消「不限制」；重新勾选会清空已填数值
                 </div>
             </div>
             <div class="form-group">
@@ -550,7 +550,7 @@ modals %}
                         不限制
                     </label>
                 </div>
-                <div style="font-size:12px;color:#9ca3af;margin-top:6px">配额仅作用于 /home 挂载点，保存后立即生效。</div>
+                <div style="font-size:12px;color:#9ca3af;margin-top:6px">输入数值会自动取消「不限制」；重新勾选会清空已填数值。保存后立即生效。</div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" onclick="closeUserQuotaModal()">取消</button>
@@ -956,10 +956,8 @@ page_scripts %}
     async function handleCreateUser(event) {
         event.preventDefault();
         const fd = new FormData(event.target);
-        const createQuotaUnlimited = document.getElementById(
-            "create_quota_unlimited",
-        ).checked;
-        const createQuotaValue = document.getElementById("create_quota").value;
+        const quotaSelection = readQuotaSelection("create");
+        if (!quotaSelection.valid) return;
         const userData = {
             username: fd.get("username"),
             sn: fd.get("sn")?.trim() || null,
@@ -969,11 +967,7 @@ page_scripts %}
             shell: fd.get("shell"),
             password: fd.get("password") || null,
             is_admin: fd.get("is_admin") === "on",
-            storage_quota_gb: createQuotaUnlimited
-                ? 0
-                : createQuotaValue
-                  ? parseFloat(createQuotaValue)
-                  : null,
+            storage_quota_gb: quotaSelection.value,
         };
 
         const success = await createUser(userData);
@@ -1039,14 +1033,10 @@ page_scripts %}
 
     async function handleUserQuota(event) {
         event.preventDefault();
-        const unlimited = document.getElementById("quota_unlimited").checked;
-        const value = document.getElementById("quota_value").value;
-        if (!unlimited && !value) {
-            showToast("请输入配额大小，或选择不限制", "error");
-            return;
-        }
+        const quotaSelection = readQuotaSelection("quota");
+        if (!quotaSelection.valid) return;
         const username = document.getElementById("quota_username").value;
-        const success = await updateUserQuota(username, unlimited ? 0 : parseFloat(value));
+        const success = await updateUserQuota(username, quotaSelection.value);
         if (success) {
             closeUserQuotaModal();
             loadUsers();
@@ -1305,14 +1295,40 @@ page_scripts %}
         );
         const checkbox = document.getElementById(`${prefix}_quota_unlimited`);
         if (!input || !checkbox) return;
-        const applyState = () => {
-            const unlimited = checkbox.checked;
-            input.disabled = unlimited;
-            if (unlimited) input.value = "";
-            input.style.opacity = unlimited ? "0.6" : "1";
+
+        const applyUnlimitedState = () => {
+            if (checkbox.checked) input.value = "";
+            input.required = !checkbox.checked;
         };
-        checkbox.addEventListener("change", applyState);
-        applyState();
+
+        checkbox.onchange = applyUnlimitedState;
+        input.oninput = () => {
+            checkbox.checked = false;
+            input.required = !checkbox.checked;
+        };
+        applyUnlimitedState();
+    }
+
+    function readQuotaSelection(prefix) {
+        const input = document.getElementById(
+            prefix === "quota" ? "quota_value" : `${prefix}_quota`,
+        );
+        const checkbox = document.getElementById(`${prefix}_quota_unlimited`);
+        const rawValue = input.value.trim();
+
+        if (checkbox.checked && rawValue !== "") {
+            showToast("配额数值与不限制不能同时设置", "error");
+            return { valid: false, value: null };
+        }
+        if (checkbox.checked) return { valid: true, value: 0 };
+
+        const quotaGb = Number(rawValue);
+        if (!rawValue || !Number.isFinite(quotaGb) || quotaGb <= 0) {
+            showToast("请输入有效的配额大小，或选择不限制", "error");
+            input.focus();
+            return { valid: false, value: null };
+        }
+        return { valid: true, value: quotaGb };
     }
 
     document.addEventListener("DOMContentLoaded", () => {

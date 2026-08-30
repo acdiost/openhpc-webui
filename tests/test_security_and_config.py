@@ -333,6 +333,26 @@ class UserUpdateValidationTests(unittest.TestCase):
         self.assertNotIn('id="edit_quota_unlimited"', edit_modal)
         self.assertNotIn("editQuota", template)
 
+    def test_quota_controls_enforce_mutually_exclusive_selection(self):
+        template = (PROJECT_ROOT / "templates/users.html").read_text(encoding="utf-8")
+        quota_logic = template.split("function setupQuotaToggle", 1)[1].split(
+            'document.addEventListener("DOMContentLoaded"', 1
+        )[0]
+
+        self.assertIn("checkbox.onchange = applyUnlimitedState", quota_logic)
+        self.assertIn('if (checkbox.checked) input.value = ""', quota_logic)
+        self.assertIn("input.oninput = () =>", quota_logic)
+        self.assertIn("checkbox.checked = false", quota_logic)
+        self.assertIn("input.required = !checkbox.checked", quota_logic)
+        self.assertIn("配额数值与不限制不能同时设置", quota_logic)
+
+    def test_quota_forms_share_validated_selection_parser(self):
+        template = (PROJECT_ROOT / "templates/users.html").read_text(encoding="utf-8")
+
+        self.assertEqual(template.count('readQuotaSelection("create")'), 1)
+        self.assertEqual(template.count('readQuotaSelection("quota")'), 1)
+        self.assertIn("Number.isFinite(quotaGb)", template)
+
 
 class UserDisableTests(unittest.TestCase):
     def test_disable_user_sets_nologin_shell(self):
