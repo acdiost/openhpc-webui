@@ -2,6 +2,12 @@
 
 本文件记录 OpenHPC WebUI 的重要功能变化。
 
+## Unreleased
+
+### Added
+
+- 新增版本号同步脚本及版本调整、GitHub Release 和 PyPI 发布文档。
+
 ## 0.2.1 - 20260830
 
 ### Added

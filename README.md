@@ -142,6 +142,7 @@ uv run openhpc_webui
 
 ## 文档
 
+- [版本调整与发布](./docs/RELEASING.md)：版本同步脚本、发布检查、GitHub Release 和 PyPI 流程
 - [PyPI 安装与使用指南](./docs/PYPI_USAGE.md)：虚拟环境、配置、systemd、升级和离线安装
 - [用户使用手册](./docs/USER_MANUAL.md)：管理员和普通用户的页面操作说明
 - [技术指南](./docs/TECHNICAL_GUIDE.md)：配置、运行、架构、测试与故障排查
