@@ -341,8 +341,7 @@ class UserUpdateValidationTests(unittest.TestCase):
 
         self.assertIn("checkbox.onchange = applyUnlimitedState", quota_logic)
         self.assertIn('if (checkbox.checked) input.value = ""', quota_logic)
-        self.assertIn("input.oninput = () =>", quota_logic)
-        self.assertIn("checkbox.checked = false", quota_logic)
+        self.assertIn("input.disabled = checkbox.checked", quota_logic)
         self.assertIn("input.required = !checkbox.checked", quota_logic)
         self.assertIn("配额数值与不限制不能同时设置", quota_logic)
 
