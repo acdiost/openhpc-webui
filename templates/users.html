@@ -4,6 +4,13 @@ GET /users ============================================================ #} {%
 block title %}用户管理{% endblock %} {% block breadcrumb_title %}用户管理{%
 endblock %} {% block head_extra %}
 <style>
+    /* 创建用户弹窗保留滚动能力，但隐藏各浏览器的可见滚动条。 */
+    #createUserModal .modal-content {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+    #createUserModal .modal-content::-webkit-scrollbar { display: none; }
+
     /* 用户报表弹窗 */
     .report-modal-content { width: min(1180px, 96vw); max-width: none; }
     .report-modal-header { align-items: flex-start; padding: 20px 24px 16px; }

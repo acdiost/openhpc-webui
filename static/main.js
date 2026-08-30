@@ -838,9 +838,9 @@ function showModal(title, content, options = {}) {
     modal.className = `bg-white rounded-lg p-6 ${maxWidth} w-full mx-4 shadow-xl max-h-90vh overflow-y-auto`;
 
     modal.innerHTML = `
-        <div class="flex justify-between items-center mb-4">
-            <h3 class="text-xl font-semibold text-gray-900">${title}</h3>
-            <button onclick="closeModal('${modalId}')" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+        <div class="modal-scroll-header">
+            <h3>${title}</h3>
+            <button type="button" onclick="closeModal('${modalId}')" class="modal-close" aria-label="关闭弹窗">&times;</button>
         </div>
         <div class="text-gray-700">
             ${content}
@@ -899,7 +899,10 @@ function showConfirmModal(title, message, onConfirm) {
     modal.className = 'bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl';
 
     modal.innerHTML = `
-        <h3 class="text-xl font-semibold text-gray-900 mb-3">${title}</h3>
+        <div class="modal-scroll-header">
+            <h3>${title}</h3>
+            <button type="button" onclick="closeConfirmModal()" class="modal-close" aria-label="关闭确认弹窗">&times;</button>
+        </div>
         <p class="text-gray-600 mb-6">${message}</p>
         <div class="flex gap-3 justify-end">
             <button onclick="closeConfirmModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition">

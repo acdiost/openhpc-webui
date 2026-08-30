@@ -483,6 +483,31 @@ class UserDisableFrontendTests(unittest.TestCase):
         self.assertIn("async function enableUserAPI(username)", script)
         self.assertIn("/enable`", script)
 
+    def test_create_user_modal_hides_scrollbar_without_disabling_scroll(self):
+        template = (
+            Path(__file__).parents[1] / "templates" / "users.html"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("#createUserModal .modal-content", template)
+        self.assertIn("scrollbar-width: none", template)
+        self.assertIn("#createUserModal .modal-content::-webkit-scrollbar", template)
+
+    def test_modal_headers_are_sticky_across_static_and_dynamic_dialogs(self):
+        compat = (PROJECT_ROOT / "static" / "compat.css").read_text(encoding="utf-8")
+        base = (PROJECT_ROOT / "templates" / "base.html").read_text(encoding="utf-8")
+        main_script = (PROJECT_ROOT / "static" / "main.js").read_text(encoding="utf-8")
+        nodes_script = (PROJECT_ROOT / "static" / "nodes.js").read_text(encoding="utf-8")
+        partitions_script = (
+            PROJECT_ROOT / "static" / "partitions.js"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(".modal-header { position: sticky; top: 0", compat)
+        self.assertIn(".modal-scroll-header { position: sticky", compat)
+        self.assertIn(".about-header {\n            position: sticky", base)
+        self.assertIn('class="modal-scroll-header"', main_script)
+        self.assertEqual(nodes_script.count('class="modal-scroll-header"'), 2)
+        self.assertEqual(partitions_script.count('class="modal-scroll-header"'), 2)
+
 
 class FrontendSecurityTests(unittest.TestCase):
     def test_job_rows_do_not_interpolate_slurm_values_into_inner_html(self):

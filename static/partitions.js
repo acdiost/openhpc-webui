@@ -161,7 +161,10 @@ async function showCreatePartitionModal() {
     const nodesHTML = allNodesConfig.length > 0 ? generateNodesCheckboxes() : '<p class="text-gray-500">暂无可用节点，请先在节点管理页面创建节点配置</p>';
 
     modal.innerHTML = `
-        <h3 class="text-xl font-semibold text-gray-900 mb-4">创建新分区</h3>
+        <div class="modal-scroll-header">
+            <h3>创建新分区</h3>
+            <button type="button" onclick="closeCreatePartitionModal()" class="modal-close" aria-label="关闭创建分区弹窗">&times;</button>
+        </div>
         <form id="createPartitionForm" class="space-y-4">
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">分区名称 *</label>
@@ -314,7 +317,10 @@ function editPartition(partitionName) {
     modal.className = 'bg-white rounded-lg p-6 max-w-2xl w-full mx-4 shadow-xl max-h-90vh overflow-y-auto';
 
     modal.innerHTML = `
-        <h3 class="text-xl font-semibold text-gray-900 mb-4">编辑分区: ${partition.name}</h3>
+        <div class="modal-scroll-header">
+            <h3>编辑分区: ${partition.name}</h3>
+            <button type="button" onclick="closeEditPartitionModal()" class="modal-close" aria-label="关闭编辑分区弹窗">&times;</button>
+        </div>
         <form id="editPartitionForm" class="space-y-4">
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">节点范围</label>

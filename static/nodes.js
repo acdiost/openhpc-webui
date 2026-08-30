@@ -138,7 +138,10 @@ function showAddNodeModal() {
     modal.className = 'bg-white rounded-lg p-6 max-w-2xl w-full mx-4 shadow-xl max-h-90vh overflow-y-auto';
 
     modal.innerHTML = `
-        <h3 class="text-xl font-semibold text-gray-900 mb-4">添加新节点</h3>
+        <div class="modal-scroll-header">
+            <h3>添加新节点</h3>
+            <button type="button" onclick="closeAddNodeModal()" class="modal-close" aria-label="关闭添加节点弹窗">&times;</button>
+        </div>
         <form id="addNodeForm" class="space-y-4">
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">节点名称 *</label>
@@ -254,7 +257,10 @@ function editNode(nodeName) {
     modal.className = 'bg-white rounded-lg p-6 max-w-2xl w-full mx-4 shadow-xl max-h-90vh overflow-y-auto';
 
     modal.innerHTML = `
-        <h3 class="text-xl font-semibold text-gray-900 mb-4">编辑节点: ${nodeName}</h3>
+        <div class="modal-scroll-header">
+            <h3>编辑节点: ${nodeName}</h3>
+            <button type="button" onclick="closeEditNodeModal()" class="modal-close" aria-label="关闭编辑节点弹窗">&times;</button>
+        </div>
         <form id="editNodeForm" class="space-y-4">
             <div class="grid grid-cols-2 gap-4">
                 <div>
