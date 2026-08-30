@@ -4,6 +4,30 @@
 
 ## Unreleased
 
+### Added
+
+- 新增基于 xterm.js 的 Web 终端，通过 WebSocket 连接后端 PTY，并将 xterm.js、FitAddon 和样式资源随应用离线打包。
+- 新增 `TERMINAL_ENABLED`、`TERMINAL_IDLE_MINUTES` 和 `TERMINAL_MAX_SESSIONS` 配置，用于控制终端入口、空闲超时及单用户并发会话数。
+- 新增 Nginx HTTPS/WebSocket 示例配置，以及终端使用、部署和故障排查文档。
+
+### Changed
+
+- Web 终端侧边栏改为当前页与新标签页双入口。
+- 终端连接期间切换站内页面时，可选择留在终端、在新标签打开目标，或断开 Shell 后离开。
+- 新增终端悬浮收缩模式；收起后 WebSocket 和 Shell 保持运行，展开时自动重新适配终端尺寸。
+- 刷新、关闭页签或通过地址栏离开活动终端时增加浏览器离开确认。
+
+### Fixed
+
+- 补充 Nginx WebSocket `Upgrade` 和 `Connection` 转发配置，避免 `/ws/terminal` 被代理为普通 HTTP GET 并返回 404。
+- 断开终端或关闭页面时主动回收 PTY 文件描述符和 Shell 进程，避免残留会话。
+
+### Security
+
+- WebSocket 复用门户登录会话并校验请求来源，拒绝未认证、跨站来源及已禁用账户。
+- Shell 始终降权到当前同名 Linux 系统用户，不继承门户的 LDAP 凭据、Session 密钥等敏感环境变量。
+- 增加系统账户、Home、登录 Shell、UID 唯一性和进程切换权限检查，拒绝 UID 与其他用户名冲突的终端会话。
+
 ## 0.3.0 - 20260830
 
 ### Added
