@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import pwd
 import re
 import subprocess
 import tempfile
@@ -357,6 +358,26 @@ def _file_scope(user: dict) -> Path:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+def _file_home_path(user: dict) -> str:
+    """Return the initial virtual path for file management.
+
+    Regular users already see their Home as virtual ``/``. Administrators keep
+    a system-root scope, but start in the Home reported for their own NSS
+    identity instead of inheriting root's Home.
+    """
+    if not user.get("is_admin"):
+        return "/"
+    username = str(user.get("username") or "").strip()
+    if not username:
+        return "/"
+    try:
+        home = Path(pwd.getpwnam(username).pw_dir)
+        resolved = home.resolve(strict=True)
+    except (KeyError, OSError, RuntimeError):
+        return "/"
+    return str(resolved) if resolved.is_dir() and resolved.is_absolute() else "/"
+
+
 def _raise_file_error(exc: FileManagerError) -> NoReturn:
     if isinstance(exc, FileAccessDenied):
         raise HTTPException(status_code=403, detail=str(exc)) from exc
@@ -599,7 +620,14 @@ async def account_page(request: Request, user: dict = Depends(get_current_user))
 @router.get("/files", response_class=HTMLResponse)
 async def files_page(request: Request, user: dict = Depends(get_current_user)):
     """文件管理：普通用户以 Home 为根，管理员以系统根目录为根。"""
-    return templates.TemplateResponse("files.html", {"request": request, "user": user})
+    return templates.TemplateResponse(
+        "files.html",
+        {
+            "request": request,
+            "user": user,
+            "initial_path": _file_home_path(user),
+        },
+    )
 
 
 @router.get("/nodes", response_class=HTMLResponse)
@@ -825,10 +853,7 @@ async def list_files(
     result["root_access"] = bool(user.get("is_admin") and os.geteuid() == 0)
     result["upload_max_mb"] = settings.file_upload_max_mb
     result["edit_max_kb"] = settings.file_edit_max_kb
-    root_home = Path("/root")
-    result["home_path"] = (
-        "/root" if user.get("is_admin") and root_home.is_dir() else "/"
-    )
+    result["home_path"] = _file_home_path(user)
     return result
 
 

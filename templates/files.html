@@ -152,7 +152,7 @@
 
 {% block page_scripts %}
 <script>
-    let currentPath = "/";
+    let currentPath = {{ initial_path | tojson }};
     let parentPath = null;
     let homePath = "/";
     let showHidden = false;
@@ -255,7 +255,7 @@
             document.getElementById("pageMeta").textContent = `第 ${pageNumber} 页 · 本页 ${(data.entries || []).length} 项${data.has_more ? " · 还有更多" : ""}`;
             const rootScope = data.scope === "root";
             document.getElementById("scopeBadge").textContent = rootScope ? "ROOT" : "HOME";
-            document.getElementById("scopeDescription").textContent = rootScope ? "管理员可访问系统全部路径" : "仅可访问您自己的 Home 目录";
+            document.getElementById("scopeDescription").textContent = rootScope ? "默认进入个人 Home，可访问系统全部路径" : "仅可访问您自己的 Home 目录";
             document.getElementById("rootWarning").style.display = rootScope && !data.root_access ? "block" : "none";
             document.getElementById("uploadInput").title = `单个文件最大 ${data.upload_max_mb} MB`;
             renderEntries(data.entries || []);
@@ -485,7 +485,7 @@
             scheduleLineNumbers();
         });
         if (window.ResizeObserver) new ResizeObserver(updateLineNumbers).observe(editor);
-        loadFiles("/", 0);
+        loadFiles({{ initial_path | tojson }}, 0);
     });
 </script>
 {% endblock %}

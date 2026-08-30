@@ -198,6 +198,25 @@ class FileApiTests(unittest.TestCase):
         self.assertEqual(response.json()["entries"][0]["name"], "hello.txt")
         self.assertEqual(denied.status_code, 403)
 
+    def test_admin_starts_in_own_system_home_but_keeps_root_scope(self):
+        self.app.dependency_overrides[main.get_current_user] = lambda: {
+            "username": "alice",
+            "is_admin": True,
+        }
+        system_record = SimpleNamespace(pw_dir=str(self.home))
+        with patch.object(main.pwd, "getpwnam", return_value=system_record), TestClient(
+            self.app
+        ) as client:
+            page = client.get("/files")
+            response = client.get("/api/files", params={"path": str(self.home)})
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(f'loadFiles("{self.home}", 0)', page.text)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["scope"], "root")
+        self.assertEqual(response.json()["home_path"], str(self.home))
+        self.assertEqual(response.json()["path"], str(self.home))
+
     def test_upload_api_writes_beneath_home(self):
         with patch.object(main.ldap_mgr, "get_user", side_effect=self.user_record), TestClient(
             self.app
@@ -234,6 +253,7 @@ class FileApiTests(unittest.TestCase):
         self.assertIn('id="unsavedDialog"', template)
         self.assertIn("editor.value !== editorOriginalContent", template)
         self.assertIn("function goHome()", template)
+        self.assertIn("loadFiles({{ initial_path | tojson }}, 0)", template)
         self.assertIn("openEditor(entry)", template)
         self.assertIn('id="nextPage"', template)
         self.assertNotIn("prompt(", template)
