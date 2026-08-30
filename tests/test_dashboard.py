@@ -19,6 +19,28 @@ class DashboardTemplateTests(unittest.TestCase):
         self.assertIn("request.url.path == '/'", sidebar)
         self.assertIn("总览", sidebar)
 
+    def test_sidebar_navigation_is_grouped_in_task_order(self):
+        sidebar = (PROJECT_ROOT / "templates/components/sidebar.html").read_text(
+            encoding="utf-8"
+        )
+
+        labels = [
+            "工作台",
+            "集群资源",
+            "用户与配额",
+            "系统管理",
+            "使用帮助",
+            "外部系统",
+        ]
+        positions = [sidebar.index(label) for label in labels]
+
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn('aria-label="主导航"', sidebar)
+        self.assertEqual(sidebar.count('href="/jobs"'), 1)
+        self.assertLess(sidebar.index("节点管理"), sidebar.index("分区管理"))
+        self.assertLess(sidebar.index("用户管理"), sidebar.index("组管理"))
+        self.assertLess(sidebar.index("组管理"), sidebar.index("账户管理"))
+
     def test_partition_status_uses_api_field_names(self):
         dashboard = (PROJECT_ROOT / "templates/index.html").read_text(
             encoding="utf-8"
