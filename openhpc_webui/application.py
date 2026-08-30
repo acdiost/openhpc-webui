@@ -1387,6 +1387,15 @@ async def get_job_detail(job_id: str, user: dict = Depends(get_current_user)):
     return job
 
 
+@router.get("/api/slurm/jobs/{job_id}/monitor")
+async def get_job_resource_usage(job_id: str, user: dict = Depends(get_current_user)):
+    """获取活动作业的实时 CPU、内存、磁盘和 GPU 占用。"""
+    usage = slurm_mgr.get_job_resource_usage(job_id)
+    if not usage:
+        raise HTTPException(status_code=404, detail="作业不存在")
+    return usage
+
+
 @router.delete("/api/slurm/jobs/{job_id}")
 async def cancel_job(job_id: str, user: dict = Depends(get_current_user)):
     """

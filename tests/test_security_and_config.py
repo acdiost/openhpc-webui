@@ -520,6 +520,8 @@ class FrontendSecurityTests(unittest.TestCase):
         self.assertNotIn("${job.user}", template)
         self.assertIn("appendTextCell(row, job.name)", template)
         self.assertIn("safe(job.Command)", template)
+        self.assertIn('createActionButton("监控"', template)
+        self.assertIn("encodeURIComponent(jobId)", template)
 
     def test_sidebar_includes_about_dialog_and_source_link(self):
         project_root = Path(__file__).parents[1]

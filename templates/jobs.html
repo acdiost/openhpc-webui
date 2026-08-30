@@ -2,7 +2,20 @@
 ============================================================ 作业管理页 路由:
 GET /jobs ============================================================ #} {%
 block title %}作业管理{% endblock %} {% block breadcrumb_title %}作业管理{%
-endblock %} {# ══════════════════════════════════════════════════════════
+endblock %} {% block head_extra %}
+<style>
+    .job-monitor-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin:14px 0; }
+    .job-monitor-card { padding:14px; border:1px solid #e5e7eb; border-radius:8px; background:#f8fafc; }
+    .job-monitor-label { color:#64748b; font-size:12px; margin-bottom:5px; }
+    .job-monitor-value { color:#0f172a; font-size:21px; font-weight:700; }
+    .job-monitor-meta { color:#64748b; font-size:12px; margin-top:3px; }
+    .job-monitor-bar { height:6px; margin-top:8px; overflow:hidden; border-radius:99px; background:#e2e8f0; }
+    .job-monitor-bar > span { display:block; height:100%; border-radius:99px; background:#2563eb; transition:width .25s ease; }
+    .job-monitor-table { width:100%; font-size:12px; border-collapse:collapse; }
+    .job-monitor-table th,.job-monitor-table td { padding:8px; border-bottom:1px solid #e5e7eb; text-align:left; white-space:nowrap; }
+    @media (max-width:800px) { .job-monitor-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+</style>
+{% endblock %} {# ══════════════════════════════════════════════════════════
 主体内容 ══════════════════════════════════════════════════════════ #} {% block
 content %}
 
@@ -148,6 +161,7 @@ content %}
     <ul style="list-style: disc; margin-left: 24px; color: #1e40af; font-size: 14px; line-height: 1.8">
         <li>使用分区、状态和作业归属筛选器快速定位目标作业，点击“刷新队列”获取最新状态</li>
         <li>运行中或排队中的作业可在操作列取消，取消后通常无法恢复</li>
+        <li>点击“监控”可查看 CPU、内存、磁盘和 GPU 指标，窗口每 5 秒自动更新</li>
         <li>作业状态由 Slurm 调度器维护，完成记录会保留在“最近完成的作业”中</li>
     </ul>
 </div>
@@ -161,6 +175,8 @@ page_scripts %}
     let currentPartitionFilter = "";
     let currentStateFilter = "";
     let currentOwnerFilter = "";
+    let jobMonitorTimer = null;
+    let currentJobMonitorModalId = null;
 
     /* ── 状态映射表 ────────────────────────────────────────── */
     const stateMap = {
@@ -273,6 +289,9 @@ page_scripts %}
                 actionGroup.className = "data-table-actions";
                 actionGroup.appendChild(
                     createActionButton("详情", () => showJobDetail(job.job_id)),
+                );
+                actionGroup.appendChild(
+                    createActionButton("监控", () => showJobMonitor(job.job_id)),
                 );
                 const cancelButton = createActionButton(
                     "取消",
@@ -431,6 +450,103 @@ page_scripts %}
             console.error("[jobs] 获取作业详情失败:", e);
             showToast("获取作业详情失败", "error");
         }
+    }
+
+    /* ── 实时资源监控 ──────────────────────────────────────── */
+    function formatResourceBytes(bytes) {
+        if (!Number.isFinite(Number(bytes)) || Number(bytes) <= 0) return "—";
+        const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+        const power = Math.min(Math.floor(Math.log(Number(bytes)) / Math.log(1024)), units.length - 1);
+        return `${(Number(bytes) / Math.pow(1024, power)).toFixed(power ? 1 : 0)} ${units[power]}`;
+    }
+
+    function monitorMetric(label, value, meta = "", percent = null) {
+        const safePercent = percent === null ? null : Math.max(0, Math.min(100, Number(percent) || 0));
+        return `<div class="job-monitor-card">
+            <div class="job-monitor-label">${escapeHtml(label)}</div>
+            <div class="job-monitor-value">${escapeHtml(value)}</div>
+            <div class="job-monitor-meta">${escapeHtml(meta || "\u00a0")}</div>
+            ${safePercent === null ? "" : `<div class="job-monitor-bar"><span style="width:${safePercent}%"></span></div>`}
+        </div>`;
+    }
+
+    function renderJobMonitor(data) {
+        const root = document.getElementById("jobMonitorContent");
+        if (!root) return;
+        const allocation = data.allocation || {};
+        const summary = data.summary || {};
+        const cpuText = summary.cpu_percent == null ? "—" : `${summary.cpu_percent}%`;
+        const gpuText = summary.gpu_percent == null ? "—" : `${summary.gpu_percent}%`;
+        const memoryPercent = allocation.memory_bytes
+            ? summary.memory_bytes / allocation.memory_bytes * 100
+            : null;
+        const gpuMeta = [
+            `已分配 ${allocation.gpus || 0} 卡`,
+            summary.gpu_memory_bytes ? `显存 ${formatResourceBytes(summary.gpu_memory_bytes)}` : "",
+            summary.gpu_percent == null ? "未启用利用率采集" : "",
+        ].filter(Boolean).join(" · ");
+        const rows = (data.steps || []).map((step) => `<tr>
+            <td>${escapeHtml(step.step_id || "—")}</td>
+            <td>${step.cpu_percent == null ? "—" : escapeHtml(`${step.cpu_percent}%`)}</td>
+            <td>${escapeHtml(formatResourceBytes(step.average_rss_bytes))}</td>
+            <td>${escapeHtml(formatResourceBytes(step.peak_rss_bytes))}</td>
+            <td>${escapeHtml(formatResourceBytes(step.disk_read_bytes))}</td>
+            <td>${escapeHtml(formatResourceBytes(step.disk_write_bytes))}</td>
+            <td>${step.gpu_percent == null ? "—" : escapeHtml(`${step.gpu_percent}%`)}</td>
+            <td>${escapeHtml(formatResourceBytes(step.gpu_memory_bytes))}</td>
+        </tr>`).join("");
+        root.innerHTML = `
+            <div class="flex justify-between items-center" style="font-size:12px;color:#64748b;gap:12px;">
+                <span>状态：${escapeHtml(data.state || "UNKNOWN")} · 每 5 秒自动刷新</span>
+                <span>更新于 ${escapeHtml(new Date(data.collected_at).toLocaleTimeString("zh-CN"))}</span>
+            </div>
+            <div class="job-monitor-grid">
+                ${monitorMetric("CPU 利用率", cpuText, `已分配 ${allocation.cpus || 0} 核`, summary.cpu_percent)}
+                ${monitorMetric("当前内存", formatResourceBytes(summary.memory_bytes), `峰值 ${formatResourceBytes(summary.peak_rss_bytes)}${allocation.memory_bytes ? ` · 已分配 ${formatResourceBytes(allocation.memory_bytes)}` : " · 未报告配额"}`, memoryPercent)}
+                ${monitorMetric("磁盘读 / 写", `${formatResourceBytes(summary.disk_read_bytes)} / ${formatResourceBytes(summary.disk_write_bytes)}`, "sstat 作业步骤汇总")}
+                ${monitorMetric("GPU 利用率", gpuText, gpuMeta, summary.gpu_percent)}
+            </div>
+            ${data.available ? `<div style="overflow-x:auto"><table class="job-monitor-table">
+                <thead><tr><th>作业步骤</th><th>CPU</th><th>平均内存</th><th>峰值内存</th><th>磁盘读</th><th>磁盘写</th><th>GPU</th><th>GPU 显存</th></tr></thead>
+                <tbody>${rows}</tbody></table></div>` : `<div style="padding:18px;text-align:center;color:#64748b;background:#f8fafc;border-radius:8px;">${escapeHtml(data.message || "暂无监控数据")}</div>`}
+        `;
+    }
+
+    async function refreshJobMonitor(jobId, notifyFailure = false) {
+        try {
+            const response = await fetch(`/api/slurm/jobs/${encodeURIComponent(jobId)}/monitor`);
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || "获取监控数据失败");
+            renderJobMonitor(data);
+        } catch (error) {
+            console.error("[jobs] 作业资源监控加载失败:", error);
+            if (notifyFailure) showToast(error.message || "获取监控数据失败", "error");
+        }
+    }
+
+    function closeJobMonitor() {
+        if (jobMonitorTimer) clearInterval(jobMonitorTimer);
+        jobMonitorTimer = null;
+        if (currentJobMonitorModalId) closeModal(currentJobMonitorModalId);
+        currentJobMonitorModalId = null;
+    }
+
+    function showJobMonitor(jobId) {
+        closeJobMonitor();
+        currentJobMonitorModalId = showModal(
+            `作业 ${escapeHtml(jobId)} · 实时资源监控`,
+            '<div id="jobMonitorContent" style="min-height:220px;display:flex;align-items:center;justify-content:center;color:#64748b;">正在读取资源占用…</div>',
+            { maxWidth: "max-w-6xl" },
+        );
+        const modal = document.getElementById(currentJobMonitorModalId);
+        modal.querySelectorAll('button[onclick*="closeModal"]').forEach((button) => {
+            button.onclick = closeJobMonitor;
+        });
+        modal.onclick = (event) => {
+            if (event.target === modal) closeJobMonitor();
+        };
+        refreshJobMonitor(jobId, true);
+        jobMonitorTimer = setInterval(() => refreshJobMonitor(jobId), 5000);
     }
 
     /* ── 应用过滤器 ────────────────────────────────────────── */

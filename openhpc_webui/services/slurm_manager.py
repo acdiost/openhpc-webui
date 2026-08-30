@@ -18,6 +18,7 @@ class SlurmManager:
 
     _tres_grant_lock = threading.Lock()
     _slurm_name_pattern = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+    _slurm_job_id_pattern = re.compile(r"^\d+(?:[_+]\d+)?$")
 
     def __init__(self):
         self.config_mgr = PartitionConfigManager()
@@ -382,6 +383,8 @@ class SlurmManager:
                 'NodeList': r'^\s*NodeList=(\S+)',
                 'NumNodes': r'NumNodes=(\d+)',
                 'NumCPUs': r'NumCPUs=(\d+)',
+                'ReqTRES': r'ReqTRES=(\S+)',
+                'AllocTRES': r'AllocTRES=(\S+)',
                 'WorkDir': r'WorkDir=(\S+)',
                 'StdOut': r'StdOut=(\S+)',
                 'StdErr': r'StdErr=(\S+)',
@@ -398,6 +401,192 @@ class SlurmManager:
         except Exception as e:
             print(f"获取作业详情失败: {e}")
             return None
+
+    @staticmethod
+    def _slurm_duration_seconds(value: str) -> float:
+        """Convert a Slurm duration (``D-HH:MM:SS``) to seconds."""
+        if not value or value in {"Unknown", "N/A"}:
+            return 0.0
+        try:
+            day_parts = value.split("-", 1)
+            days = int(day_parts[0]) if len(day_parts) == 2 else 0
+            clock = day_parts[-1].split(":")
+            if len(clock) == 3:
+                hours, minutes, seconds = clock
+            elif len(clock) == 2:
+                hours, minutes, seconds = "0", clock[0], clock[1]
+            else:
+                return float(value)
+            return days * 86400 + int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+        except (TypeError, ValueError):
+            return 0.0
+
+    @staticmethod
+    def _slurm_size_bytes(value: str) -> int:
+        """Convert sizes reported by Slurm (K/M/G/T/P, base 1024) to bytes."""
+        if not value or value in {"Unknown", "N/A", "0"}:
+            return 0
+        match = re.fullmatch(
+            r"\s*(\d+(?:\.\d+)?)\s*([KMGTPE]?)(?:i?B)?\s*",
+            value,
+            re.IGNORECASE,
+        )
+        if not match:
+            return 0
+        number = float(match.group(1))
+        unit = match.group(2).upper()
+        power = {"": 0, "K": 1, "M": 2, "G": 3, "T": 4, "P": 5, "E": 6}[unit]
+        return int(number * (1024 ** power))
+
+    @staticmethod
+    def _parse_tres(value: str) -> Dict[str, str]:
+        tres = {}
+        for item in (value or "").split(","):
+            key, separator, item_value = item.partition("=")
+            if separator and key:
+                tres[key.strip()] = item_value.strip()
+        return tres
+
+    @classmethod
+    def _tres_number(cls, tres: Dict[str, str], suffix: str) -> Optional[float]:
+        values = []
+        for key, value in tres.items():
+            if key == suffix or key.endswith("/" + suffix) or key.endswith(suffix):
+                try:
+                    values.append(float(value))
+                except (TypeError, ValueError):
+                    continue
+        return max(values) if values else None
+
+    def get_job_resource_usage(self, job_id: str) -> Optional[Dict]:
+        """Return current resource usage for an active job using ``sstat``.
+
+        GPU metrics are populated when the cluster exposes ``gres/gpuutil``
+        and ``gres/gpumem`` through its job accounting configuration.
+        """
+        if not self._slurm_job_id_pattern.fullmatch(job_id):
+            return None
+
+        detail = self.get_job_detail(job_id)
+        if not detail:
+            return None
+
+        allocation_tres = self._parse_tres(detail.get("AllocTRES", ""))
+        requested_tres = self._parse_tres(detail.get("ReqTRES", ""))
+        runtime_seconds = self._slurm_duration_seconds(detail.get("RunTime", ""))
+        allocated_cpus = self._safe_int(detail.get("NumCPUs"))
+        allocated_gpus = sum(
+            int(float(value))
+            for key, value in allocation_tres.items()
+            if key == "gres/gpu" or key.startswith("gres/gpu:")
+            if re.fullmatch(r"\d+(?:\.\d+)?", value)
+        )
+        response = {
+            "job_id": str(detail.get("JobId") or job_id),
+            "state": detail.get("JobState", "UNKNOWN"),
+            "collected_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "available": False,
+            "message": "作业尚未产生可用的资源统计数据",
+            "allocation": {
+                "cpus": allocated_cpus,
+                "nodes": self._safe_int(detail.get("NumNodes")),
+                "memory_bytes": self._slurm_size_bytes(
+                    allocation_tres.get("mem") or requested_tres.get("mem", "")
+                ),
+                "gpus": allocated_gpus,
+            },
+            "summary": {},
+            "steps": [],
+        }
+
+        fields = (
+            "JobID,NTasks,AveCPU,AveRSS,MaxRSS,AveDiskRead,AveDiskWrite,"
+            "TRESUsageInAve,TRESUsageInMax,AllocTRES"
+        )
+        try:
+            result = subprocess.run(
+                [
+                    "sstat", "--jobs", job_id, "--allsteps", "--noheader",
+                    "--parsable2", f"--format={fields}",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except Exception as exc:
+            print(f"查询作业 {job_id} 实时资源占用失败: {exc}")
+            response["message"] = "暂时无法获取资源统计，请确认 Slurm 作业统计服务可用"
+            return response
+
+        steps = []
+        for line in result.stdout.splitlines():
+            if not line.strip():
+                continue
+            parts = line.split("|")
+            if len(parts) < 10:
+                continue
+            (step_id, tasks, ave_cpu, ave_rss, max_rss, disk_read,
+             disk_write, tres_ave, tres_max, step_alloc_tres) = parts[:10]
+            task_count = self._safe_int(tasks)
+            average_cpu_seconds = self._slurm_duration_seconds(ave_cpu)
+            total_cpu_seconds = average_cpu_seconds * task_count
+            step_tres = self._parse_tres(step_alloc_tres)
+            step_cpus = self._safe_int(step_tres.get("cpu"), allocated_cpus)
+            denominator = runtime_seconds * step_cpus
+            cpu_percent = (
+                round(total_cpu_seconds / denominator * 100, 1)
+                if denominator else None
+            )
+            ave_tres = self._parse_tres(tres_ave)
+            max_tres = self._parse_tres(tres_max)
+            gpu_percent = self._tres_number(ave_tres, "gpuutil")
+            gpu_memory_values = [
+                self._slurm_size_bytes(value)
+                for key, value in max_tres.items()
+                if key == "gres/gpumem" or key.endswith("/gpumem")
+            ]
+            steps.append({
+                "step_id": step_id,
+                "allocated_cpus": step_cpus,
+                "tasks": task_count,
+                "average_cpu": ave_cpu,
+                "total_cpu_seconds": total_cpu_seconds,
+                "cpu_percent": cpu_percent,
+                "average_rss_bytes": self._slurm_size_bytes(ave_rss),
+                "peak_rss_bytes": self._slurm_size_bytes(max_rss),
+                "disk_read_bytes": self._slurm_size_bytes(disk_read),
+                "disk_write_bytes": self._slurm_size_bytes(disk_write),
+                "gpu_percent": round(gpu_percent, 1) if gpu_percent is not None else None,
+                "gpu_memory_bytes": max(gpu_memory_values, default=0),
+            })
+
+        if not steps:
+            return response
+
+        total_cpu_seconds = sum(step["total_cpu_seconds"] for step in steps)
+        cpu_denominator = runtime_seconds * allocated_cpus
+        gpu_values = [step["gpu_percent"] for step in steps if step["gpu_percent"] is not None]
+        response.update({
+            "available": True,
+            "message": "",
+            "summary": {
+                "cpu_percent": (
+                    round(total_cpu_seconds / cpu_denominator * 100, 1)
+                    if cpu_denominator else None
+                ),
+                "memory_bytes": sum(
+                    step["average_rss_bytes"] * max(step["tasks"], 1)
+                    for step in steps
+                ),
+                "peak_rss_bytes": max(step["peak_rss_bytes"] for step in steps),
+                "disk_read_bytes": sum(step["disk_read_bytes"] for step in steps),
+                "disk_write_bytes": sum(step["disk_write_bytes"] for step in steps),
+                "gpu_percent": round(max(gpu_values), 1) if gpu_values else None,
+                "gpu_memory_bytes": max(step["gpu_memory_bytes"] for step in steps),
+            },
+            "steps": steps,
+        })
+        return response
 
     def cancel_job(self, job_id: str) -> bool:
         """取消作业
