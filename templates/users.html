@@ -795,7 +795,9 @@ page_scripts %}
         separator.role = "separator";
         menu.appendChild(separator);
 
-        if (!isDisabledShell(user.shell)) {
+        if (isDisabledShell(user.shell)) {
+            appendUserAction(menu, "启用用户", () => enableUser(user.username));
+        } else {
             appendUserAction(menu, "禁用用户", () => disableUser(user.username), true);
         }
         appendUserAction(menu, "删除用户", () => deleteUser(user.username), true);
@@ -1271,7 +1273,14 @@ page_scripts %}
         }
     }
 
-    /* ── 禁用/删除用户 ───────────────────────────────────── */
+    /* ── 启用/禁用/删除用户 ─────────────────────────────── */
+
+    async function enableUser(username) {
+        if (!confirm(`确定要启用用户 "${username}" 吗？该用户将恢复登录权限。`))
+            return;
+        const success = await enableUserAPI(username);
+        if (success) loadUsers();
+    }
 
     async function disableUser(username) {
         if (!confirm(`确定要禁用用户 "${username}" 吗？该用户将无法登录系统。`))

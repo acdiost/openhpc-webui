@@ -174,6 +174,7 @@ def _specific_action(path: str, method: str) -> str:
         "/logout": "logout",
         "/change-password": "change_password",
         "/disable": "disable",
+        "/enable": "enable",
         "/ssh-key": "reset_ssh_key",
         "/add-member": "add_member",
         "/remove-member": "remove_member",

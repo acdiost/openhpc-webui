@@ -138,7 +138,10 @@ async def _audit_snapshot(request: Request, body: dict):
         username = match.group(1) or body.get("username")
         return {"username": username, "is_admin": admin_mgr.is_admin(username or "")}
 
-    match = re.fullmatch(r"/api/ldap/users(?:/([^/]+)(?:/(?:disable|quota|ssh-key))?)?", path)
+    match = re.fullmatch(
+        r"/api/ldap/users(?:/([^/]+)(?:/(?:disable|enable|quota|ssh-key))?)?",
+        path,
+    )
     if match:
         username = match.group(1) or body.get("username")
         record = _pick_fields(
@@ -742,6 +745,24 @@ async def disable_user(username: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail="禁用用户失败")
 
     return {"message": f"用户 {username} 已禁用"}
+
+
+@router.post("/api/ldap/users/{username}/enable")
+async def enable_user(username: str, user: dict = Depends(get_current_user)):
+    """通过恢复默认登录 Shell 启用用户。"""
+    _require_admin(user)
+
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", username):
+        raise HTTPException(status_code=400, detail="用户名格式无效")
+
+    if not ldap_mgr.get_user(username):
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    success = ldap_mgr.update_user(username=username, shell="/bin/bash")
+    if not success:
+        raise HTTPException(status_code=500, detail="启用用户失败")
+
+    return {"message": f"用户 {username} 已启用"}
 
 
 @router.put("/api/ldap/users/{username}")

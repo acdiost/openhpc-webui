@@ -547,6 +547,27 @@ async function disableUserAPI(username) {
     }
 }
 
+// Enable user login by restoring the default LDAP login shell
+async function enableUserAPI(username) {
+    try {
+        const encodedUsername = encodeURIComponent(username);
+        const response = await fetch(
+            `${config.apiBase}/users/${encodedUsername}/enable`,
+            { method: 'POST' }
+        );
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.detail || 'Failed to enable user');
+        }
+        showToast(data.message || `用户 "${username}" 已启用`, 'success');
+        return true;
+    } catch (error) {
+        console.error('Failed to enable user:', error);
+        showToast(error.message, 'error');
+        return false;
+    }
+}
+
 // Update user
 async function updateUser(username, userData) {
     try {
@@ -1200,6 +1221,7 @@ window.fetchUser = fetchUser;
 window.createUser = createUser;
 window.deleteUserAPI = deleteUserAPI;
 window.disableUserAPI = disableUserAPI;
+window.enableUserAPI = enableUserAPI;
 window.resetUserSshKey = resetUserSshKey;
 window.fetchGroups = fetchGroups;
 window.addUserToGroup = addUserToGroup;

@@ -430,6 +430,39 @@ class UserDisableTests(unittest.TestCase):
         self.assertEqual(context.exception.status_code, 500)
 
 
+class UserEnableTests(unittest.TestCase):
+    def test_enable_user_restores_default_login_shell(self):
+        with patch.object(
+            main.ldap_mgr,
+            "get_user",
+            return_value={"username": "alice", "shell": "/sbin/nologin"},
+        ), patch.object(main.ldap_mgr, "update_user", return_value=True) as update_user:
+            result = asyncio.run(
+                main.enable_user(
+                    "alice",
+                    {"username": "admin", "is_admin": True},
+                )
+            )
+
+        update_user.assert_called_once_with(username="alice", shell="/bin/bash")
+        self.assertEqual(result["message"], "用户 alice 已启用")
+
+    def test_enable_missing_user_returns_not_found_without_ldap_write(self):
+        with patch.object(main.ldap_mgr, "get_user", return_value=None), patch.object(
+            main.ldap_mgr, "update_user"
+        ) as update_user:
+            with self.assertRaises(HTTPException) as context:
+                asyncio.run(
+                    main.enable_user(
+                        "missing",
+                        {"username": "admin", "is_admin": True},
+                    )
+                )
+
+        self.assertEqual(context.exception.status_code, 404)
+        update_user.assert_not_called()
+
+
 class UserDisableFrontendTests(unittest.TestCase):
     def test_users_page_groups_secondary_and_dangerous_actions_in_more_menu(self):
         template = (
@@ -446,6 +479,9 @@ class UserDisableFrontendTests(unittest.TestCase):
         self.assertIn("isDisabledShell(user.shell)", template)
         self.assertIn("async function disableUserAPI(username)", script)
         self.assertIn("/disable`", script)
+        self.assertIn('appendUserAction(menu, "启用用户"', template)
+        self.assertIn("async function enableUserAPI(username)", script)
+        self.assertIn("/enable`", script)
 
 
 class FrontendSecurityTests(unittest.TestCase):
