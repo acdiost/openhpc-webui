@@ -14,8 +14,12 @@
     .terminal-status.is-connecting .terminal-status-dot { background:#d97706; }
     .terminal-status.is-connected .terminal-status-dot { background:#16a34a; box-shadow:0 0 0 3px rgba(22,163,74,.14); }
     .terminal-status.is-error .terminal-status-dot { background:#dc2626; }
-    .terminal-card { overflow:hidden; padding:0; border:1px solid #252b35; background:#0f141b; box-shadow:0 10px 30px rgba(15,20,27,.14); }
+    .terminal-card { overflow:hidden; padding:0; border:1px solid #252b35; background:#0f141b; box-shadow:0 10px 30px rgba(15,20,27,.14); transition:width .18s, box-shadow .18s; }
     .terminal-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:42px; padding:0 14px; border-bottom:1px solid #29313c; background:#171d26; color:#aab4c3; font:12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .terminal-bar-title { flex:1; min-width:0; overflow:hidden; text-align:center; text-overflow:ellipsis; white-space:nowrap; }
+    .terminal-minimize { display:flex; align-items:center; gap:5px; padding:5px 8px; color:#aab4c3; border:1px solid #364152; border-radius:5px; background:#202733; cursor:pointer; font:inherit; }
+    .terminal-minimize:hover { color:#fff; border-color:#526174; background:#293241; }
+    .terminal-minimize svg { width:13px; height:13px; }
     .terminal-dots { display:flex; gap:6px; }
     .terminal-dots span { width:9px; height:9px; border-radius:50%; background:#4b5563; }
     .terminal-dots span:first-child { background:#ef4444; }
@@ -25,6 +29,12 @@
     #terminal .xterm { height:100%; }
     #terminal .xterm-viewport { scrollbar-color:#4b5563 #0f141b; }
     .terminal-help { margin-top:12px; color:#6b7280; font-size:12px; line-height:1.6; }
+    .terminal-card.is-minimized { position:fixed; right:20px; bottom:20px; z-index:1050; width:min(380px, calc(100vw - 40px)); border-color:#364152; box-shadow:0 18px 45px rgba(15,20,27,.32); }
+    .terminal-card.is-minimized .terminal-bar { border-bottom:0; }
+    .terminal-card.is-minimized .terminal-dots, .terminal-card.is-minimized #terminal { display:none; }
+    .terminal-leave-body { padding:20px; color:#4b5563; font-size:14px; line-height:1.7; }
+    .terminal-leave-body strong { color:#111827; }
+    .terminal-leave-footer { flex-wrap:wrap; }
     @media (max-width:760px) {
         .terminal-heading { align-items:stretch; flex-direction:column; }
         .terminal-actions { justify-content:space-between; }
@@ -46,15 +56,37 @@
     </div>
 </div>
 
-<div class="card terminal-card">
+<div id="terminalWindow" class="card terminal-card">
     <div class="terminal-bar">
         <div class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></div>
-        <span>{{ user.get('username') }}@{{ request.url.hostname or 'cluster' }}</span>
-        <span>xterm.js</span>
+        <span class="terminal-bar-title">{{ user.get('username') }}@{{ request.url.hostname or 'cluster' }}</span>
+        <button id="minimizeTerminalButton" class="terminal-minimize" type="button" aria-expanded="true">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-width="2" d="M5 12h14" /></svg>
+            <span>收起</span>
+        </button>
     </div>
     <div id="terminal" aria-label="交互式终端"></div>
 </div>
 <p class="terminal-help">快捷键：Ctrl/⌘+Shift+C 复制选中内容，Ctrl/⌘+Shift+V 粘贴。关闭页面或断开连接会结束当前 Shell 进程。</p>
+{% endblock %}
+
+{% block modals %}
+<div id="terminalLeaveDialog" class="modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="terminalLeaveTitle">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="terminalLeaveTitle">终端仍在运行</h3>
+            <button id="terminalLeaveClose" class="modal-close" type="button" aria-label="关闭">&times;</button>
+        </div>
+        <div class="terminal-leave-body">
+            当前 Shell 连接仍在运行。离开本页会结束会话；也可以在新标签页打开目标页面，保留当前终端。
+        </div>
+        <div class="modal-footer terminal-leave-footer">
+            <button id="terminalStayButton" class="btn btn-secondary" type="button">留在终端</button>
+            <a id="terminalOpenTargetButton" class="btn btn-secondary" target="_blank" rel="noopener">新标签打开目标</a>
+            <button id="terminalLeaveButton" class="btn btn-primary" type="button">断开并离开</button>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}

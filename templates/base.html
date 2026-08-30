@@ -89,6 +89,38 @@
             opacity: 1;
         }
 
+        /* ── Web 终端双入口：当前页 / 新标签页 ── */
+        .terminal-nav-row {
+            position: relative;
+        }
+        .terminal-nav-row .nav-item {
+            padding-right: 52px;
+        }
+        .terminal-nav-new-tab {
+            position: absolute;
+            top: 50%;
+            right: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            color: rgba(255, 255, 255, 0.5);
+            border: 1px solid transparent;
+            border-radius: 5px;
+            transform: translateY(-50%);
+            transition: color 0.15s, background 0.15s, border-color 0.15s;
+        }
+        .terminal-nav-new-tab:hover {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+        .terminal-nav-new-tab svg {
+            width: 14px;
+            height: 14px;
+        }
+
         /* ── 导航分隔线 ── */
         .nav-divider {
             height: 1px;

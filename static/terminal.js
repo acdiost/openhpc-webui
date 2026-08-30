@@ -38,11 +38,21 @@
     const disconnectButton = document.getElementById("disconnectButton");
     const status = document.getElementById("terminalStatus");
     const statusText = document.getElementById("terminalStatusText");
+    const terminalWindow = document.getElementById("terminalWindow");
+    const minimizeButton = document.getElementById("minimizeTerminalButton");
+    const leaveDialog = document.getElementById("terminalLeaveDialog");
+    const leaveCloseButton = document.getElementById("terminalLeaveClose");
+    const stayButton = document.getElementById("terminalStayButton");
+    const openTargetButton = document.getElementById("terminalOpenTargetButton");
+    const leaveButton = document.getElementById("terminalLeaveButton");
     let socket = null;
     let ready = false;
     let resizeTimer = null;
     let keepaliveTimer = null;
     let manuallyClosed = false;
+    let minimized = false;
+    let pendingNavigation = null;
+    let allowPageUnload = false;
 
     function setStatus(state, text) {
         status.className = `terminal-status${state ? ` is-${state}` : ""}`;
@@ -123,6 +133,47 @@
         setStatus("", "已断开");
     }
 
+    function setMinimized(value) {
+        minimized = value;
+        terminalWindow.classList.toggle("is-minimized", minimized);
+        minimizeButton.setAttribute("aria-expanded", String(!minimized));
+        minimizeButton.querySelector("span").textContent = minimized ? "展开" : "收起";
+        minimizeButton.querySelector("path").setAttribute(
+            "d",
+            minimized ? "M7 17L17 7m0 0H9m8 0v8" : "M5 12h14"
+        );
+        if (!minimized) {
+            window.requestAnimationFrame(() => {
+                fitAddon.fit();
+                sendSize();
+                terminal.focus();
+            });
+        }
+    }
+
+    function closeLeaveDialog() {
+        leaveDialog.style.display = "none";
+        pendingNavigation = null;
+        openTargetButton.removeAttribute("href");
+        terminal.focus();
+    }
+
+    function openLeaveDialog(url) {
+        pendingNavigation = url;
+        openTargetButton.setAttribute("href", url);
+        leaveDialog.style.display = "flex";
+        stayButton.focus();
+    }
+
+    function shouldGuardNavigation(event, link) {
+        if (!ready || event.defaultPrevented || event.button !== 0) return false;
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return false;
+        if (link.target === "_blank" || link.hasAttribute("download")) return false;
+        const target = new URL(link.href, window.location.href);
+        if (target.origin !== window.location.origin) return false;
+        return target.href !== window.location.href;
+    }
+
     terminal.onData((data) => {
         if (ready) send({type: "input", data});
     });
@@ -145,11 +196,44 @@
 
     connectButton.addEventListener("click", connect);
     disconnectButton.addEventListener("click", disconnect);
+    minimizeButton.addEventListener("click", () => setMinimized(!minimized));
+    leaveCloseButton.addEventListener("click", closeLeaveDialog);
+    stayButton.addEventListener("click", closeLeaveDialog);
+    openTargetButton.addEventListener("click", () => {
+        if (!pendingNavigation) return;
+        window.setTimeout(closeLeaveDialog, 0);
+    });
+    leaveButton.addEventListener("click", () => {
+        if (!pendingNavigation) return;
+        const target = pendingNavigation;
+        allowPageUnload = true;
+        disconnect();
+        window.location.assign(target);
+    });
+    leaveDialog.addEventListener("click", (event) => {
+        if (event.target === leaveDialog) closeLeaveDialog();
+    });
+    document.addEventListener("click", (event) => {
+        const link = event.target.closest("a[href]");
+        if (!link || !shouldGuardNavigation(event, link)) return;
+        event.preventDefault();
+        openLeaveDialog(link.href);
+    });
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && leaveDialog.style.display !== "none") {
+            closeLeaveDialog();
+        }
+    });
     window.addEventListener("resize", () => {
         window.clearTimeout(resizeTimer);
-        resizeTimer = window.setTimeout(() => fitAddon.fit(), 100);
+        if (!minimized) resizeTimer = window.setTimeout(() => fitAddon.fit(), 100);
     });
-    window.addEventListener("beforeunload", () => {
+    window.addEventListener("beforeunload", (event) => {
+        if (ready && !allowPageUnload) {
+            event.preventDefault();
+            event.returnValue = "";
+            return;
+        }
         if (socket) socket.close(1000, "页面关闭");
     });
 
