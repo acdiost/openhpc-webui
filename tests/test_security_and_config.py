@@ -522,6 +522,9 @@ class FrontendSecurityTests(unittest.TestCase):
         self.assertIn("safe(job.Command)", template)
         self.assertIn('createActionButton("监控"', template)
         self.assertIn("encodeURIComponent(jobId)", template)
+        self.assertIn("JOB_MONITOR_RETENTION_MS", template)
+        self.assertIn("localStorage.setItem(jobMonitorCacheKey(jobId)", template)
+        self.assertIn('class="job-monitor-chart"', template)
 
     def test_sidebar_includes_about_dialog_and_source_link(self):
         project_root = Path(__file__).parents[1]

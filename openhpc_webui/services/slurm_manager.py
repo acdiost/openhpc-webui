@@ -534,7 +534,7 @@ class SlurmManager:
             step_cpus = self._safe_int(step_tres.get("cpu"), allocated_cpus)
             denominator = runtime_seconds * step_cpus
             cpu_percent = (
-                round(total_cpu_seconds / denominator * 100, 1)
+                min(round(total_cpu_seconds / denominator * 100, 1), 100.0)
                 if denominator else None
             )
             ave_tres = self._parse_tres(tres_ave)
@@ -556,7 +556,10 @@ class SlurmManager:
                 "peak_rss_bytes": self._slurm_size_bytes(max_rss),
                 "disk_read_bytes": self._slurm_size_bytes(disk_read),
                 "disk_write_bytes": self._slurm_size_bytes(disk_write),
-                "gpu_percent": round(gpu_percent, 1) if gpu_percent is not None else None,
+                "gpu_percent": (
+                    min(max(round(gpu_percent, 1), 0.0), 100.0)
+                    if gpu_percent is not None else None
+                ),
                 "gpu_memory_bytes": max(gpu_memory_values, default=0),
             })
 
@@ -571,7 +574,10 @@ class SlurmManager:
             "message": "",
             "summary": {
                 "cpu_percent": (
-                    round(total_cpu_seconds / cpu_denominator * 100, 1)
+                    min(
+                        round(total_cpu_seconds / cpu_denominator * 100, 1),
+                        100.0,
+                    )
                     if cpu_denominator else None
                 ),
                 "memory_bytes": sum(

@@ -4,16 +4,39 @@ GET /jobs ============================================================ #} {%
 block title %}作业管理{% endblock %} {% block breadcrumb_title %}作业管理{%
 endblock %} {% block head_extra %}
 <style>
+    .job-monitor-modal { width:min(1180px,calc(100vw - 32px)); max-width:none; max-height:92vh; }
+    .job-monitor-root { min-height:520px; }
+    .job-monitor-toolbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:14px; color:#64748b; font-size:12px; }
+    .job-monitor-toolbar-actions { display:flex; align-items:center; gap:8px; }
+    .job-monitor-toolbar select,.job-monitor-tool-button { border:1px solid #dbe2ea; border-radius:6px; background:#fff; padding:5px 9px; color:#475569; font-size:12px; }
+    .job-monitor-tool-button { cursor:pointer; }
+    .job-monitor-tool-button:hover { background:#f1f5f9; }
     .job-monitor-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin:14px 0; }
-    .job-monitor-card { padding:14px; border:1px solid #e5e7eb; border-radius:8px; background:#f8fafc; }
+    .job-monitor-card { min-width:0; padding:14px; border:1px solid #e2e8f0; border-radius:9px; background:linear-gradient(145deg,#fff,#f8fafc); box-shadow:0 1px 2px rgba(15,23,42,.04); }
     .job-monitor-label { color:#64748b; font-size:12px; margin-bottom:5px; }
-    .job-monitor-value { color:#0f172a; font-size:21px; font-weight:700; }
-    .job-monitor-meta { color:#64748b; font-size:12px; margin-top:3px; }
+    .job-monitor-value { overflow:hidden; color:#0f172a; font-size:21px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
+    .job-monitor-meta { overflow:hidden; color:#64748b; font-size:12px; margin-top:3px; text-overflow:ellipsis; white-space:nowrap; }
     .job-monitor-bar { height:6px; margin-top:8px; overflow:hidden; border-radius:99px; background:#e2e8f0; }
     .job-monitor-bar > span { display:block; height:100%; border-radius:99px; background:#2563eb; transition:width .25s ease; }
+    .job-monitor-charts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:12px; }
+    .job-monitor-chart-card { min-width:0; padding:14px 14px 8px; border:1px solid #e2e8f0; border-radius:9px; background:#fff; }
+    .job-monitor-chart-card.is-wide { grid-column:1/-1; }
+    .job-monitor-chart-header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:2px; }
+    .job-monitor-chart-title { color:#0f172a; font-size:14px; font-weight:600; }
+    .job-monitor-chart-subtitle { color:#94a3b8; font-size:11px; }
+    .job-monitor-legend { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:10px; color:#64748b; font-size:11px; }
+    .job-monitor-legend i { display:inline-block; width:8px; height:8px; margin-right:4px; border-radius:50%; }
+    .job-monitor-chart { width:100%; height:210px; }
+    .job-monitor-chart-empty { display:flex; height:210px; align-items:center; justify-content:center; color:#94a3b8; font-size:12px; }
+    .job-monitor-details { margin-top:12px; border:1px solid #e2e8f0; border-radius:9px; background:#fff; }
+    .job-monitor-details summary { padding:11px 14px; cursor:pointer; color:#334155; font-size:13px; font-weight:600; }
+    .job-monitor-details > div { overflow-x:auto; border-top:1px solid #e2e8f0; }
     .job-monitor-table { width:100%; font-size:12px; border-collapse:collapse; }
     .job-monitor-table th,.job-monitor-table td { padding:8px; border-bottom:1px solid #e5e7eb; text-align:left; white-space:nowrap; }
-    @media (max-width:800px) { .job-monitor-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    @media (max-width:800px) {
+        .job-monitor-grid,.job-monitor-charts { grid-template-columns:1fr; }
+        .job-monitor-chart-card.is-wide { grid-column:auto; }
+    }
 </style>
 {% endblock %} {# ══════════════════════════════════════════════════════════
 主体内容 ══════════════════════════════════════════════════════════ #} {% block
@@ -161,7 +184,7 @@ content %}
     <ul style="list-style: disc; margin-left: 24px; color: #1e40af; font-size: 14px; line-height: 1.8">
         <li>使用分区、状态和作业归属筛选器快速定位目标作业，点击“刷新队列”获取最新状态</li>
         <li>运行中或排队中的作业可在操作列取消，取消后通常无法恢复</li>
-        <li>点击“监控”可查看 CPU、内存、磁盘和 GPU 指标，窗口每 5 秒自动更新</li>
+        <li>点击“监控”可查看资源趋势图，指标每 5 秒更新并在当前浏览器中保留最近 2 小时</li>
         <li>作业状态由 Slurm 调度器维护，完成记录会保留在“最近完成的作业”中</li>
     </ul>
 </div>
@@ -177,6 +200,14 @@ page_scripts %}
     let currentOwnerFilter = "";
     let jobMonitorTimer = null;
     let currentJobMonitorModalId = null;
+    let currentJobMonitorId = null;
+    let currentJobMonitorData = null;
+    let jobMonitorHistory = [];
+    const JOB_MONITOR_CACHE_PREFIX = "openhpc_job_monitor_v1:";
+    const JOB_MONITOR_CACHE_INDEX = "openhpc_job_monitor_index_v1";
+    const JOB_MONITOR_RETENTION_MS = 2 * 60 * 60 * 1000;
+    const JOB_MONITOR_MAX_SAMPLES = 1440;
+    const JOB_MONITOR_MAX_JOBS = 8;
 
     /* ── 状态映射表 ────────────────────────────────────────── */
     const stateMap = {
@@ -460,6 +491,190 @@ page_scripts %}
         return `${(Number(bytes) / Math.pow(1024, power)).toFixed(power ? 1 : 0)} ${units[power]}`;
     }
 
+    function formatChartBytes(bytes) {
+        return Number(bytes) === 0 ? "0 B" : formatResourceBytes(bytes);
+    }
+
+    function monitorNumber(value) {
+        if (value === null || value === undefined || value === "") return null;
+        const number = Number(value);
+        return Number.isFinite(number) ? number : null;
+    }
+
+    function monitorPercent(value) {
+        const number = monitorNumber(value);
+        return number === null ? null : Math.max(0, Math.min(100, number));
+    }
+
+    function jobMonitorCacheKey(jobId) {
+        return JOB_MONITOR_CACHE_PREFIX + String(jobId);
+    }
+
+    function readJobMonitorCacheIndex() {
+        try {
+            const index = JSON.parse(localStorage.getItem(JOB_MONITOR_CACHE_INDEX) || "[]");
+            return Array.isArray(index) ? index : [];
+        } catch (error) {
+            return [];
+        }
+    }
+
+    function loadJobMonitorHistory(jobId) {
+        try {
+            const cached = JSON.parse(localStorage.getItem(jobMonitorCacheKey(jobId)) || "[]");
+            if (!Array.isArray(cached)) return [];
+            const cutoff = Date.now() - JOB_MONITOR_RETENTION_MS;
+            return cached
+                .filter((sample) => Number.isFinite(sample?.t) && sample.t >= cutoff)
+                .sort((left, right) => left.t - right.t)
+                .slice(-JOB_MONITOR_MAX_SAMPLES);
+        } catch (error) {
+            console.warn("[jobs] 读取作业监控缓存失败:", error);
+            return [];
+        }
+    }
+
+    function saveJobMonitorHistory(jobId, history) {
+        const cutoff = Date.now() - JOB_MONITOR_RETENTION_MS;
+        const retained = history
+            .filter((sample) => sample.t >= cutoff)
+            .slice(-JOB_MONITOR_MAX_SAMPLES);
+        try {
+            localStorage.setItem(jobMonitorCacheKey(jobId), JSON.stringify(retained));
+            const index = readJobMonitorCacheIndex()
+                .filter((entry) => entry?.jobId !== String(jobId));
+            index.push({ jobId: String(jobId), updatedAt: Date.now() });
+            while (index.length > JOB_MONITOR_MAX_JOBS) {
+                const expired = index.shift();
+                if (expired?.jobId) localStorage.removeItem(jobMonitorCacheKey(expired.jobId));
+            }
+            localStorage.setItem(JOB_MONITOR_CACHE_INDEX, JSON.stringify(index));
+        } catch (error) {
+            console.warn("[jobs] 保存作业监控缓存失败:", error);
+        }
+        return retained;
+    }
+
+    function appendJobMonitorSample(jobId, data) {
+        if (!data.available) return;
+        const summary = data.summary || {};
+        const timestamp = Date.parse(data.collected_at) || Date.now();
+        const sample = {
+            t: timestamp,
+            cpu: monitorPercent(summary.cpu_percent),
+            mem: monitorNumber(summary.memory_bytes),
+            diskRead: monitorNumber(summary.disk_read_bytes),
+            diskWrite: monitorNumber(summary.disk_write_bytes),
+            gpu: monitorPercent(summary.gpu_percent),
+            gpuMem: monitorNumber(summary.gpu_memory_bytes),
+        };
+        const previous = jobMonitorHistory[jobMonitorHistory.length - 1];
+        if (previous?.t === timestamp) jobMonitorHistory[jobMonitorHistory.length - 1] = sample;
+        else jobMonitorHistory.push(sample);
+        jobMonitorHistory = saveJobMonitorHistory(jobId, jobMonitorHistory);
+    }
+
+    function clearJobMonitorHistory() {
+        if (!currentJobMonitorId) return;
+        jobMonitorHistory = [];
+        try {
+            localStorage.removeItem(jobMonitorCacheKey(currentJobMonitorId));
+            const index = readJobMonitorCacheIndex().filter(
+                (entry) => entry?.jobId !== String(currentJobMonitorId),
+            );
+            localStorage.setItem(JOB_MONITOR_CACHE_INDEX, JSON.stringify(index));
+        } catch (error) {
+            console.warn("[jobs] 清除作业监控缓存失败:", error);
+        }
+        if (currentJobMonitorData) renderJobMonitor(currentJobMonitorData);
+        showToast("已清空该作业的浏览器监控历史", "success");
+    }
+
+    function monitorTimeLabel(timestamp) {
+        return new Date(timestamp).toLocaleTimeString("zh-CN", {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+        });
+    }
+
+    function downsampleMonitorHistory(history, limit = 240) {
+        if (history.length <= limit) return history;
+        const step = (history.length - 1) / (limit - 1);
+        return Array.from({ length: limit }, (_, index) =>
+            history[Math.round(index * step)],
+        );
+    }
+
+    function monitorChart(title, subtitle, history, series, options = {}) {
+        const availableSeries = series.filter((item) =>
+            history.some((sample) => monitorNumber(sample[item.key]) !== null),
+        );
+        if (!history.length || !availableSeries.length) {
+            return `<section class="job-monitor-chart-card${options.wide ? " is-wide" : ""}">
+                <div class="job-monitor-chart-title">${escapeHtml(title)}</div>
+                <div class="job-monitor-chart-empty">等待采样数据生成趋势图</div>
+            </section>`;
+        }
+
+        const samples = downsampleMonitorHistory(history);
+        const width = options.wide ? 1200 : 600;
+        const height = 220;
+        const plot = { left: 54, top: 22, right: 14, bottom: 30 };
+        const plotWidth = width - plot.left - plot.right;
+        const plotHeight = height - plot.top - plot.bottom;
+        const firstTime = samples[0].t;
+        const lastTime = samples[samples.length - 1].t;
+        const timeSpan = Math.max(lastTime - firstTime, 1);
+        const allValues = availableSeries.flatMap((item) =>
+            samples.map((sample) => monitorNumber(sample[item.key])).filter((value) => value !== null),
+        );
+        const observedMax = Math.max(...allValues, 0);
+        const yMax = Math.max(options.minimumMax || 0, observedMax * 1.12, 1);
+        const formatValue = options.formatValue || ((value) => String(Math.round(value)));
+        const x = (timestamp) => plot.left + (timestamp - firstTime) / timeSpan * plotWidth;
+        const y = (value) => plot.top + plotHeight - value / yMax * plotHeight;
+        const grid = [0, 0.5, 1].map((ratio) => {
+            const yPosition = plot.top + plotHeight * (1 - ratio);
+            return `<line x1="${plot.left}" y1="${yPosition}" x2="${width - plot.right}" y2="${yPosition}" stroke="#e2e8f0" stroke-dasharray="3 4"/>
+                <text x="${plot.left - 8}" y="${yPosition + 4}" text-anchor="end" fill="#94a3b8" font-size="10">${escapeHtml(formatValue(yMax * ratio))}</text>`;
+        }).join("");
+        const xTicks = [firstTime, firstTime + timeSpan / 2, lastTime].map((timestamp, index) =>
+            `<text x="${x(timestamp)}" y="${height - 8}" text-anchor="${index === 0 ? "start" : index === 2 ? "end" : "middle"}" fill="#94a3b8" font-size="10">${escapeHtml(monitorTimeLabel(timestamp))}</text>`,
+        ).join("");
+        const paths = availableSeries.map((item, seriesIndex) => {
+            const points = samples
+                .map((sample) => ({ sample, value: monitorNumber(sample[item.key]) }))
+                .filter((point) => point.value !== null);
+            const path = points.map((point, index) =>
+                `${index ? "L" : "M"}${x(point.sample.t).toFixed(1)},${y(point.value).toFixed(1)}`,
+            ).join(" ");
+            const area = points.length > 1 && seriesIndex === 0
+                ? `<path d="${path} L${x(points[points.length - 1].sample.t).toFixed(1)},${plot.top + plotHeight} L${x(points[0].sample.t).toFixed(1)},${plot.top + plotHeight} Z" fill="${item.color}" opacity=".08"/>`
+                : "";
+            const latest = points[points.length - 1];
+            const latestPoint = latest
+                ? `<circle cx="${x(latest.sample.t).toFixed(1)}" cy="${y(latest.value).toFixed(1)}" r="3.5" fill="#fff" stroke="${item.color}" stroke-width="2"><title>${escapeHtml(`${item.label} ${formatValue(latest.value)} · ${monitorTimeLabel(latest.sample.t)}`)}</title></circle>`
+                : "";
+            return `${area}<path d="${path}" fill="none" stroke="${item.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><title>${escapeHtml(item.label)}</title></path>${latestPoint}`;
+        }).join("");
+        const legend = availableSeries.map((item) => {
+            const latest = [...history].reverse().find((sample) => monitorNumber(sample[item.key]) !== null);
+            const value = latest ? formatValue(Number(latest[item.key])) : "—";
+            return `<span><i style="background:${item.color}"></i>${escapeHtml(item.label)} ${escapeHtml(value)}</span>`;
+        }).join("");
+
+        return `<section class="job-monitor-chart-card${options.wide ? " is-wide" : ""}">
+            <div class="job-monitor-chart-header">
+                <div><div class="job-monitor-chart-title">${escapeHtml(title)}</div><div class="job-monitor-chart-subtitle">${escapeHtml(subtitle)}</div></div>
+                <div class="job-monitor-legend">${legend}</div>
+            </div>
+            <svg class="job-monitor-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${escapeHtml(title)}趋势图">
+                ${grid}${xTicks}${paths}
+            </svg>
+        </section>`;
+    }
+
     function monitorMetric(label, value, meta = "", percent = null) {
         const safePercent = percent === null ? null : Math.max(0, Math.min(100, Number(percent) || 0));
         return `<div class="job-monitor-card">
@@ -473,17 +688,22 @@ page_scripts %}
     function renderJobMonitor(data) {
         const root = document.getElementById("jobMonitorContent");
         if (!root) return;
+        const selectedMinutes = Number(document.getElementById("jobMonitorWindow")?.value || 60);
+        const chartCutoff = Date.now() - selectedMinutes * 60 * 1000;
+        const visibleHistory = jobMonitorHistory.filter((sample) => sample.t >= chartCutoff);
         const allocation = data.allocation || {};
         const summary = data.summary || {};
-        const cpuText = summary.cpu_percent == null ? "—" : `${summary.cpu_percent}%`;
-        const gpuText = summary.gpu_percent == null ? "—" : `${summary.gpu_percent}%`;
+        const cpuPercent = monitorPercent(summary.cpu_percent);
+        const gpuPercent = monitorPercent(summary.gpu_percent);
+        const cpuText = cpuPercent == null ? "—" : `${cpuPercent}%`;
+        const gpuText = gpuPercent == null ? "—" : `${gpuPercent}%`;
         const memoryPercent = allocation.memory_bytes
             ? summary.memory_bytes / allocation.memory_bytes * 100
             : null;
         const gpuMeta = [
             `已分配 ${allocation.gpus || 0} 卡`,
             summary.gpu_memory_bytes ? `显存 ${formatResourceBytes(summary.gpu_memory_bytes)}` : "",
-            summary.gpu_percent == null ? "未启用利用率采集" : "",
+            gpuPercent == null ? "未启用利用率采集" : "",
         ].filter(Boolean).join(" · ");
         const rows = (data.steps || []).map((step) => `<tr>
             <td>${escapeHtml(step.step_id || "—")}</td>
@@ -495,20 +715,50 @@ page_scripts %}
             <td>${step.gpu_percent == null ? "—" : escapeHtml(`${step.gpu_percent}%`)}</td>
             <td>${escapeHtml(formatResourceBytes(step.gpu_memory_bytes))}</td>
         </tr>`).join("");
+        const historyStart = jobMonitorHistory[0]?.t;
+        const cacheText = historyStart
+            ? `已缓存 ${jobMonitorHistory.length} 个采样 · ${monitorTimeLabel(historyStart)} 至今 · 最长保留 2 小时`
+            : "采样将临时保存在此浏览器中，最长保留 2 小时";
+        const chartSubtitle = `最近 ${selectedMinutes} 分钟 · 5 秒采样`;
+        root.className = "job-monitor-root";
+        root.removeAttribute("style");
         root.innerHTML = `
-            <div class="flex justify-between items-center" style="font-size:12px;color:#64748b;gap:12px;">
-                <span>状态：${escapeHtml(data.state || "UNKNOWN")} · 每 5 秒自动刷新</span>
-                <span>更新于 ${escapeHtml(new Date(data.collected_at).toLocaleTimeString("zh-CN"))}</span>
+            <div class="job-monitor-toolbar">
+                <span>状态：${escapeHtml(data.state || "UNKNOWN")} · ${escapeHtml(cacheText)} · 更新于 ${escapeHtml(monitorTimeLabel(Date.parse(data.collected_at) || Date.now()))}</span>
+                <div class="job-monitor-toolbar-actions">
+                    <label for="jobMonitorWindow">图表范围</label>
+                    <select id="jobMonitorWindow" onchange="renderJobMonitor(currentJobMonitorData)">
+                        ${[15, 30, 60, 120].map((minutes) => `<option value="${minutes}"${minutes === selectedMinutes ? " selected" : ""}>${minutes < 60 ? `${minutes} 分钟` : `${minutes / 60} 小时`}</option>`).join("")}
+                    </select>
+                    <button type="button" class="job-monitor-tool-button" onclick="refreshJobMonitor(currentJobMonitorId, true)">立即刷新</button>
+                    <button type="button" class="job-monitor-tool-button" onclick="clearJobMonitorHistory()">清空历史</button>
+                </div>
             </div>
             <div class="job-monitor-grid">
-                ${monitorMetric("CPU 利用率", cpuText, `已分配 ${allocation.cpus || 0} 核`, summary.cpu_percent)}
+                ${monitorMetric("CPU 利用率", cpuText, `已分配 ${allocation.cpus || 0} 核`, cpuPercent)}
                 ${monitorMetric("当前内存", formatResourceBytes(summary.memory_bytes), `峰值 ${formatResourceBytes(summary.peak_rss_bytes)}${allocation.memory_bytes ? ` · 已分配 ${formatResourceBytes(allocation.memory_bytes)}` : " · 未报告配额"}`, memoryPercent)}
                 ${monitorMetric("磁盘读 / 写", `${formatResourceBytes(summary.disk_read_bytes)} / ${formatResourceBytes(summary.disk_write_bytes)}`, "sstat 作业步骤汇总")}
-                ${monitorMetric("GPU 利用率", gpuText, gpuMeta, summary.gpu_percent)}
+                ${monitorMetric("GPU 利用率", gpuText, gpuMeta, gpuPercent)}
             </div>
-            ${data.available ? `<div style="overflow-x:auto"><table class="job-monitor-table">
+            ${data.available ? "" : `<div style="padding:12px;text-align:center;color:#64748b;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">${escapeHtml(data.message || "暂无最新监控数据，已保留历史采样")}</div>`}
+            <div class="job-monitor-charts">
+                ${monitorChart("处理器利用率", chartSubtitle, visibleHistory, [
+                    { key: "cpu", label: "CPU", color: "#2563eb" },
+                    { key: "gpu", label: "GPU", color: "#10b981" },
+                ], { minimumMax: 100, formatValue: (value) => `${value.toFixed(0)}%` })}
+                ${monitorChart("内存占用", chartSubtitle, visibleHistory, [
+                    { key: "mem", label: "主存", color: "#8b5cf6" },
+                    { key: "gpuMem", label: "GPU 显存", color: "#ec4899" },
+                ], { formatValue: formatChartBytes })}
+                ${monitorChart("累计磁盘 I/O", chartSubtitle, visibleHistory, [
+                    { key: "diskRead", label: "读取", color: "#0891b2" },
+                    { key: "diskWrite", label: "写入", color: "#f59e0b" },
+                ], { wide: true, formatValue: formatChartBytes })}
+            </div>
+            ${data.available ? `<details class="job-monitor-details">
+                <summary>查看作业步骤明细（${data.steps?.length || 0}）</summary><div><table class="job-monitor-table">
                 <thead><tr><th>作业步骤</th><th>CPU</th><th>平均内存</th><th>峰值内存</th><th>磁盘读</th><th>磁盘写</th><th>GPU</th><th>GPU 显存</th></tr></thead>
-                <tbody>${rows}</tbody></table></div>` : `<div style="padding:18px;text-align:center;color:#64748b;background:#f8fafc;border-radius:8px;">${escapeHtml(data.message || "暂无监控数据")}</div>`}
+                <tbody>${rows}</tbody></table></div></details>` : ""}
         `;
     }
 
@@ -517,6 +767,9 @@ page_scripts %}
             const response = await fetch(`/api/slurm/jobs/${encodeURIComponent(jobId)}/monitor`);
             const data = await response.json();
             if (!response.ok) throw new Error(data.detail || "获取监控数据失败");
+            if (String(jobId) !== String(currentJobMonitorId)) return;
+            currentJobMonitorData = data;
+            appendJobMonitorSample(jobId, data);
             renderJobMonitor(data);
         } catch (error) {
             console.error("[jobs] 作业资源监控加载失败:", error);
@@ -529,22 +782,38 @@ page_scripts %}
         jobMonitorTimer = null;
         if (currentJobMonitorModalId) closeModal(currentJobMonitorModalId);
         currentJobMonitorModalId = null;
+        currentJobMonitorId = null;
+        currentJobMonitorData = null;
+        jobMonitorHistory = [];
     }
 
     function showJobMonitor(jobId) {
         closeJobMonitor();
+        currentJobMonitorId = String(jobId);
+        jobMonitorHistory = loadJobMonitorHistory(jobId);
+        currentJobMonitorData = {
+            state: "正在加载",
+            collected_at: new Date().toISOString(),
+            available: false,
+            message: "正在读取最新资源占用…",
+            allocation: {},
+            summary: {},
+            steps: [],
+        };
         currentJobMonitorModalId = showModal(
             `作业 ${escapeHtml(jobId)} · 实时资源监控`,
-            '<div id="jobMonitorContent" style="min-height:220px;display:flex;align-items:center;justify-content:center;color:#64748b;">正在读取资源占用…</div>',
+            '<div id="jobMonitorContent" class="job-monitor-root"></div>',
             { maxWidth: "max-w-6xl" },
         );
         const modal = document.getElementById(currentJobMonitorModalId);
+        modal.firstElementChild?.classList.add("job-monitor-modal");
         modal.querySelectorAll('button[onclick*="closeModal"]').forEach((button) => {
             button.onclick = closeJobMonitor;
         });
         modal.onclick = (event) => {
             if (event.target === modal) closeJobMonitor();
         };
+        renderJobMonitor(currentJobMonitorData);
         refreshJobMonitor(jobId, true);
         jobMonitorTimer = setInterval(() => refreshJobMonitor(jobId), 5000);
     }
