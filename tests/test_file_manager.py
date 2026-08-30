@@ -194,6 +194,7 @@ class FileApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["scope"], "home")
+        self.assertEqual(response.json()["home_path"], "/")
         self.assertEqual(response.json()["entries"][0]["name"], "hello.txt")
         self.assertEqual(denied.status_code, 403)
 
@@ -229,10 +230,19 @@ class FileApiTests(unittest.TestCase):
         template = main.TEMPLATES_DIR.joinpath("files.html").read_text(encoding="utf-8")
         self.assertIn('id="hiddenToggle"', template)
         self.assertIn('id="fileDialog"', template)
+        self.assertIn('id="fileLineNumbers"', template)
+        self.assertIn('id="unsavedDialog"', template)
+        self.assertIn("editor.value !== editorOriginalContent", template)
+        self.assertIn("function goHome()", template)
         self.assertIn("openEditor(entry)", template)
         self.assertIn('id="nextPage"', template)
         self.assertNotIn("prompt(", template)
         self.assertNotIn("confirm(", template)
+
+    def test_global_secondary_buttons_use_light_styling(self):
+        stylesheet = main.STATIC_DIR.joinpath("compat.css").read_text(encoding="utf-8")
+        self.assertIn(".btn-secondary { background-color: #fff;", stylesheet)
+        self.assertNotIn(".btn-secondary { background-color: #6b7280;", stylesheet)
 
 
 if __name__ == "__main__":

@@ -638,6 +638,10 @@ async def list_files(
     result["root_access"] = bool(user.get("is_admin") and os.geteuid() == 0)
     result["upload_max_mb"] = settings.file_upload_max_mb
     result["edit_max_kb"] = settings.file_edit_max_kb
+    root_home = Path("/root")
+    result["home_path"] = (
+        "/root" if user.get("is_admin") and root_home.is_dir() else "/"
+    )
     return result
 
 

@@ -75,11 +75,17 @@
 .data-table-actions { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
 .data-table--wide { min-width: 1180px; }
 .data-table--medium { min-width: 920px; }
-.btn { display: inline-block; padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; text-decoration: none; transition: all 0.2s; }
-.btn-primary { background-color: #dc3023; color: white; }
-.btn-primary:hover { background-color: #c22a1e; }
-.btn-secondary { background-color: #6b7280; color: white; }
-.btn-secondary:hover { background-color: #4b5563; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 16px; border: 1px solid transparent; border-radius: 7px; font-size: 14px; line-height: 1.25; font-weight: 600; cursor: pointer; text-decoration: none; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06); transition: color 0.16s, background-color 0.16s, border-color 0.16s, box-shadow 0.16s, transform 0.16s; }
+.btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(15, 23, 42, 0.10); }
+.btn:active:not(:disabled) { transform: translateY(0); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08); }
+.btn:focus-visible { outline: 3px solid rgba(220, 48, 35, 0.18); outline-offset: 2px; }
+.btn:disabled { opacity: 0.48; cursor: not-allowed; box-shadow: none; transform: none; }
+.btn-primary { background: linear-gradient(180deg, #e23a2d 0%, #c9281d 100%); border-color: #bd251b; color: white; }
+.btn-primary:hover:not(:disabled) { background: linear-gradient(180deg, #d83226 0%, #b92319 100%); }
+.btn-secondary { background-color: #fff; border-color: #cbd5e1; color: #334155; }
+.btn-secondary:hover:not(:disabled) { background-color: #f8fafc; border-color: #94a3b8; color: #0f172a; }
+.btn-danger { background-color: #b91c1c; border-color: #991b1b; color: white; }
+.btn-danger:hover:not(:disabled) { background-color: #991b1b; border-color: #7f1d1d; }
 .badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 500; }
 .badge-success { background-color: #d1fae5; color: #065f46; }
 .badge-warning { background-color: #fef3c7; color: #92400e; }

@@ -5,9 +5,12 @@
 {% block head_extra %}
 <style>
     .file-toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:16px; }
-    .file-path { display:flex; flex:1; min-width:280px; }
-    .file-path input { flex:1; border-radius:6px 0 0 6px; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; }
-    .file-path button { border-radius:0 6px 6px 0; }
+    .file-path { display:flex; flex:1; min-width:280px; border-radius:8px; box-shadow:0 1px 3px rgba(15,23,42,.08); }
+    .file-path input { flex:1; min-width:0; padding:9px 12px; border:1px solid #cbd5e1; border-right:0; border-radius:8px 0 0 8px; background:#f8fafc; color:#0f172a; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .file-path input:focus { position:relative; z-index:1; outline:none; border-color:#dc3023; background:#fff; box-shadow:0 0 0 3px rgba(220,48,35,.10); }
+    .file-path button { border-radius:0 8px 8px 0; border-color:#f0b5b0; background:#fff5f4; color:#a8241b; box-shadow:none; }
+    .file-path button:hover:not(:disabled) { border-color:#dc3023; background:#ffebe9; color:#8f1f17; transform:none; box-shadow:none; }
+    .file-button-icon { width:15px; height:15px; flex:none; }
     .file-scope { display:flex; align-items:center; gap:8px; color:#6b7280; font-size:13px; margin-top:5px; }
     .file-scope-badge { padding:2px 8px; border-radius:999px; background:#f3f4f6; color:#374151; font-weight:600; }
     .file-toggle[aria-pressed="true"] { border-color:#dc3023; color:#b42318; background:#fff7f6; }
@@ -23,9 +26,10 @@
     .file-icon.folder { color:#d97706; }
     .file-meta { color:#6b7280; white-space:nowrap; font-size:13px; }
     .file-actions { display:flex; gap:6px; justify-content:flex-end; white-space:nowrap; }
-    .file-action { border:1px solid #d1d5db; border-radius:5px; background:#fff; padding:5px 9px; color:#374151; cursor:pointer; font-size:12px; }
-    .file-action:hover { border-color:#9ca3af; background:#f9fafb; }
-    .file-action.danger { color:#b91c1c; }
+    .file-action { border:1px solid #dbe3ee; border-radius:6px; background:#f8fafc; padding:5px 10px; color:#334155; cursor:pointer; font-size:12px; font-weight:600; transition:all .15s; }
+    .file-action:hover { border-color:#93c5fd; background:#eff6ff; color:#1d4ed8; box-shadow:0 2px 5px rgba(37,99,235,.10); }
+    .file-action.danger { border-color:#fecaca; background:#fff7f7; color:#b91c1c; }
+    .file-action.danger:hover { border-color:#f87171; background:#fef2f2; color:#991b1b; box-shadow:0 2px 5px rgba(185,28,28,.10); }
     .file-empty { text-align:center; padding:64px 20px; color:#9ca3af; }
     .file-loading { opacity:.55; pointer-events:none; }
     .file-warning { display:none; margin-bottom:16px; padding:10px 12px; border:1px solid #fde68a; border-radius:6px; background:#fffbeb; color:#92400e; font-size:13px; }
@@ -40,8 +44,11 @@
     .file-dialog-message:empty { display:none; }
     .file-dialog-field { margin-top:16px; }
     .file-dialog-field label { display:block; margin-bottom:7px; color:#374151; font-size:13px; font-weight:600; }
-    .file-editor { width:100%; min-height:52vh; resize:vertical; padding:12px; border:1px solid #d1d5db; border-radius:6px; font:13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; tab-size:4; white-space:pre; overflow:auto; }
-    .file-editor:focus { outline:none; border-color:#dc3023; box-shadow:0 0 0 3px rgba(220,48,35,.10); }
+    .file-editor-shell { position:relative; width:100%; height:clamp(280px, calc(100vh - 390px), 520px); overflow:hidden; border:1px solid #cbd5e1; border-radius:7px; background:#fff; }
+    .file-editor-shell:focus-within { border-color:#dc3023; box-shadow:0 0 0 3px rgba(220,48,35,.10); }
+    .file-line-numbers { position:absolute; top:0; bottom:0; left:0; width:64px; overflow:hidden; border-right:1px solid #e2e8f0; background:#f8fafc; color:#94a3b8; text-align:right; user-select:none; }
+    .file-line-numbers pre { margin:0; padding-right:11px; font:13px/20px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .file-editor { position:absolute; top:0; right:0; bottom:0; left:64px; width:calc(100% - 64px); height:100%; min-width:0; min-height:0; resize:none; padding:12px; border:0; border-radius:0; outline:none; box-sizing:border-box; font:13px/20px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; tab-size:4; white-space:pre; overflow:auto; }
     .file-dialog-error { display:none; margin-top:12px; color:#b91c1c; font-size:13px; }
     .file-dialog-content .btn-danger { background:#b91c1c; border-color:#b91c1c; color:#fff; }
     .file-dialog-content .btn-danger:hover { background:#991b1b; border-color:#991b1b; }
@@ -53,7 +60,6 @@
         .file-table th:nth-child(3), .file-table td:nth-child(3) { display:none; }
         .file-pagination { align-items:flex-start; }
         .file-pagination-actions { width:100%; justify-content:flex-end; }
-        .file-editor { min-height:60vh; }
     }
 </style>
 {% endblock %}
@@ -70,9 +76,16 @@
 <div class="card">
     <div class="file-toolbar">
         <button id="upButton" class="btn btn-secondary" type="button" onclick="goUp()" disabled>上一级</button>
+        <button class="btn btn-secondary" type="button" onclick="goHome()" title="返回当前身份的家目录">
+            <svg class="file-button-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 11l9-8 9 8M5 10v10h14V10M9 20v-6h6v6"/></svg>
+            家目录
+        </button>
         <div class="file-path">
             <input id="pathInput" type="text" value="/" aria-label="当前路径" onkeydown="if(event.key==='Enter') loadFiles(this.value, 0)" />
-            <button class="btn btn-secondary" type="button" onclick="loadFiles(document.getElementById('pathInput').value, 0)">转到</button>
+            <button class="btn btn-secondary" type="button" onclick="loadFiles(document.getElementById('pathInput').value, 0)">
+                <svg class="file-button-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14m-5-5l5 5-5 5"/></svg>
+                转到
+            </button>
         </div>
         <button id="hiddenToggle" class="btn btn-secondary file-toggle" type="button" aria-pressed="false" onclick="toggleHidden()">显示隐藏项目</button>
         <button class="btn btn-secondary" type="button" onclick="createDirectory()">新建目录</button>
@@ -111,12 +124,28 @@
                     <label id="fileNameLabel" for="fileNameInput">名称</label><input id="fileNameInput" type="text" maxlength="255" autocomplete="off" />
                 </div>
                 <div id="fileEditorField" class="file-dialog-field" style="display:none">
-                    <label id="fileEditorLabel" for="fileEditor">文件内容</label><textarea id="fileEditor" class="file-editor" spellcheck="false"></textarea>
+                    <label id="fileEditorLabel" for="fileEditor">文件内容</label>
+                    <div class="file-editor-shell">
+                        <div id="fileLineNumbers" class="file-line-numbers" aria-hidden="true"><pre>1</pre></div>
+                        <textarea id="fileEditor" class="file-editor" spellcheck="false" wrap="off" oninput="scheduleLineNumbers()" onscroll="updateLineNumbers()"></textarea>
+                    </div>
                 </div>
                 <div id="fileDialogError" class="file-dialog-error" role="alert"></div>
             </div>
             <div class="modal-footer"><button class="btn btn-secondary" type="button" onclick="closeFileDialog()">取消</button><button id="fileDialogSubmit" class="btn btn-primary" type="submit">确定</button></div>
         </form>
+    </div>
+</div>
+
+<div id="unsavedDialog" class="modal" style="display:none;z-index:1010" role="alertdialog" aria-modal="true" aria-labelledby="unsavedDialogTitle">
+    <div class="modal-content file-dialog-content">
+        <div class="modal-header"><h3 id="unsavedDialogTitle">文件尚未保存</h3><button class="modal-close" type="button" aria-label="继续编辑" onclick="hideUnsavedDialog()">&times;</button></div>
+        <div class="file-dialog-body"><p class="file-dialog-message">检测到文件内容已发生变化。是否先保存本次修改？</p></div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" type="button" onclick="hideUnsavedDialog()">继续编辑</button>
+            <button class="btn btn-secondary" type="button" onclick="discardEditorChanges()">不保存</button>
+            <button class="btn btn-primary" type="button" onclick="saveBeforeClosing()">保存</button>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -125,12 +154,19 @@
 <script>
     let currentPath = "/";
     let parentPath = null;
+    let homePath = "/";
     let showHidden = false;
     let pageCursor = 0;
     let pageLimit = 100;
     let nextPageCursor = null;
     let dialogSubmitHandler = null;
     let dialogGeneration = 0;
+    let dialogMode = "action";
+    let dialogLoading = false;
+    let dialogSaving = false;
+    let editorOriginalContent = "";
+    let lineNumberFrame = null;
+    let editorLineCount = 1;
 
     function fileIcon(directory, symlink) {
         if (directory) return `<svg class="file-icon folder" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7a2 2 0 012-2h5l2 2h7a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>`;
@@ -208,6 +244,7 @@
             const data = await api(`/api/files?${params}`);
             currentPath = data.path;
             parentPath = data.parent;
+            homePath = data.home_path || "/";
             pageCursor = data.cursor;
             nextPageCursor = data.next_cursor;
             document.getElementById("pathInput").value = currentPath;
@@ -229,6 +266,7 @@
     }
 
     function goUp() { if (parentPath) loadFiles(parentPath, 0); }
+    function goHome() { loadFiles(homePath, 0); }
     function download(path) { window.location.href = `/api/files/download?path=${encodeURIComponent(path)}`; }
     function nextPage() { if (nextPageCursor !== null) loadFiles(currentPath, nextPageCursor); }
     function previousPage() { loadFiles(currentPath, Math.max(0, pageCursor - pageLimit)); }
@@ -257,6 +295,10 @@
         input.value = options.value || "";
         editor.value = options.editorValue || "";
         editor.disabled = Boolean(options.loading);
+        dialogMode = options.editor ? "editor" : "action";
+        dialogLoading = Boolean(options.loading);
+        dialogSaving = false;
+        editorOriginalContent = options.editorValue || "";
         document.getElementById("fileNameLabel").textContent = options.label || "名称";
         submit.textContent = options.confirmText || "确定";
         submit.classList.toggle("btn-danger", Boolean(options.danger));
@@ -266,12 +308,41 @@
         dialog.style.display = "flex";
         setTimeout(() => {
             if (options.input) { input.focus(); input.select(); }
-            if (options.editor && !options.loading) editor.focus();
+            if (options.editor) {
+                scheduleLineNumbers();
+                if (!options.loading) editor.focus();
+            }
         }, 0);
         return generation;
     }
 
-    function closeFileDialog() { dialogGeneration += 1; document.getElementById("fileDialog").style.display = "none"; dialogSubmitHandler = null; }
+    function closeFileDialog() {
+        if (dialogSaving) return;
+        const editor = document.getElementById("fileEditor");
+        if (dialogMode === "editor" && !dialogLoading && editor.value !== editorOriginalContent) {
+            document.getElementById("unsavedDialog").style.display = "flex";
+            return;
+        }
+        forceCloseFileDialog();
+    }
+
+    function forceCloseFileDialog() {
+        dialogGeneration += 1;
+        document.getElementById("fileDialog").style.display = "none";
+        document.getElementById("unsavedDialog").style.display = "none";
+        dialogSubmitHandler = null;
+        dialogMode = "action";
+        dialogLoading = false;
+        dialogSaving = false;
+        editorOriginalContent = "";
+    }
+
+    function hideUnsavedDialog() { document.getElementById("unsavedDialog").style.display = "none"; }
+    function discardEditorChanges() { forceCloseFileDialog(); }
+    function saveBeforeClosing() {
+        hideUnsavedDialog();
+        document.getElementById("fileDialogForm").requestSubmit();
+    }
     function handleDialogBackdrop(event) { if (event.target === document.getElementById("fileDialog")) closeFileDialog(); }
 
     async function submitFileDialog(event) {
@@ -279,15 +350,19 @@
         if (!dialogSubmitHandler) return;
         const submit = document.getElementById("fileDialogSubmit");
         const errorBox = document.getElementById("fileDialogError");
+        dialogSaving = true;
         submit.disabled = true;
         errorBox.style.display = "none";
         try {
             await dialogSubmitHandler({name:document.getElementById("fileNameInput").value, content:document.getElementById("fileEditor").value});
-            closeFileDialog();
+            forceCloseFileDialog();
         } catch (error) {
             errorBox.textContent = error.message || "操作失败";
             errorBox.style.display = "block";
-        } finally { submit.disabled = false; }
+        } finally {
+            dialogSaving = false;
+            submit.disabled = false;
+        }
     }
 
     function createDirectory() {
@@ -342,23 +417,75 @@
             const submit = document.getElementById("fileDialogSubmit");
             editor.value = data.content;
             editor.disabled = false;
+            editor.setSelectionRange(0, 0);
+            editor.scrollTop = 0;
+            editor.scrollLeft = 0;
+            editorOriginalContent = data.content;
+            dialogLoading = false;
             submit.disabled = false;
             dialogSubmitHandler = async ({content}) => {
                 const result = await api("/api/files/content", {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify({path:entry.path, content})});
                 showToast(result.message, "success");
                 await loadFiles(currentPath, pageCursor);
             };
+            scheduleLineNumbers();
             editor.focus();
         } catch (error) {
             if (generation !== dialogGeneration) return;
-            closeFileDialog();
+            forceCloseFileDialog();
             showToast(error.message, "error");
         }
     }
 
+    function countEditorLines(value) {
+        let count = 1;
+        for (let index = 0; index < value.length; index += 1) {
+            if (value.charCodeAt(index) === 10) count += 1;
+        }
+        return count;
+    }
+
+    function scheduleLineNumbers() {
+        if (lineNumberFrame !== null) cancelAnimationFrame(lineNumberFrame);
+        lineNumberFrame = requestAnimationFrame(() => {
+            lineNumberFrame = null;
+            const editor = document.getElementById("fileEditor");
+            editorLineCount = countEditorLines(editor.value);
+            updateLineNumbers();
+        });
+    }
+
+    function updateLineNumbers() {
+        const editor = document.getElementById("fileEditor");
+        const gutter = document.getElementById("fileLineNumbers");
+        const lineHeight = 20;
+        const firstLine = Math.floor(editor.scrollTop / lineHeight);
+        const visibleLines = Math.ceil(editor.clientHeight / lineHeight) + 1;
+        const lastLine = Math.min(editorLineCount, firstLine + visibleLines);
+        const numbers = [];
+        for (let line = firstLine + 1; line <= lastLine; line += 1) numbers.push(String(line));
+        const pre = gutter.querySelector("pre");
+        pre.textContent = numbers.join("\n");
+        pre.style.paddingTop = `${12 - (editor.scrollTop % lineHeight)}px`;
+    }
+
     document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape" && document.getElementById("fileDialog").style.display !== "none") closeFileDialog();
+        if (event.key === "Escape" && document.getElementById("unsavedDialog").style.display !== "none") {
+            hideUnsavedDialog();
+        } else if (event.key === "Escape" && document.getElementById("fileDialog").style.display !== "none") {
+            closeFileDialog();
+        }
     });
-    document.addEventListener("DOMContentLoaded", () => loadFiles("/", 0));
+    document.addEventListener("DOMContentLoaded", () => {
+        const editor = document.getElementById("fileEditor");
+        editor.addEventListener("keydown", (event) => {
+            if (event.key !== "Tab") return;
+            event.preventDefault();
+            editor.setRangeText("\t", editor.selectionStart, editor.selectionEnd, "end");
+            scheduleLineNumbers();
+        });
+        if (window.ResizeObserver) new ResizeObserver(updateLineNumbers).observe(editor);
+        loadFiles("/", 0);
+    });
 </script>
 {% endblock %}
