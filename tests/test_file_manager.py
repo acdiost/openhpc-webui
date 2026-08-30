@@ -1,0 +1,158 @@
+import io
+import os
+import tempfile
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+os.environ.setdefault("SECRET_KEY", "test-secret-key-0123456789abcdef")
+
+from openhpc_webui.services.file_manager import (
+    FileAccessDenied,
+    FileManager,
+    FileManagerError,
+)
+from fastapi.testclient import TestClient
+from openhpc_webui import application as main
+
+
+class FileManagerTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name) / "home" / "alice"
+        self.root.mkdir(parents=True)
+        self.root = self.root.resolve()
+        self.ldap = SimpleNamespace(
+            get_user=lambda username: {
+                "username": username,
+                "home": str(self.root),
+                "uid": os.getuid(),
+                "gid": os.getgid(),
+            }
+        )
+        self.manager = FileManager(max_upload_bytes=8)
+        self.user = {"username": "alice", "is_admin": False}
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def test_regular_user_root_is_ldap_home(self):
+        self.assertEqual(self.manager.scope_root(self.user, self.ldap), self.root)
+        self.assertEqual(
+            self.manager.scope_root({"username": "admin", "is_admin": True}, self.ldap),
+            Path("/"),
+        )
+
+    def test_dot_dot_cannot_escape_home(self):
+        with self.assertRaises(FileAccessDenied):
+            self.manager.resolve("/../../etc", self.root)
+
+    def test_symlink_cannot_be_used_to_read_outside_home(self):
+        outside = Path(self.temporary.name) / "outside"
+        outside.mkdir()
+        (outside / "secret.txt").write_text("secret", encoding="utf-8")
+        (self.root / "escape").symlink_to(outside, target_is_directory=True)
+
+        with self.assertRaises(FileAccessDenied):
+            self.manager.resolve("/escape/secret.txt", self.root)
+
+    def test_deleting_symlink_does_not_delete_its_target(self):
+        target = self.root / "target"
+        target.mkdir()
+        (target / "keep.txt").write_text("keep", encoding="utf-8")
+        link = self.root / "link"
+        link.symlink_to(target, target_is_directory=True)
+
+        self.manager.delete("/link", self.root)
+
+        self.assertFalse(link.exists())
+        self.assertEqual((target / "keep.txt").read_text(encoding="utf-8"), "keep")
+
+    def test_list_create_upload_rename_and_delete(self):
+        created = self.manager.create_directory("/", "work", self.root)
+        self.assertEqual(created, "/work")
+
+        uploaded = self.manager.upload(
+            "/work", "data.txt", io.BytesIO(b"payload"), self.root
+        )
+        self.assertEqual(uploaded, "/work/data.txt")
+        listing = self.manager.list_directory("/work", self.root)
+        self.assertEqual([entry["name"] for entry in listing["entries"]], ["data.txt"])
+
+        renamed = self.manager.rename("/work/data.txt", "result.txt", self.root)
+        self.assertEqual(renamed, "/work/result.txt")
+        self.manager.delete("/work", self.root)
+        self.assertFalse((self.root / "work").exists())
+
+    def test_upload_size_limit_removes_temporary_file(self):
+        with self.assertRaisesRegex(FileManagerError, "超过大小限制"):
+            self.manager.upload("/", "large.bin", io.BytesIO(b"123456789"), self.root)
+
+        self.assertFalse((self.root / "large.bin").exists())
+        self.assertEqual(list(self.root.glob(".upload-*")), [])
+
+    def test_root_directory_cannot_be_renamed_or_deleted(self):
+        with self.assertRaisesRegex(FileManagerError, "不能删除根目录"):
+            self.manager.delete("/", self.root)
+        with self.assertRaisesRegex(FileManagerError, "不能重命名根目录"):
+            self.manager.rename("/", "other", self.root)
+
+    def test_invalid_home_is_rejected(self):
+        missing_ldap = SimpleNamespace(
+            get_user=lambda username: {"username": username, "home": "/missing/path"}
+        )
+        with self.assertRaisesRegex(FileManagerError, "不存在或不可访问"):
+            self.manager.scope_root(self.user, missing_ldap)
+
+
+class FileApiTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.home = Path(self.temporary.name).resolve()
+        (self.home / "hello.txt").write_text("hello", encoding="utf-8")
+        self.app = main.create_app()
+        self.app.dependency_overrides[main.get_current_user] = lambda: {
+            "username": "alice",
+            "is_admin": False,
+        }
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def user_record(self, username):
+        return {
+            "username": username,
+            "home": str(self.home),
+            "uid": os.getuid(),
+            "gid": os.getgid(),
+        }
+
+    def test_regular_user_api_lists_home_and_rejects_traversal(self):
+        with patch.object(main.ldap_mgr, "get_user", side_effect=self.user_record), TestClient(
+            self.app
+        ) as client:
+            response = client.get("/api/files", params={"path": "/"})
+            denied = client.get("/api/files", params={"path": "/../../etc"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["scope"], "home")
+        self.assertEqual(response.json()["entries"][0]["name"], "hello.txt")
+        self.assertEqual(denied.status_code, 403)
+
+    def test_upload_api_writes_beneath_home(self):
+        with patch.object(main.ldap_mgr, "get_user", side_effect=self.user_record), TestClient(
+            self.app
+        ) as client:
+            response = client.post(
+                "/api/files/upload",
+                params={"path": "/"},
+                files={"upload": ("upload.txt", b"uploaded", "text/plain")},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual((self.home / "upload.txt").read_bytes(), b"uploaded")
+
+
+if __name__ == "__main__":
+    unittest.main()

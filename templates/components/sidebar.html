@@ -162,6 +162,16 @@
         </a>
 
         <a
+            href="/files"
+            class="nav-item{% if request.url.path == '/files' %} active{% endif %}"
+        >
+            <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7a2 2 0 012-2h5l2 2h7a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+            </svg>
+            文件管理
+        </a>
+
+        <a
             href="/slurm-guide"
             class="nav-item{% if request.url.path == '/slurm-guide' %} active{% endif %}"
         >

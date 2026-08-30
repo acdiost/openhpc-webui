@@ -16,6 +16,9 @@ class ApplicationFactoryTests(unittest.TestCase):
         route_paths = {route.path for route in created_app.routes}
         self.assertIn("/", route_paths)
         self.assertIn("/api/auth/login", route_paths)
+        self.assertIn("/files", route_paths)
+        self.assertIn("/api/files", route_paths)
+        self.assertIn("/api/files/download", route_paths)
         self.assertIn("/static", route_paths)
 
     def test_runtime_resource_directories_exist(self):

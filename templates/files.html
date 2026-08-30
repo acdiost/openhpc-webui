@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+{% block title %}文件管理{% endblock %}
+{% block breadcrumb_title %}文件管理{% endblock %}
+
+{% block head_extra %}
+<style>
+    .file-toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:16px; }
+    .file-path { display:flex; flex:1; min-width:280px; }
+    .file-path input { flex:1; border-radius:6px 0 0 6px; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .file-path button { border-radius:0 6px 6px 0; }
+    .file-scope { display:flex; align-items:center; gap:8px; color:#6b7280; font-size:13px; margin-top:5px; }
+    .file-scope-badge { padding:2px 8px; border-radius:999px; background:#f3f4f6; color:#374151; font-weight:600; }
+    .file-table-wrap { overflow-x:auto; }
+    .file-table { width:100%; border-collapse:collapse; }
+    .file-table th { padding:11px 14px; text-align:left; color:#6b7280; font-size:12px; font-weight:600; border-bottom:1px solid #e5e7eb; }
+    .file-table td { padding:12px 14px; border-bottom:1px solid #f0f1f3; vertical-align:middle; }
+    .file-table tbody tr:hover { background:#fafafa; }
+    .file-name { display:flex; align-items:center; gap:10px; min-width:240px; }
+    .file-name button { border:0; background:none; padding:0; color:#111827; cursor:pointer; text-align:left; word-break:break-all; }
+    .file-name button:hover { color:#dc3023; text-decoration:underline; }
+    .file-icon { width:20px; height:20px; flex:none; color:#6b7280; }
+    .file-icon.folder { color:#d97706; }
+    .file-meta { color:#6b7280; white-space:nowrap; font-size:13px; }
+    .file-actions { display:flex; gap:6px; justify-content:flex-end; white-space:nowrap; }
+    .file-action { border:1px solid #d1d5db; border-radius:5px; background:#fff; padding:5px 9px; color:#374151; cursor:pointer; font-size:12px; }
+    .file-action:hover { border-color:#9ca3af; background:#f9fafb; }
+    .file-action.danger { color:#b91c1c; }
+    .file-empty { text-align:center; padding:64px 20px; color:#9ca3af; }
+    .file-loading { opacity:.55; pointer-events:none; }
+    .file-warning { display:none; margin-bottom:16px; padding:10px 12px; border:1px solid #fde68a; border-radius:6px; background:#fffbeb; color:#92400e; font-size:13px; }
+    #uploadInput { display:none; }
+    @media (max-width: 760px) {
+        .file-toolbar { align-items:stretch; }
+        .file-path { min-width:100%; }
+        .file-table th:nth-child(2), .file-table td:nth-child(2),
+        .file-table th:nth-child(3), .file-table td:nth-child(3) { display:none; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="flex justify-between items-center" style="margin-bottom:20px">
+    <div>
+        <h2 style="font-size:28px;font-weight:700">文件管理</h2>
+        <div class="file-scope">
+            <span id="scopeBadge" class="file-scope-badge">加载中</span>
+            <span id="scopeDescription"></span>
+        </div>
+    </div>
+</div>
+
+<div id="rootWarning" class="file-warning">
+    当前服务进程不是 root，管理员仍可浏览系统根目录，但实际访问能力受服务进程的系统权限限制。
+</div>
+
+<div class="card">
+    <div class="file-toolbar">
+        <button id="upButton" class="btn btn-secondary" type="button" onclick="goUp()" disabled>上一级</button>
+        <div class="file-path">
+            <input id="pathInput" type="text" value="/" aria-label="当前路径" onkeydown="if(event.key==='Enter') loadFiles(this.value)" />
+            <button class="btn btn-secondary" type="button" onclick="loadFiles(document.getElementById('pathInput').value)">转到</button>
+        </div>
+        <button class="btn btn-secondary" type="button" onclick="createDirectory()">新建目录</button>
+        <button class="btn btn-primary" type="button" onclick="document.getElementById('uploadInput').click()">上传文件</button>
+        <input id="uploadInput" type="file" multiple onchange="uploadFiles(this.files)" />
+    </div>
+
+    <div id="fileTableWrap" class="file-table-wrap">
+        <table class="file-table">
+            <thead>
+                <tr><th>名称</th><th>大小</th><th>修改时间</th><th style="text-align:right">操作</th></tr>
+            </thead>
+            <tbody id="fileTableBody"></tbody>
+        </table>
+        <div id="emptyState" class="file-empty" style="display:none">此目录为空</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<script>
+    let currentPath = "/";
+    let parentPath = null;
+
+    function fileIcon(directory, symlink) {
+        if (directory) {
+            return `<svg class="file-icon folder" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7a2 2 0 012-2h5l2 2h7a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>`;
+        }
+        return `<svg class="file-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 3h7l5 5v13H7zM14 3v6h5"/>${symlink ? '<path stroke-linecap="round" stroke-width="2" d="M3 15h8m0 0l-3-3m3 3l-3 3"/>' : ''}</svg>`;
+    }
+
+    function formatSize(value) {
+        if (value === null || value === undefined) return "—";
+        const units = ["B", "KB", "MB", "GB", "TB"];
+        let size = Number(value), unit = 0;
+        while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit += 1; }
+        return `${unit === 0 ? size : size.toFixed(size < 10 ? 1 : 0)} ${units[unit]}`;
+    }
+
+    function renderEntries(entries) {
+        const body = document.getElementById("fileTableBody");
+        body.replaceChildren();
+        document.getElementById("emptyState").style.display = entries.length ? "none" : "block";
+        for (const entry of entries) {
+            const row = document.createElement("tr");
+            const nameCell = document.createElement("td");
+            const nameWrap = document.createElement("div");
+            nameWrap.className = "file-name";
+            nameWrap.innerHTML = fileIcon(entry.is_directory, entry.is_symlink);
+            const nameButton = document.createElement("button");
+            nameButton.type = "button";
+            nameButton.textContent = entry.name + (entry.is_symlink ? " ↗" : "");
+            nameButton.title = entry.path;
+            nameButton.onclick = () => entry.is_directory ? loadFiles(entry.path) : download(entry.path);
+            nameWrap.appendChild(nameButton);
+            nameCell.appendChild(nameWrap);
+
+            const sizeCell = document.createElement("td");
+            sizeCell.className = "file-meta";
+            sizeCell.textContent = entry.is_directory ? "—" : formatSize(entry.size);
+            const timeCell = document.createElement("td");
+            timeCell.className = "file-meta";
+            timeCell.textContent = new Date(entry.modified_at).toLocaleString("zh-CN", {hour12:false});
+
+            const actionCell = document.createElement("td");
+            const actions = document.createElement("div");
+            actions.className = "file-actions";
+            if (!entry.is_directory) actions.appendChild(actionButton("下载", () => download(entry.path)));
+            actions.appendChild(actionButton("重命名", () => renameEntry(entry)));
+            actions.appendChild(actionButton("删除", () => deleteEntry(entry), true));
+            actionCell.appendChild(actions);
+            row.append(nameCell, sizeCell, timeCell, actionCell);
+            body.appendChild(row);
+        }
+    }
+
+    function actionButton(label, handler, danger=false) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `file-action${danger ? " danger" : ""}`;
+        button.textContent = label;
+        button.onclick = handler;
+        return button;
+    }
+
+    async function api(url, options={}) {
+        const response = await fetch(url, options);
+        let data = {};
+        try { data = await response.json(); } catch (_) {}
+        if (!response.ok) throw new Error(data.detail || `请求失败 (${response.status})`);
+        return data;
+    }
+
+    async function loadFiles(path="/") {
+        const wrap = document.getElementById("fileTableWrap");
+        wrap.classList.add("file-loading");
+        try {
+            const data = await api(`/api/files?path=${encodeURIComponent(path || "/")}`);
+            currentPath = data.path;
+            parentPath = data.parent;
+            document.getElementById("pathInput").value = currentPath;
+            document.getElementById("upButton").disabled = !parentPath;
+            const rootScope = data.scope === "root";
+            document.getElementById("scopeBadge").textContent = rootScope ? "ROOT" : "HOME";
+            document.getElementById("scopeDescription").textContent = rootScope ? "管理员可访问系统全部路径" : "仅可访问您自己的 Home 目录";
+            document.getElementById("rootWarning").style.display = rootScope && !data.root_access ? "block" : "none";
+            document.getElementById("uploadInput").title = `单个文件最大 ${data.upload_max_mb} MB`;
+            renderEntries(data.entries || []);
+        } catch (error) {
+            showToast(error.message, "error");
+            document.getElementById("pathInput").value = currentPath;
+        } finally {
+            wrap.classList.remove("file-loading");
+        }
+    }
+
+    function goUp() { if (parentPath) loadFiles(parentPath); }
+    function download(path) { window.location.href = `/api/files/download?path=${encodeURIComponent(path)}`; }
+
+    async function createDirectory() {
+        const name = prompt("请输入新目录名称");
+        if (!name) return;
+        try {
+            const data = await api("/api/files/directory", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({path:currentPath, name})});
+            showToast(data.message, "success");
+            await loadFiles(currentPath);
+        } catch (error) { showToast(error.message, "error"); }
+    }
+
+    async function uploadFiles(files) {
+        const input = document.getElementById("uploadInput");
+        for (const file of Array.from(files || [])) {
+            const form = new FormData();
+            form.append("upload", file, file.name);
+            try {
+                await api(`/api/files/upload?path=${encodeURIComponent(currentPath)}`, {method:"POST", body:form});
+                showToast(`${file.name} 上传成功`, "success");
+            } catch (error) { showToast(`${file.name}: ${error.message}`, "error"); }
+        }
+        input.value = "";
+        await loadFiles(currentPath);
+    }
+
+    async function renameEntry(entry) {
+        const newName = prompt("请输入新名称", entry.name);
+        if (!newName || newName === entry.name) return;
+        try {
+            const data = await api("/api/files/rename", {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify({path:entry.path, new_name:newName})});
+            showToast(data.message, "success");
+            await loadFiles(currentPath);
+        } catch (error) { showToast(error.message, "error"); }
+    }
+
+    async function deleteEntry(entry) {
+        const kind = entry.is_directory ? "目录及其中的所有内容" : "文件";
+        if (!confirm(`确定删除${kind}“${entry.name}”吗？此操作不可恢复。`)) return;
+        try {
+            const data = await api(`/api/files?path=${encodeURIComponent(entry.path)}`, {method:"DELETE"});
+            showToast(data.message, "success");
+            await loadFiles(currentPath);
+        } catch (error) { showToast(error.message, "error"); }
+    }
+
+    document.addEventListener("DOMContentLoaded", () => loadFiles("/"));
+</script>
+{% endblock %}

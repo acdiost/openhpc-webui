@@ -59,6 +59,7 @@ SLURM_DEFAULT_ACCOUNT=dawn
 SLURM_CONFIG_DIR=/etc/slurm
 NFS_QUOTA_FS=
 JOB_OUTPUT_ALLOWED_ROOTS=
+FILE_UPLOAD_MAX_MB=1024
 ```
 
 生成 Session 密钥：
@@ -70,6 +71,8 @@ openssl rand -hex 32
 使用 HTTPS 反向代理时必须设置 `SESSION_HTTPS_ONLY=True`。只有在受控网络中直接使用 HTTP 访问 Uvicorn 时才设置为 `False`。生产环境必须保持 `AUTHORIZED=True`。
 
 `.env` 需要由运行用户读取和写入，因为权限管理页面会持久化 `ADMIN_USERS`。不要在日志、工单或 Shell 历史中输出整个 `.env`。
+
+文件管理中，普通用户的页面根目录固定映射到 LDAP `homeDirectory`，管理员映射到系统 `/`。要让管理员真正以 root 权限访问所有路径，Supervisor 必须按仓库默认配置使用 `user=root`；如果改为专用运行账户，管理员页面会提示权限受限。上传、新建目录会在 root 运行模式下恢复为普通用户的 LDAP UID/GID。由于管理员可删除系统路径，只应向受信任的运维人员授予管理员权限，并确保审计日志被集中留存。
 
 ## 4. 校验 Slurm 集成
 

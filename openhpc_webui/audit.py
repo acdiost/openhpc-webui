@@ -203,8 +203,20 @@ def _target_for(request: Request, body: Dict[str, Any]) -> Dict[str, Any]:
     identifiers = {
         key: value
         for key, value in body.items()
-        if key in {"name", "username", "group_name", "account", "partition", "state"}
+        if key
+        in {
+            "name",
+            "username",
+            "group_name",
+            "account",
+            "partition",
+            "state",
+            "path",
+            "new_name",
+        }
     }
+    if request.url.path.startswith("/api/files") and request.query_params.get("path"):
+        identifiers["path"] = request.query_params["path"]
     return sanitize({"path": request.url.path, "route_params": route_params, "identifiers": identifiers})
 
 

@@ -181,3 +181,13 @@ class UserCreditRequest(BaseModel):
 class PasswordChangeRequest(BaseModel):
     current_password: str
     new_password: str
+
+
+class FileDirectoryCreate(BaseModel):
+    path: str = Field("/", max_length=4096)
+    name: str = Field(..., min_length=1, max_length=255)
+
+
+class FileRenameRequest(BaseModel):
+    path: str = Field(..., min_length=1, max_length=4096)
+    new_name: str = Field(..., min_length=1, max_length=255)

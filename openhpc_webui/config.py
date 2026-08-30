@@ -55,6 +55,7 @@ class Settings:
     session_https_only: bool = env_bool("SESSION_HTTPS_ONLY", False)
     login_max_failed_attempts: int = env_positive_int("LOGIN_MAX_FAILED_ATTEMPTS", 5)
     login_lockout_minutes: int = env_positive_int("LOGIN_LOCKOUT_MINUTES", 30)
+    file_upload_max_mb: int = env_positive_int("FILE_UPLOAD_MAX_MB", 1024)
 
 
 settings = Settings()

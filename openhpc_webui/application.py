@@ -7,8 +7,23 @@ from datetime import datetime
 from pathlib import Path
 from typing import NoReturn, Optional
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    File,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -29,6 +44,8 @@ from .schemas import (
     GroupCreate,
     GroupMemberUpdate,
     GroupUpdate,
+    FileDirectoryCreate,
+    FileRenameRequest,
     LoginRequest,
     NodeCreate,
     NodeStateUpdate,
@@ -43,6 +60,7 @@ from .schemas import (
 )
 from .services import admin_manager as admin_mgr
 from .services.auth_manager import AuthenticationServiceError, AuthManager
+from .services.file_manager import FileAccessDenied, FileManager, FileManagerError
 from .services.ldap_manager import LDAPManager
 from .services.login_limiter import LoginAttemptLimiter
 from .services.nfs_quota_manager import NFSQuotaManager
@@ -105,6 +123,7 @@ ldap_mgr = LDAPManager()
 slurm_mgr = SlurmManager()
 auth_mgr = AuthManager()
 quota_mgr = NFSQuotaManager()
+file_mgr = FileManager(max_upload_bytes=settings.file_upload_max_mb * 1024 * 1024)
 login_limiter = LoginAttemptLimiter(
     max_failures=settings.login_max_failed_attempts,
     lockout_seconds=settings.login_lockout_minutes * 60,
@@ -311,6 +330,22 @@ def _require_admin(user: dict) -> None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="需要管理员权限"
         )
+
+
+def _file_scope(user: dict) -> Path:
+    """Return the caller's filesystem root and normalize service failures."""
+    try:
+        return file_mgr.scope_root(user, ldap_mgr)
+    except FileAccessDenied as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except FileManagerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _raise_file_error(exc: FileManagerError) -> NoReturn:
+    if isinstance(exc, FileAccessDenied):
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _raise_login_failure(request: Request, username: str) -> NoReturn:
@@ -546,6 +581,12 @@ async def account_page(request: Request, user: dict = Depends(get_current_user))
     return templates.TemplateResponse("account.html", {"request": request, "user": user})
 
 
+@router.get("/files", response_class=HTMLResponse)
+async def files_page(request: Request, user: dict = Depends(get_current_user)):
+    """文件管理：普通用户以 Home 为根，管理员以系统根目录为根。"""
+    return templates.TemplateResponse("files.html", {"request": request, "user": user})
+
+
 @router.get("/nodes", response_class=HTMLResponse)
 async def nodes_page(request: Request, user: dict = Depends(get_current_user)):
     """节点管理：仅管理员可访问。"""
@@ -560,6 +601,102 @@ async def admin_page(request: Request, user: dict = Depends(get_current_user)):
     if not user.get("is_admin"):
         return RedirectResponse(url="/jobs", status_code=302)
     return templates.TemplateResponse("admin.html", {"request": request, "user": user})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 文件管理 API
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@router.get("/api/files")
+async def list_files(path: str = "/", user: dict = Depends(get_current_user)):
+    root = _file_scope(user)
+    try:
+        result = file_mgr.list_directory(path, root)
+    except FileManagerError as exc:
+        _raise_file_error(exc)
+    result["scope"] = "root" if user.get("is_admin") else "home"
+    result["root_access"] = bool(user.get("is_admin") and os.geteuid() == 0)
+    result["upload_max_mb"] = settings.file_upload_max_mb
+    return result
+
+
+@router.get("/api/files/download")
+async def download_file(path: str, user: dict = Depends(get_current_user)):
+    root = _file_scope(user)
+    try:
+        target = file_mgr.resolve(path, root)
+        if not target.is_file():
+            raise FileManagerError("目标路径不是文件")
+    except FileManagerError as exc:
+        _raise_file_error(exc)
+    return FileResponse(
+        path=str(target),
+        filename=target.name,
+        media_type="application/octet-stream",
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@router.post("/api/files/directory")
+async def create_file_directory(
+    payload: FileDirectoryCreate, user: dict = Depends(get_current_user)
+):
+    root = _file_scope(user)
+    try:
+        created = file_mgr.create_directory(
+            payload.path,
+            payload.name,
+            root,
+            file_mgr.owner_for(user, ldap_mgr),
+        )
+    except FileManagerError as exc:
+        _raise_file_error(exc)
+    return {"message": "目录创建成功", "path": created}
+
+
+@router.post("/api/files/upload")
+async def upload_file(
+    path: str = "/",
+    upload: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+):
+    root = _file_scope(user)
+    try:
+        created = file_mgr.upload(
+            path,
+            upload.filename or "",
+            upload.file,
+            root,
+            file_mgr.owner_for(user, ldap_mgr),
+        )
+    except FileManagerError as exc:
+        _raise_file_error(exc)
+    finally:
+        await upload.close()
+    return {"message": "文件上传成功", "path": created}
+
+
+@router.put("/api/files/rename")
+async def rename_file(
+    payload: FileRenameRequest, user: dict = Depends(get_current_user)
+):
+    root = _file_scope(user)
+    try:
+        renamed = file_mgr.rename(payload.path, payload.new_name, root)
+    except FileManagerError as exc:
+        _raise_file_error(exc)
+    return {"message": "重命名成功", "path": renamed}
+
+
+@router.delete("/api/files")
+async def delete_file(path: str, user: dict = Depends(get_current_user)):
+    root = _file_scope(user)
+    try:
+        file_mgr.delete(path, root)
+    except FileManagerError as exc:
+        _raise_file_error(exc)
+    return {"message": "删除成功"}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
