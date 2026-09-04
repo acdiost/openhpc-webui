@@ -1,8 +1,39 @@
 """Request models used by the HTTP API."""
 
+import re
+
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+_EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class UserContactFields(BaseModel):
+    """Optional LDAP contact attributes shared by create and update payloads."""
+
+    phone: Optional[str] = Field(None, max_length=64)
+    email: Optional[str] = Field(None, max_length=254)
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        if any(ord(character) < 32 for character in value):
+            raise ValueError("联系方式不能包含控制字符")
+        return value.strip()
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        value = value.strip()
+        if value and not _EMAIL_PATTERN.fullmatch(value):
+            raise ValueError("邮箱格式无效")
+        return value
 
 
 class LoginRequest(BaseModel):
@@ -10,7 +41,7 @@ class LoginRequest(BaseModel):
     password: str
 
 
-class UserCreate(BaseModel):
+class UserCreate(UserContactFields):
     username: str
     sn: Optional[str] = Field(None, max_length=128)
     uid: int
@@ -22,7 +53,7 @@ class UserCreate(BaseModel):
     storage_quota_gb: Optional[float] = None
 
 
-class UserUpdate(BaseModel):
+class UserUpdate(UserContactFields):
     gid: Optional[int] = None
     home: Optional[str] = None
     shell: Optional[str] = None

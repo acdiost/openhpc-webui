@@ -114,6 +114,52 @@ _slurm_usage_assoc_tres() {
     ' <<<"$output"
 }
 
+_slurm_usage_account_tres() {
+    local account="$1"
+    local output
+
+    output="$(_slurm_usage_run scontrol show assoc_mgr flags=assoc \
+        "accounts=$account" 2>/dev/null)" || return 1
+
+    # Account associations have no UserName. Prefer the global association so
+    # the displayed balance matches the account-wide shared limit.
+    awk -v wanted_account="$account" '
+        function read_header(    i) {
+            header_account = ""
+            header_user = ""
+            header_partition = ""
+            for (i = 1; i <= NF; i++) {
+                if ($i ~ /^Account=/) {
+                    header_account = substr($i, 9)
+                } else if ($i ~ /^UserName=/) {
+                    header_user = substr($i, 10)
+                } else if ($i ~ /^Partition=/) {
+                    header_partition = substr($i, 11)
+                }
+            }
+            selected = (header_account == wanted_account && header_user == "")
+        }
+        /^ClusterName=/ { read_header(); next }
+        selected && /^[[:space:]]*GrpTRESMins=/ {
+            value = $0
+            sub(/^[[:space:]]*GrpTRESMins=/, "", value)
+            if (header_partition == "") {
+                print value
+                found = 1
+                exit
+            }
+            if (fallback == "") {
+                fallback = value
+            }
+        }
+        END {
+            if (!found && fallback != "") {
+                print fallback
+            }
+        }
+    ' <<<"$output"
+}
+
 _slurm_usage_parse_tres() {
     local tres_value="$1"
     local wanted="$2"
@@ -189,6 +235,54 @@ _slurm_usage_resource_line() {
         "$limit_hours" "$status_color" "$remaining_hours" "$_usage_reset"
 }
 
+_slurm_usage_quota_line() {
+    local label="$1"
+    local parsed="$2"
+    local limit="${parsed%%|*}"
+    local used="${parsed#*|}"
+    local used_hours
+    local limit_hours
+    local remaining_minutes
+    local remaining_hours
+    local usage_percent=0
+    local status_color="$_usage_green"
+
+    if [[ "$limit" == "?" ]]; then
+        printf '  %s%-4s%s  累计已用 %s  额度数据 %s不可用%s\n' \
+            "$_usage_bold" "$label" "$_usage_reset" \
+            "—" "$_usage_yellow" "$_usage_reset"
+        return
+    fi
+
+    used_hours="$(_slurm_usage_minutes_to_hours "$used")"
+    if [[ "$limit" == "N" ]]; then
+        printf '  %s%-4s%s  累计已用 %s%10s h%s  额度 %s无限%s\n' \
+            "$_usage_bold" "$label" "$_usage_reset" \
+            "$_usage_blue" "$used_hours" "$_usage_reset" \
+            "$_usage_green" "$_usage_reset"
+        return
+    fi
+
+    remaining_minutes=$((limit > used ? limit - used : 0))
+    limit_hours="$(_slurm_usage_minutes_to_hours "$limit")"
+    remaining_hours="$(_slurm_usage_minutes_to_hours "$remaining_minutes")"
+    if (( limit > 0 )); then
+        usage_percent=$((used * 100 / limit))
+    elif (( used > 0 )); then
+        usage_percent=100
+    fi
+    if (( usage_percent >= 95 )); then
+        status_color="$_usage_red"
+    elif (( usage_percent >= 80 )); then
+        status_color="$_usage_yellow"
+    fi
+
+    printf '  %s%-4s%s  累计已用 %s%10s h%s  额度 %10s h  剩余 %s%10s h%s\n' \
+        "$_usage_bold" "$label" "$_usage_reset" \
+        "$_usage_blue" "$used_hours" "$_usage_reset" \
+        "$limit_hours" "$status_color" "$remaining_hours" "$_usage_reset"
+}
+
 _slurm_usage_main() {
     local username
     local account
@@ -197,8 +291,11 @@ _slurm_usage_main() {
     local cpu_seconds=0
     local gpu_seconds=0
     local assoc_tres=""
+    local account_tres=""
     local cpu_values="?|?"
     local gpu_values="?|?"
+    local account_cpu_values="?|?"
+    local account_gpu_values="?|?"
 
     [[ "${OPENHPC_SLURM_USAGE_BANNER:-1}" != "0" ]] || return 0
     [[ ! -e "${HOME:-/nonexistent}/.hush_slurm_usage" ]] || return 0
@@ -227,6 +324,11 @@ _slurm_usage_main() {
         cpu_values="$(_slurm_usage_parse_tres "$assoc_tres" cpu)"
         gpu_values="$(_slurm_usage_parse_tres "$assoc_tres" 'gres/gpu')"
     fi
+    account_tres="$(_slurm_usage_account_tres "$account")" || account_tres=""
+    if [[ -n "$account_tres" ]]; then
+        account_cpu_values="$(_slurm_usage_parse_tres "$account_tres" cpu)"
+        account_gpu_values="$(_slurm_usage_parse_tres "$account_tres" 'gres/gpu')"
+    fi
 
     if [[ -t 1 && -z "${NO_COLOR:-}" && "${TERM:-}" != "dumb" ]]; then
         _usage_reset=$'\033[0m'
@@ -252,8 +354,13 @@ _slurm_usage_main() {
         "$_usage_cyan" "$account" "$_usage_reset" \
         "$(date '+%Y-%m')"
     printf '%s\n' '--------------------------------------------------------------------------------'
+    printf '  %s用户额度%s\n' "$_usage_bold" "$_usage_reset"
     _slurm_usage_resource_line "CPU" "$cpu_seconds" "$cpu_values"
     _slurm_usage_resource_line "GPU" "$gpu_seconds" "$gpu_values"
+    printf '\n  %s账户共享额度%s（%s）\n' \
+        "$_usage_bold" "$_usage_reset" "$account"
+    _slurm_usage_quota_line "CPU" "$account_cpu_values"
+    _slurm_usage_quota_line "GPU" "$account_gpu_values"
     printf '%s\n\n' '--------------------------------------------------------------------------------'
 }
 
@@ -263,6 +370,7 @@ _slurm_usage_main
 # this script is sourced from /etc/profile.d/.
 unset -f _slurm_usage_run _slurm_usage_hours _slurm_usage_minutes_to_hours
 unset -f _slurm_usage_month_seconds _slurm_usage_assoc_tres
-unset -f _slurm_usage_parse_tres _slurm_usage_resource_line _slurm_usage_main
+unset -f _slurm_usage_account_tres _slurm_usage_parse_tres
+unset -f _slurm_usage_resource_line _slurm_usage_quota_line _slurm_usage_main
 unset _usage_reset _usage_bold _usage_cyan _usage_blue _usage_green
 unset _usage_yellow _usage_red _slurm_usage_items

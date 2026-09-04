@@ -1083,6 +1083,8 @@ async def create_user(user_data: UserCreate, user: dict = Depends(get_current_us
         shell=user_data.shell,
         password=user_data.password,
         sn=user_data.sn,
+        phone=user_data.phone,
+        email=user_data.email,
     )
     if not success:
         raise HTTPException(status_code=500, detail="创建用户失败")
@@ -1184,6 +1186,8 @@ async def update_user(
         shell=user_data.shell,
         password=user_data.password,
         sn=user_data.sn,
+        phone=user_data.phone,
+        email=user_data.email,
     )
     if not success:
         raise HTTPException(status_code=500, detail="更新用户失败")

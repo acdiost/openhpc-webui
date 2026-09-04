@@ -89,6 +89,23 @@ endblock %} {% block head_extra %}
     .user-action-menu-item.danger:hover,
     .user-action-menu-item.danger:focus-visible { background: #fef2f2; }
     .user-action-menu-separator { height: 1px; margin: 5px 4px; background: #e5e7eb; }
+    .user-detail-grid {
+        display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+        margin: 4px 0 8px; border: 1px solid #e5e7eb;
+        border-radius: 8px; overflow: hidden;
+    }
+    .user-detail-item { min-width: 0; padding: 12px 14px; border-bottom: 1px solid #e5e7eb; }
+    .user-detail-item:nth-child(odd) { border-right: 1px solid #e5e7eb; }
+    .user-detail-item:nth-last-child(-n+2) { border-bottom: 0; }
+    .user-detail-label { margin-bottom: 5px; color: #6b7280; font-size: 12px; font-weight: 600; }
+    .user-detail-value { color: #111827; font-size: 14px; overflow-wrap: anywhere; }
+    @media (max-width: 520px) {
+        .user-detail-grid { grid-template-columns: 1fr; }
+        .user-detail-item,
+        .user-detail-item:nth-child(odd),
+        .user-detail-item:nth-last-child(-n+2) { border-right: 0; border-bottom: 1px solid #e5e7eb; }
+        .user-detail-item:last-child { border-bottom: 0; }
+    }
     #usersTable {
         min-width: 1960px;
         table-layout: fixed;
@@ -253,6 +270,29 @@ modals %}
 
 <div id="userActionsMenu" class="user-action-menu" role="menu" hidden></div>
 
+<!-- 用户详情弹窗：联系方式和邮箱不在列表中展示。 -->
+<div id="userDetailModal" class="modal" style="display: none">
+    <div class="modal-content" style="max-width: 620px">
+        <div class="modal-header">
+            <h3 id="userDetailTitle">用户详情</h3>
+            <button class="modal-close" onclick="closeUserDetailModal()" aria-label="关闭详情">&times;</button>
+        </div>
+        <div class="user-detail-grid">
+            <div class="user-detail-item"><div class="user-detail-label">用户名</div><div id="user_detail_username" class="user-detail-value">—</div></div>
+            <div class="user-detail-item"><div class="user-detail-label">姓名</div><div id="user_detail_sn" class="user-detail-value">—</div></div>
+            <div class="user-detail-item"><div class="user-detail-label">联系方式</div><div id="user_detail_phone" class="user-detail-value">—</div></div>
+            <div class="user-detail-item"><div class="user-detail-label">邮箱</div><div id="user_detail_email" class="user-detail-value">—</div></div>
+            <div class="user-detail-item"><div class="user-detail-label">UID / GID</div><div id="user_detail_ids" class="user-detail-value">—</div></div>
+            <div class="user-detail-item"><div class="user-detail-label">所属组</div><div id="user_detail_groups" class="user-detail-value">—</div></div>
+            <div class="user-detail-item"><div class="user-detail-label">家目录</div><div id="user_detail_home" class="user-detail-value">—</div></div>
+            <div class="user-detail-item"><div class="user-detail-label">Shell</div><div id="user_detail_shell" class="user-detail-value">—</div></div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeUserDetailModal()">关闭</button>
+        </div>
+    </div>
+</div>
+
 <!-- 创建用户弹窗 -->
 <div id="createUserModal" class="modal" style="display: none">
     <div class="modal-content">
@@ -283,6 +323,14 @@ modals %}
                     placeholder="如：张三；留空则使用用户名"
                     autocomplete="name"
                 />
+            </div>
+            <div class="form-group">
+                <label for="create_phone">联系方式（可选）</label>
+                <input type="tel" id="create_phone" name="phone" maxlength="64" autocomplete="tel" placeholder="如：13800000000" />
+            </div>
+            <div class="form-group">
+                <label for="create_email">邮箱（可选）</label>
+                <input type="email" id="create_email" name="email" maxlength="254" autocomplete="email" placeholder="如：user@example.com" />
             </div>
             <div class="form-group">
                 <label for="create_uid">UID</label>
@@ -442,6 +490,14 @@ modals %}
             <div class="form-group">
                 <label for="edit_sn">姓名</label>
                 <input type="text" id="edit_sn" name="sn" maxlength="128" autocomplete="off" />
+            </div>
+            <div class="form-group">
+                <label for="edit_phone">联系方式（可选）</label>
+                <input type="tel" id="edit_phone" name="phone" maxlength="64" autocomplete="tel" />
+            </div>
+            <div class="form-group">
+                <label for="edit_email">邮箱（可选）</label>
+                <input type="email" id="edit_email" name="email" maxlength="254" autocomplete="email" />
             </div>
             <div class="form-group">
                 <label for="edit_gid">主组</label>
@@ -800,6 +856,7 @@ page_scripts %}
         activeUserActionTrigger = trigger;
         trigger.setAttribute("aria-expanded", "true");
 
+        appendUserAction(menu, "详情", () => showUserDetailModal(user));
         appendUserAction(menu, "编辑用户", () => showEditUserModal(user.username));
         appendUserAction(menu, "修改磁盘配额", () => showUserQuotaModal(user.username));
         appendUserAction(menu, "生成 / 重置 SSH 密钥", () => resetUserSshKey(user.username));
@@ -955,6 +1012,28 @@ page_scripts %}
         document.getElementById("edit_gid").innerHTML = placeholder + options;
     }
 
+    /* ── 用户详情 ─────────────────────────────────────────── */
+
+    function showUserDetailModal(user) {
+        document.getElementById("userDetailTitle").textContent = `用户详情：${user.username}`;
+        document.getElementById("user_detail_username").textContent = user.username || "—";
+        document.getElementById("user_detail_sn").textContent = user.sn || "—";
+        const detailPhone = document.getElementById("user_detail_phone");
+        const detailEmail = document.getElementById("user_detail_email");
+        detailPhone.textContent = user.phone || "—";
+        detailEmail.textContent = user.email || "—";
+        document.getElementById("user_detail_ids").textContent = `${user.uid || "—"} / ${user.gid || "—"}`;
+        document.getElementById("user_detail_groups").textContent =
+            user.groups && user.groups.length ? user.groups.join(", ") : "—";
+        document.getElementById("user_detail_home").textContent = user.home || "—";
+        document.getElementById("user_detail_shell").textContent = user.shell || "—";
+        document.getElementById("userDetailModal").style.display = "flex";
+    }
+
+    function closeUserDetailModal() {
+        document.getElementById("userDetailModal").style.display = "none";
+    }
+
     /* ── 创建用户 ─────────────────────────────────────────── */
 
     function showCreateUserModal() {
@@ -977,6 +1056,8 @@ page_scripts %}
         const userData = {
             username: fd.get("username"),
             sn: fd.get("sn")?.trim() || null,
+            phone: fd.get("phone")?.trim() || null,
+            email: fd.get("email")?.trim() || null,
             uid: parseInt(fd.get("uid")),
             gid: parseInt(fd.get("gid")),
             home: fd.get("home"),
@@ -1006,6 +1087,8 @@ page_scripts %}
 
         document.getElementById("edit_username").value = username;
         document.getElementById("edit_sn").value = user.sn || "";
+        document.getElementById("edit_phone").value = user.phone || "";
+        document.getElementById("edit_email").value = user.email || "";
         document.getElementById("edit_gid").value = user.gid || "";
         document.getElementById("edit_home").value = user.home || "";
         document.getElementById("edit_shell").value = isDisabledShell(user.shell)
@@ -1067,6 +1150,8 @@ page_scripts %}
 
         const sn = fd.get("sn");
         if (sn) userData.sn = sn.trim();
+        userData.phone = fd.get("phone")?.trim() || "";
+        userData.email = fd.get("email")?.trim() || "";
         const gid = fd.get("gid");
         if (gid) userData.gid = parseInt(gid);
         const home = fd.get("home");

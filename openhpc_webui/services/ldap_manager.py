@@ -88,7 +88,11 @@ class LDAPManager:
             success = conn.search(
                 search_base,
                 search_filter,
-                attributes=['uid', 'uidNumber', 'gidNumber', 'homeDirectory', 'loginShell', 'cn', 'sn', 'mail', 'displayName']
+                attributes=[
+                    'uid', 'uidNumber', 'gidNumber', 'homeDirectory',
+                    'loginShell', 'cn', 'sn', 'mail', 'telephoneNumber',
+                    'displayName'
+                ]
             )
 
             if not success:
@@ -109,6 +113,12 @@ class LDAPManager:
                 shell = str(entry.loginShell.value) if hasattr(entry, 'loginShell') and entry.loginShell else ''
                 cn = str(entry.cn.value) if hasattr(entry, 'cn') and entry.cn else ''
                 sn = str(entry.sn.value) if hasattr(entry, 'sn') and entry.sn else ''
+                email = str(entry.mail.value) if hasattr(entry, 'mail') and entry.mail else ''
+                phone = (
+                    str(entry.telephoneNumber.value)
+                    if hasattr(entry, 'telephoneNumber') and entry.telephoneNumber
+                    else ''
+                )
 
                 # Find primary group name
                 groups = []
@@ -132,6 +142,8 @@ class LDAPManager:
                     'shell': shell,
                     'cn': cn,
                     'sn': sn,
+                    'phone': phone,
+                    'email': email,
                     'groups': groups
                 }
                 users.append(user)
@@ -185,6 +197,8 @@ class LDAPManager:
         shell: str = "/bin/bash",
         password: str = None,
         sn: str = None,
+        phone: str = None,
+        email: str = None,
     ) -> bool:
         """创建新用户"""
         conn = self.connect()
@@ -207,6 +221,10 @@ class LDAPManager:
 
             if password:
                 attrs['userPassword'] = self.hash_password(password)
+            if phone and phone.strip():
+                attrs['telephoneNumber'] = phone.strip()
+            if email and email.strip():
+                attrs['mail'] = email.strip()
 
             conn.add(dn, attributes=attrs)
             return conn.result['result'] == 0
@@ -232,7 +250,17 @@ class LDAPManager:
         finally:
             conn.unbind()
 
-    def update_user(self, username: str, gid: int = None, home: str = None, shell: str = None, password: str = None, sn: str = None) -> bool:
+    def update_user(
+        self,
+        username: str,
+        gid: int = None,
+        home: str = None,
+        shell: str = None,
+        password: str = None,
+        sn: str = None,
+        phone: str = None,
+        email: str = None,
+    ) -> bool:
         """更新用户信息"""
         conn = self.connect()
         if not conn:
@@ -253,6 +281,16 @@ class LDAPManager:
                 changes['sn'] = [(MODIFY_REPLACE, [surname])]
             if password is not None:
                 changes['userPassword'] = [(MODIFY_REPLACE, [self.hash_password(password)])]
+            if phone is not None:
+                phone = phone.strip()
+                changes['telephoneNumber'] = [
+                    (MODIFY_REPLACE, [phone]) if phone else (MODIFY_REPLACE, [])
+                ]
+            if email is not None:
+                email = email.strip()
+                changes['mail'] = [
+                    (MODIFY_REPLACE, [email]) if email else (MODIFY_REPLACE, [])
+                ]
 
             if not changes:
                 return True  # No changes to make

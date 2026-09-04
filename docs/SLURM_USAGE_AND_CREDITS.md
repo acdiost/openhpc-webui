@@ -97,6 +97,7 @@ dawn|research|GPU|cpu=600,gres/gpu=60
 
 ```bash
 scontrol show assoc_mgr flags=assoc users=<用户名>
+scontrol show assoc_mgr flags=assoc accounts=<账户>
 ```
 
 示例字段：
@@ -107,7 +108,8 @@ GrpTRESMins=cpu=600(200),gres/gpu=60(10)
 
 它表示 CPU 上限/已用分别为 600/200 分钟，GPU 上限/已用分别为 60/10 分钟。
 用户列表优先展示无分区的全局 Association；不存在全局关联时使用查询结果中的
-第一个分区关联。
+第一个分区关联。登录提示脚本还会读取默认账户中 `UserName` 为空的账户
+Association，展示该账户的 CPU/GPU 共享额度、累计已用量和剩余量。
 
 ## 额度拨付
 
@@ -194,8 +196,9 @@ POST /api/slurm/associations/<account>/<username>/tres-minutes
 ## 登录终端自动展示
 
 脚本默认只在交互式终端中运行，显示当前用户、默认 Slurm 账户、本月 CPU/GPU
-实际用量、控制器累计已用量、额度上限和剩余量。部署方式、测试命令、超时配置和
-用户隐藏方法已写在脚本头部注释中。
+实际用量，并分别展示用户 Association 和账户共享 Association 的控制器累计
+已用量、额度上限和剩余量。部署方式、测试命令、超时配置和用户隐藏方法已写在
+脚本头部注释中。
 
 推荐部署到所有登录节点：
 
@@ -210,6 +213,7 @@ sudo install -m 0755 scripts/slurm_usage_login.sh \
 command -v sreport sacctmgr scontrol
 sacctmgr show user name="$USER" format=User,DefaultAccount -n -P
 scontrol show assoc_mgr flags=assoc users="$USER"
+scontrol show assoc_mgr flags=assoc accounts=<默认账户>
 ```
 
 直接测试脚本不会要求交互式 Shell：
