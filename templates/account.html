@@ -77,12 +77,12 @@
             </div>
             <div class="form-group">
                 <label for="terminal_ai_model">模型名称</label>
-                <input id="terminal_ai_model" maxlength="256" placeholder="deepseek-chat 或已部署模型名">
+                <input id="terminal_ai_model" maxlength="256" placeholder="deepseek-v4-flash 或已部署模型名">
             </div>
         </div>
         <div class="form-group">
             <label for="terminal_ai_base_url">OpenAI 兼容 Base URL</label>
-            <input id="terminal_ai_base_url" type="url" maxlength="2048" placeholder="https://api.deepseek.com/v1">
+            <input id="terminal_ai_base_url" type="url" maxlength="2048" placeholder="https://api.deepseek.com">
         </div>
         <div class="form-group">
             <label for="terminal_ai_api_key">API Key</label>
@@ -141,7 +141,7 @@
     }
 
     {% if user.get('is_admin') %}
-    const providerDefaults = {deepseek: "https://api.deepseek.com/v1", vllm: "http://127.0.0.1:8000/v1", sglang: "http://127.0.0.1:30000/v1", "openai-compatible": ""};
+    const providerDefaults = {deepseek: "https://api.deepseek.com", vllm: "http://127.0.0.1:8000/v1", sglang: "http://127.0.0.1:30000/v1", "openai-compatible": ""};
 
     async function loadTerminalAI() {
         try {

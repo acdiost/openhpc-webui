@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key-0123456789abcdef")
 
@@ -127,15 +127,15 @@ class TerminalAIConfigTests(unittest.TestCase):
             "TERMINAL_AI_ENABLED": "True",
             "TERMINAL_AI_PROVIDER": "deepseek",
             "TERMINAL_AI_BASE_URL": "",
-            "TERMINAL_AI_MODEL": "deepseek-chat",
+            "TERMINAL_AI_MODEL": "deepseek-v4-flash",
         }
         with patch.dict(os.environ, environment, clear=False):
             config = get_config()
         self.assertTrue(config.available)
-        self.assertEqual(config.base_url, "https://api.deepseek.com/v1")
-        self.assertEqual(
-            model_options(config), ["deepseek-chat", "deepseek-reasoner"]
-        )
+        self.assertEqual(config.base_url, "https://api.deepseek.com")
+        options = model_options(config)
+        self.assertEqual(options[0], "deepseek-v4-flash")
+        self.assertEqual(len(options), len(set(options)))
 
     def test_terminal_model_name_validation(self):
         self.assertEqual(validate_model_name("  Qwen/Qwen3-32B  "), "Qwen/Qwen3-32B")
@@ -195,6 +195,8 @@ class TerminalAIReplyTests(unittest.TestCase):
         self.assertFalse(reply.done)
         self.assertIn("cat > gpu_test.sh", reply.command)
         self.assertIn("不可信数据", client._complete.await_args.args[0][-1]["content"])
+        continuation_prompt = client._complete.await_args.args[0][0]["content"]
+        self.assertIn("Slurm 集群登录 Shell", continuation_prompt)
         self.assertEqual(len(history), 4)
 
     def test_action_request_retries_an_unnecessary_clarification(self):
@@ -219,7 +221,8 @@ class TerminalAIReplyTests(unittest.TestCase):
         self.assertEqual(reply.command, "sinfo -N")
         self.assertEqual(client._complete.await_count, 2)
         system_prompt = client._complete.await_args_list[0].args[0][0]["content"]
-        self.assertIn("集群调度器是 Slurm", system_prompt)
+        self.assertIn("Slurm 集群", system_prompt)
+        self.assertIn("当前 Shell 位于已认证用户的登录节点", system_prompt)
         repair_prompt = client._complete.await_args_list[1].args[0][-1]["content"]
         self.assertIn("不要向用户询问", repair_prompt)
 
@@ -249,6 +252,121 @@ class TerminalAIReplyTests(unittest.TestCase):
         self.assertEqual(reply.answer, "作业输出已生成，下一步查看结果。")
         self.assertEqual(reply.command, "cat node_test_123.out")
         self.assertFalse(reply.done)
+
+    def test_extracts_file_action_from_prose_prefixed_json(self):
+        reply = TerminalAIClient._parse_reply(
+            "我现在更新脚本。\n"
+            + json.dumps({
+                "answer": "已加入 GPU 资源申请。",
+                "command": None,
+                "file": {
+                    "path": "node_test.sh",
+                    "content": "#!/bin/bash\n#SBATCH -p GPU\n#SBATCH --gres=gpu:1\nnvidia-smi",
+                    "executable": True,
+                },
+                "done": False,
+            })
+        )
+
+        self.assertEqual(reply.answer, "已加入 GPU 资源申请。")
+        self.assertIn("cat > node_test.sh", reply.command)
+        self.assertIn("#SBATCH --gres=gpu:1", reply.command)
+
+    def test_extracts_final_object_from_prose_and_fenced_json(self):
+        reply = TerminalAIClient._parse_reply(
+            "目标已全部完成。\n```json\n"
+            '{"answer":"作业成功完成并已分析。","command":null,"file":null,"done":true}'
+            "\n```"
+        )
+
+        self.assertEqual(reply.answer, "作业成功完成并已分析。")
+        self.assertIsNone(reply.command)
+        self.assertTrue(reply.done)
+
+    def test_normalizes_content_parts_and_structured_reasoning_fallback(self):
+        self.assertEqual(
+            TerminalAIClient._extract_message_content({
+                "content": [
+                    {"type": "text", "text": "first "},
+                    {"type": "text", "text": {"value": "second"}},
+                ]
+            }),
+            "first second",
+        )
+        recovered = TerminalAIClient._extract_message_content({
+            "content": "",
+            "reasoning_content": (
+                "分析过程……\n"
+                '{"answer":"检查节点","command":"sinfo","file":null,"done":false}'
+            ),
+        }, allow_reasoning=True)
+        self.assertIn('"command": "sinfo"', recovered)
+        recovered_reply = TerminalAIClient._parse_reply(recovered)
+        self.assertTrue(recovered_reply.requires_confirmation)
+
+    def test_empty_content_is_retried_once(self):
+        client = TerminalAIClient()
+        first_response = MagicMock()
+        first_response.content = b"{}"
+        first_response.json.return_value = {
+            "choices": [{"message": {"content": "", "reasoning_content": "thinking"}}]
+        }
+        second_response = MagicMock()
+        second_response.content = b"{}"
+        second_response.json.return_value = {
+            "choices": [{"message": {"content": '{"answer":"完成","done":true}'}}]
+        }
+        http_client = AsyncMock()
+        http_client.post.side_effect = [first_response, second_response]
+        client_context = MagicMock()
+        client_context.__aenter__ = AsyncMock(return_value=http_client)
+        client_context.__aexit__ = AsyncMock(return_value=False)
+        config = terminal_ai.TerminalAIConfig(
+            enabled=True,
+            provider="vllm",
+            base_url="http://model.local/v1",
+            model="served-model",
+            api_key="",
+            timeout_seconds=10,
+        )
+
+        with patch.object(terminal_ai, "get_config", return_value=config), patch.object(
+            terminal_ai.httpx, "AsyncClient", return_value=client_context
+        ):
+            content = asyncio.run(client._complete([{"role": "user", "content": "test"}]))
+
+        self.assertEqual(content, '{"answer":"完成","done":true}')
+        self.assertEqual(http_client.post.await_count, 2)
+        retry_messages = http_client.post.await_args_list[1].kwargs["json"]["messages"]
+        self.assertIn("响应正文为空", retry_messages[-1]["content"])
+
+    def test_gpu_goal_script_without_gpu_resource_request_needs_repair(self):
+        reply = TerminalAIReply(
+            "创建测试脚本",
+            "cat > test.sh <<'EOF'\n#!/bin/bash\n#SBATCH -p accelerated\nhostname\nEOF",
+            done=False,
+        )
+
+        self.assertTrue(TerminalAIClient._needs_action_repair("创建GPU节点测试脚本", reply))
+
+    def test_partition_name_does_not_imply_gpu_resource(self):
+        reply = TerminalAIReply(
+            "创建通用节点测试脚本",
+            "cat > test.sh <<'EOF'\n#!/bin/bash\n#SBATCH -p GPU\nhostname\nEOF",
+            done=False,
+        )
+
+        self.assertFalse(TerminalAIClient._needs_action_repair("创建节点测试脚本", reply))
+
+    def test_cluster_specific_gpu_request_syntax_is_accepted(self):
+        reply = TerminalAIReply(
+            "创建 GPU 测试脚本",
+            "cat > test.sh <<'EOF'\n#!/bin/bash\n#SBATCH -p accelerator-a\n"
+            "#SBATCH --gpus-per-node=1\nnvidia-smi\nEOF",
+            done=False,
+        )
+
+        self.assertFalse(TerminalAIClient._needs_action_repair("创建 GPU 测试脚本", reply))
 
     def test_file_action_becomes_a_confirmed_shell_write(self):
         reply = TerminalAIClient._parse_reply(json.dumps({
@@ -429,7 +547,7 @@ class TerminalAIProtocolTests(unittest.TestCase):
             active_goal="old goal",
             pending_command="old command",
             auto_approve=True,
-            model="deepseek-chat",
+            model="deepseek-v4-flash",
         )
 
         async def receive():

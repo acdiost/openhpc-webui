@@ -197,7 +197,7 @@ Web 终端要求登录用户已经通过 SSSD/NSS 同步为本机 Linux 账户�
 TERMINAL_AI_ENABLED=True
 TERMINAL_AI_PROVIDER=deepseek
 TERMINAL_AI_BASE_URL=https://api.deepseek.com/v1
-TERMINAL_AI_MODEL=deepseek-chat
+TERMINAL_AI_MODEL=deepseek-v4-flash
 TERMINAL_AI_API_KEY=replace-with-a-real-key
 TERMINAL_AI_TIMEOUT_SECONDS=60
 ```
@@ -216,7 +216,9 @@ AI 对话上下文仅保存在当前 WebSocket 会话内，最多保留最近四
 
 模型响应协议支持 `answer`、`command`、`file` 和 `done`。`done=false` 表示执行当前动作后应继续同一目标，`done=true` 表示目标完成；后端始终一次只接受一个动作。`file` 包含相对路径、完整内容和是否可执行，后端会把它转换为当前用户 Shell 中的受控写入操作；模型即使没有严格返回 JSON，只要回复中包含“保存为文件名”和 fenced 代码块，WebUI 也会恢复成相同的操作。服务端不会绕过 PTY 以 root 身份代替用户写文件。
 
-系统提示会明确告知模型当前是 Slurm 登录 Shell，并要求通过 `sinfo`、`squeue`、`scontrol`、`hostname`、`whoami` 等命令自行发现环境信息。对于明显未完成但没有返回 `command`/`file` 的操作型响应，后端会额外发起一次格式纠正请求；若仍无法得到动作，则保留当前目标并等待用户补充。估算模型服务容量和超时时，应把这一次可能的纠正请求计算在内。
+系统提示明确告知模型当前是 OpenHPC WebUI 管理的 Slurm 集群登录 Shell。模型无需再次询问调度器或节点角色，但必须通过 Slurm 和系统的只读命令发现实际分区、节点、账户、资源与软件环境，并复用前序动作已获得的信息。对于明显未完成但没有返回 `command`/`file` 的操作型响应，后端会额外发起一次格式纠正请求；若仍无法得到动作，则保留当前目标并等待用户补充。估算模型服务容量和超时时，应把这一次可能的纠正请求计算在内。
+
+响应解析兼容字符串、文本内容分段、JSON 前后夹带说明文字以及 fenced JSON。正文为空时后端会重试一次；第二次仍只有 `reasoning_content` 时，仅当其中能提取出符合协议的 JSON 对象才采用，不会把原始推理内容传给终端，并强制用户人工确认其中的动作。连续空响应通常表示模型输出长度、推理模板或兼容接口实现有问题，应检查模型服务日志与 chat template，或让用户在终端切换模型。系统不会通过分区名称推断资源类型，也不预设节点名、GRES/TRES 名称、硬件厂商或固定 Slurm 参数；模型应使用当前环境探测到的真实配置生成动作。只有目标明确要求 GPU 且动作包含 Slurm 作业脚本时，才会检查常见的 GPU 资源申请参数。未经要求使用整节点独占或执行磁盘压测仍会进入一次纠正流程，可识别的取消作业和管理命令会强制人工确认。
 
 ## 7. 上线验证
 

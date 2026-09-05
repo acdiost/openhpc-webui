@@ -837,7 +837,10 @@ async def _present_ai_reply(
     exit_code: Optional[int] = None,
 ) -> None:
     command = reply.command
-    forced_confirmation = bool(command and command_requires_confirmation(command))
+    forced_confirmation = bool(
+        command
+        and (reply.requires_confirmation or command_requires_confirmation(command))
+    )
     stopped_by_limit = bool(command and ai_state.step_count >= ai_state.max_steps)
     if stopped_by_limit:
         command = None
