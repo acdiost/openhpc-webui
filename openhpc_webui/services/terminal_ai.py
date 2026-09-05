@@ -9,7 +9,7 @@ import shlex
 import shutil
 import tempfile
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlsplit
 
@@ -224,9 +224,14 @@ class TerminalAIClient:
 
     async def ask(self, question: str, history: List[Dict[str, str]]) -> TerminalAIReply:
         system = (
-            "你是 Linux/HPC 终端助手。回答必须是一个 JSON 对象，不要使用 Markdown 代码块："
-            '{"answer":"简洁中文答复","command":null}。如果建议用户执行一条 Shell 命令，'
-            "将完整命令放入 command；命令不会自动执行，必须由用户确认。不要声称命令已经执行。"
+            "你是具备受控操作能力的 Linux/HPC 终端助手。回答必须是一个 JSON 对象，"
+            "不要在 JSON 外使用 Markdown："
+            '{"answer":"简洁中文答复","command":null,"file":null}。'
+            "若建议执行 Shell 操作，将完整单条或多行 Shell 内容放入 command。"
+            "若用户要求创建、写入或修改脚本/文本文件，优先返回 file 对象："
+            '{"path":"相对路径","content":"完整文件内容","executable":true或false}，'
+            "此时 command 必须为 null。你可以通过 file 动作写文件，不要让用户手工复制，"
+            "也不要声称自己没有写入能力。每次只建议一个操作，操作不会自动执行，必须由用户确认。"
         )
         messages = [{"role": "system", "content": system}]
         messages.extend(history[-8:])
@@ -293,12 +298,101 @@ class TerminalAIClient:
         try:
             payload = json.loads(candidate)
         except json.JSONDecodeError:
-            return TerminalAIReply(answer=content.strip())
+            recovered = TerminalAIClient._recover_fenced_file(content)
+            return recovered or TerminalAIReply(answer=content.strip())
         if not isinstance(payload, dict):
             return TerminalAIReply(answer=content.strip())
         answer = str(payload.get("answer") or "").strip()
         command_value = payload.get("command")
         command = str(command_value).strip() if command_value else None
-        if command and (any(ord(character) < 32 for character in command) or len(command) > 4096):
+        file_payload = payload.get("file")
+        if isinstance(file_payload, dict):
+            file_command = TerminalAIClient._file_write_command(file_payload)
+            if file_command:
+                command = file_command
+        if not command:
+            recovered = TerminalAIClient._recover_fenced_file(answer)
+            if recovered:
+                answer = recovered.answer
+                command = recovered.command
+        if command:
+            command = command.replace("\r\n", "\n").replace("\r", "\n")
+        if command and (
+            any(ord(character) < 32 and character not in {"\n", "\t"} for character in command)
+            or len(command) > 65_536
+        ):
             command = None
         return TerminalAIReply(answer=answer or "模型已返回建议。", command=command)
+
+    @staticmethod
+    def _recover_fenced_file(content: str) -> Optional[TerminalAIReply]:
+        """Recover a file action from models that ignored the JSON contract."""
+        code_match = re.search(
+            r"```[A-Za-z0-9_+.-]*[^\S\r\n]*\r?\n(.*?)```",
+            content,
+            re.DOTALL | re.IGNORECASE,
+        )
+        if not code_match:
+            return None
+        path_match = re.search(
+            r"(?:保存为|写入(?:文件)?|文件(?:名)?为|save(?:\s+it)?\s+as)\s*"
+            r"[`'\"]?([A-Za-z0-9_.~/-]{1,4096})",
+            content,
+            re.IGNORECASE,
+        )
+        if not path_match:
+            return None
+        path = path_match.group(1).rstrip("`'\"，。,:：")
+        code = code_match.group(1).strip("\n")
+        command = TerminalAIClient._file_write_command(
+            {
+                "path": path,
+                "content": code,
+                "executable": code.startswith("#!"),
+            }
+        )
+        if not command:
+            return None
+        return TerminalAIReply(
+            answer=f"已生成文件 {path}；确认后将写入当前工作目录。",
+            command=command,
+        )
+
+    @staticmethod
+    def _file_write_command(file_payload: Dict[str, Any]) -> Optional[str]:
+        path_value = file_payload.get("path")
+        content_value = file_payload.get("content")
+        if not isinstance(path_value, str) or not isinstance(content_value, str):
+            return None
+        path = path_value.strip()
+        normalized_path = PurePosixPath(path)
+        if (
+            not path
+            or normalized_path.is_absolute()
+            or ".." in normalized_path.parts
+            or path.startswith("~")
+            or len(path) > 4096
+            or len(content_value) > 32_768
+            or any(ord(character) < 32 for character in path)
+        ):
+            return None
+        content_value = content_value.replace("\r\n", "\n").replace("\r", "\n")
+        if any(
+            ord(character) < 32 and character not in {"\n", "\t"}
+            for character in content_value
+        ):
+            return None
+        delimiter = "__OPENHPC_AI_FILE_EOF__"
+        content_lines = content_value.splitlines()
+        while delimiter in content_lines:
+            delimiter += "_"
+        quoted_path = shlex.quote(path)
+        executable = bool(file_payload.get("executable"))
+        command = (
+            f"cat > {quoted_path} <<'{delimiter}'{' &&' if executable else ''}\n"
+            f"{content_value.rstrip(chr(10))}\n"
+            f"{delimiter}"
+        )
+        if executable:
+            command += f"\nchmod +x {quoted_path}"
+        return command

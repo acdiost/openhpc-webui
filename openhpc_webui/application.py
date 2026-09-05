@@ -5,6 +5,7 @@ import os
 import pwd
 import re
 import secrets
+import shlex
 import subprocess
 import tempfile
 import time
@@ -936,7 +937,7 @@ async def _receive_terminal_input(
             wrapper = (
                 f"__oh_sa=__OPENHPC_AI_; __oh_sb=START_{token}__; "
                 "printf '%s%s\\n' \"$__oh_sa\" \"$__oh_sb\"; "
-                f"{command}; __oh_status=$?; __oh_a=__OPENHPC_AI_; "
+                f"eval {shlex.quote(command)}; __oh_status=$?; __oh_a=__OPENHPC_AI_; "
                 f"__oh_b=DONE_{token}__; printf '\\n%s%s:%s\\n' "
                 '"$__oh_a" "$__oh_b" "$__oh_status"\r'
             )

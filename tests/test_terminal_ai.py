@@ -1,5 +1,7 @@
 import asyncio
+import json
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -137,11 +139,56 @@ class TerminalAIReplyTests(unittest.TestCase):
         self.assertEqual(reply.answer, "可以查看队列")
         self.assertEqual(len(history), 2)
 
-    def test_multiline_ai_command_is_discarded(self):
+    def test_multiline_ai_command_is_preserved_for_confirmed_scripts(self):
         reply = TerminalAIClient._parse_reply(
             '{"answer":"需要两步", "command":"echo one\\necho two"}'
         )
-        self.assertIsNone(reply.command)
+        self.assertEqual(reply.command, "echo one\necho two")
+
+    def test_file_action_becomes_a_confirmed_shell_write(self):
+        reply = TerminalAIClient._parse_reply(json.dumps({
+            "answer": "将创建 GPU 测试脚本",
+            "command": None,
+            "file": {
+                "path": "gpu_test.sh",
+                "content": "#!/bin/bash\n#SBATCH --gres=gpu:1\nsleep 60",
+                "executable": True,
+            },
+        }))
+
+        self.assertIn("cat > gpu_test.sh <<'__OPENHPC_AI_FILE_EOF__'", reply.command)
+        self.assertIn("#SBATCH --gres=gpu:1", reply.command)
+        self.assertTrue(reply.command.endswith("chmod +x gpu_test.sh"))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            completed = subprocess.run(
+                ["/bin/sh", "-c", reply.command], cwd=temp_dir, check=False
+            )
+            created = Path(temp_dir) / "gpu_test.sh"
+            self.assertEqual(completed.returncode, 0)
+            self.assertIn("sleep 60", created.read_text(encoding="utf-8"))
+            self.assertTrue(created.stat().st_mode & 0o100)
+
+    def test_recovers_file_action_from_markdown_model_reply(self):
+        reply = TerminalAIClient._parse_reply(
+            "请将以下内容保存为 `gpu_test.sh`：\n"
+            "```bash\n#!/bin/bash\n#SBATCH --gres=gpu:1\nsleep 60\n```\n"
+            "然后运行 sbatch。"
+        )
+
+        self.assertEqual(reply.answer, "已生成文件 gpu_test.sh；确认后将写入当前工作目录。")
+        self.assertIn("cat > gpu_test.sh", reply.command)
+        self.assertIn("sleep 60", reply.command)
+        self.assertTrue(reply.command.endswith("chmod +x gpu_test.sh"))
+
+    def test_file_action_rejects_paths_outside_current_directory(self):
+        for path in ("/etc/profile", "../outside.sh", "~/hidden.sh"):
+            with self.subTest(path=path):
+                command = TerminalAIClient._file_write_command({
+                    "path": path,
+                    "content": "echo unsafe",
+                    "executable": True,
+                })
+                self.assertIsNone(command)
 
 
 class TerminalAIProtocolTests(unittest.TestCase):
@@ -182,7 +229,7 @@ class TerminalAIProtocolTests(unittest.TestCase):
 
         written = b"".join(session.writes)
         self.assertTrue(written.startswith(b"\x15__oh_sa="))
-        self.assertIn(b"; pwd;", written)
+        self.assertIn(b"; eval pwd;", written)
         self.assertIn(b"START_abc__", written)
         self.assertIn(b"DONE_abc__", written)
         self.assertIsNone(state.pending_command)
