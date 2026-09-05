@@ -10,7 +10,7 @@ class TerminalFrontendTests(unittest.TestCase):
         terminal_template = (PROJECT_ROOT / "templates/terminal.html").read_text(
             encoding="utf-8"
         )
-        account_template = (PROJECT_ROOT / "templates/account.html").read_text(
+        settings_template = (PROJECT_ROOT / "templates/settings.html").read_text(
             encoding="utf-8"
         )
 
@@ -26,9 +26,27 @@ class TerminalFrontendTests(unittest.TestCase):
             "terminal_announcement_bold",
             "terminalAnnouncementPreview",
         ):
-            self.assertIn(f'id="{element_id}"', account_template)
-        self.assertIn('preview.textContent = message', account_template)
-        self.assertIn('/api/terminal/announcement/settings', account_template)
+            self.assertIn(f'id="{element_id}"', settings_template)
+        self.assertIn('preview.textContent = message', settings_template)
+        self.assertIn('/api/terminal/announcement/settings', settings_template)
+
+    def test_personal_and_system_settings_are_separated(self):
+        account_template = (PROJECT_ROOT / "templates/account.html").read_text(
+            encoding="utf-8"
+        )
+        settings_template = (PROJECT_ROOT / "templates/settings.html").read_text(
+            encoding="utf-8"
+        )
+        sidebar = (PROJECT_ROOT / "templates/components/sidebar.html").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('id="changePasswordForm"', account_template)
+        self.assertNotIn('id="terminalAIForm"', account_template)
+        self.assertNotIn('id="terminalAnnouncementForm"', account_template)
+        self.assertIn('id="terminalAIForm"', settings_template)
+        self.assertIn('id="terminalAnnouncementForm"', settings_template)
+        self.assertIn('href="/settings"', sidebar)
 
     def test_sidebar_offers_current_and_new_tab_terminal_entries(self):
         sidebar = (PROJECT_ROOT / "templates/components/sidebar.html").read_text(

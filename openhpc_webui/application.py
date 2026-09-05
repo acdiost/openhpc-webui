@@ -639,8 +639,16 @@ async def slurm_guide_page(request: Request, user: dict = Depends(get_current_us
 
 @router.get("/account", response_class=HTMLResponse)
 async def account_page(request: Request, user: dict = Depends(get_current_user)):
-    """账户设置：当前用户可修改自己的密码。"""
+    """个人账户设置：当前用户可查看身份并修改自己的密码。"""
     return templates.TemplateResponse("account.html", {"request": request, "user": user})
+
+
+@router.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request, user: dict = Depends(get_current_user)):
+    """系统设置：仅管理员可维护全局门户配置。"""
+    if not user.get("is_admin"):
+        return RedirectResponse(url="/jobs", status_code=302)
+    return templates.TemplateResponse("settings.html", {"request": request, "user": user})
 
 
 @router.get("/api/terminal/ai/settings")

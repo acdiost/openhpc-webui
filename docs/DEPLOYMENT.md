@@ -187,7 +187,7 @@ Supervisor 配置只信任来自 `127.0.0.1` 的代理头。Nginx 不在同一�
 
 Web 终端要求登录用户已经通过 SSSD/NSS 同步为本机 Linux 账户，具有唯一 UID、存在的 Home 目录和可执行的登录 Shell。服务以 root 运行时会在启动 Shell 前调用 `initgroups`、`setgid` 和 `setuid` 降权；应用环境变量不会传入终端。门户管理员也始终以自己的系统身份启动，并以 NSS 返回的个人 Home 作为初始工作目录，不沿用管理员文件管理的 `/` 或 `/root` 范围。可用 `TERMINAL_ENABLED=False` 完全关闭入口。生产环境必须使用 HTTPS/WSS，并保留上面的 WebSocket `Upgrade` 请求头。
 
-管理员可在“账户设置”中维护 Web 终端顶部公告，也可直接配置 `.env`：
+管理员可在“系统设置”中维护 Web 终端顶部公告，也可直接配置 `.env`：
 
 ```dotenv
 TERMINAL_ANNOUNCEMENT_ENABLED=True
@@ -203,7 +203,7 @@ TERMINAL_ANNOUNCEMENT_BOLD=True
 
 ### 终端 AI 模型
 
-终端 AI 通过 OpenAI 兼容的 `POST /chat/completions` 接口访问 DeepSeek、vLLM、SGLang 或其他兼容服务。可直接编辑 `.env`，也可由管理员在“账户设置”页面在线保存：
+终端 AI 通过 OpenAI 兼容的 `POST /chat/completions` 接口访问 DeepSeek、vLLM、SGLang 或其他兼容服务。可直接编辑 `.env`，也可由管理员在“系统设置”页面在线保存：
 
 ```dotenv
 TERMINAL_AI_ENABLED=True
@@ -292,7 +292,7 @@ sudo stat /opt/openhpc_webui/.env
 
 - 确认 `AUTHORIZED=True`，`SECRET_KEY` 长度不少于 32 个字符。
 - HTTPS 部署确认 `SESSION_HTTPS_ONLY=True`，且 Nginx 传递了 `X-Forwarded-Proto`。
-- 修改 `.env` 后重启应用；通过权限管理页面修改 `ADMIN_USERS`，或通过账户设置页面修改终端 AI 配置，不需要重启。
+- 修改 `.env` 后重启应用；通过权限管理页面修改 `ADMIN_USERS`，或通过系统设置页面修改终端 AI 配置，不需要重启。
 
 ### LDAP 连接失败
 

@@ -1,0 +1,310 @@
+{% extends "base.html" %}
+{# 管理员系统设置页，路由: GET /settings #}
+{% block title %}系统设置{% endblock %}
+{% block breadcrumb_title %}系统设置{% endblock %}
+
+{% block head_extra %}
+<style>
+    .settings-page { max-width: 1180px; margin: 0 auto; }
+    .settings-header { display: flex; margin-bottom: 24px; align-items: flex-end; justify-content: space-between; gap: 20px; }
+    .settings-header h2 { margin: 0; color: #111827; font-size: 28px; font-weight: 700; }
+    .settings-header p { margin: 7px 0 0; color: #6b7280; font-size: 14px; }
+    .settings-scope { display: inline-flex; padding: 7px 10px; align-items: center; gap: 7px; border: 1px solid #fecaca; border-radius: 999px; background: #fff7f7; color: #991b1b; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .settings-scope::before { width: 7px; height: 7px; border-radius: 50%; background: #dc3023; content: ""; }
+    .settings-notice { display: flex; margin-bottom: 20px; padding: 13px 15px; align-items: flex-start; gap: 10px; border: 1px solid #dbeafe; border-radius: 8px; background: #eff6ff; color: #1e40af; font-size: 13px; line-height: 1.55; }
+    .settings-notice svg { width: 18px; height: 18px; margin-top: 1px; flex: none; }
+    .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+    .settings-card { margin: 0; padding: 0; overflow: hidden; border: 1px solid #e5e7eb; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
+    .settings-card-header { display: flex; min-height: 88px; padding: 22px 24px; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid #e5e7eb; background: #fafafa; }
+    .settings-card-heading { display: flex; min-width: 0; align-items: center; gap: 12px; }
+    .settings-card-icon { display: flex; width: 40px; height: 40px; flex: none; align-items: center; justify-content: center; border-radius: 10px; background: #fef2f2; color: #dc3023; }
+    .settings-card-icon svg { width: 21px; height: 21px; }
+    .settings-card-heading h3 { margin: 0 0 3px; color: #111827; font-size: 17px; font-weight: 700; }
+    .settings-card-heading p { margin: 0; color: #6b7280; font-size: 12px; line-height: 1.45; }
+    .settings-card-body { padding: 22px 24px 24px; }
+    .settings-form .form-group { margin: 0 0 17px; padding: 0; }
+    .settings-form input:not([type="checkbox"]):not([type="color"]), .settings-form select, .settings-form textarea { width: 100%; min-height: 42px; padding: 9px 11px; box-sizing: border-box; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; color: #111827; font: inherit; font-size: 14px; }
+    .settings-form textarea { min-height: 116px; line-height: 1.55; resize: vertical; }
+    .settings-form input:focus, .settings-form select:focus, .settings-form textarea:focus { outline: none; border-color: #dc3023; box-shadow: 0 0 0 3px rgba(220, 48, 35, 0.1); }
+    .settings-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .settings-help { display: block; margin-top: 6px; color: #6b7280; font-size: 12px; line-height: 1.5; }
+    .settings-key-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .settings-check { display: inline-flex !important; margin: 8px 0 0 !important; align-items: center; gap: 7px; color: #4b5563 !important; font-size: 12px !important; font-weight: 400 !important; cursor: pointer; }
+    .settings-check input { width: auto; margin: 0; }
+    .settings-toggle { position: relative; display: inline-flex; width: 42px; height: 24px; flex: none; cursor: pointer; }
+    .settings-toggle input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+    .settings-toggle-track { width: 100%; border-radius: 999px; background: #d1d5db; transition: background 0.18s; }
+    .settings-toggle-track::after { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.28); content: ""; transition: transform 0.18s; }
+    .settings-toggle input:checked + .settings-toggle-track { background: #dc3023; }
+    .settings-toggle input:checked + .settings-toggle-track::after { transform: translateX(18px); }
+    .settings-toggle input:focus-visible + .settings-toggle-track { outline: 3px solid rgba(220, 48, 35, 0.2); outline-offset: 2px; }
+    .settings-colors { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .settings-color { display: flex; min-height: 42px; padding: 5px 8px; align-items: center; gap: 8px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; }
+    .settings-color input { width: 28px; height: 28px; flex: none; padding: 0; border: 0; background: transparent; cursor: pointer; }
+    .settings-color span { color: #4b5563; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+    .settings-preview-label { display: block; margin: 0 0 7px; color: #374151; font-size: 12px; font-weight: 600; }
+    .settings-preview { min-height: 44px; margin-bottom: 17px; padding: 11px 12px; box-sizing: border-box; border: 1px dashed #d1d5db; border-radius: 6px; color: #9ca3af; font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .settings-card-actions { display: flex; padding-top: 3px; justify-content: flex-end; }
+    @media (max-width: 980px) { .settings-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 620px) {
+        .settings-header { align-items: flex-start; flex-direction: column; gap: 12px; }
+        .settings-card-header, .settings-card-body { padding-left: 18px; padding-right: 18px; }
+        .settings-fields, .settings-colors { grid-template-columns: 1fr; }
+        .settings-card-actions .btn { width: 100%; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="settings-page">
+    <header class="settings-header">
+        <div>
+            <h2>系统设置</h2>
+            <p>管理对所有用户生效的门户功能与终端服务配置。</p>
+        </div>
+        <span class="settings-scope">仅管理员可见</span>
+    </header>
+
+    <div class="settings-notice" role="note">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" stroke-width="2" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11v5m0-8h.01" />
+        </svg>
+        <span>此处修改的是全局配置，保存后会立即应用到当前 WebUI 进程；请在变更前确认服务地址、模型与公告内容。</span>
+    </div>
+
+    <div class="settings-grid">
+        <section class="card settings-card" aria-labelledby="terminal-ai-title">
+            <div class="settings-card-header">
+                <div class="settings-card-heading">
+                    <span class="settings-card-icon" aria-hidden="true">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3h6v3H9zM8 6h8a3 3 0 013 3v8a3 3 0 01-3 3H8a3 3 0 01-3-3V9a3 3 0 013-3zM8 12h.01M16 12h.01M9 16h6" />
+                        </svg>
+                    </span>
+                    <div>
+                        <h3 id="terminal-ai-title">终端 AI 模型</h3>
+                        <p>OpenAI 兼容模型服务</p>
+                    </div>
+                </div>
+                <label class="settings-toggle" title="启用终端 AI 对话">
+                    <input id="terminal_ai_enabled" type="checkbox" aria-label="启用终端 AI 对话">
+                    <span class="settings-toggle-track"></span>
+                </label>
+            </div>
+            <div class="settings-card-body">
+                <form id="terminalAIForm" class="settings-form" onsubmit="saveTerminalAI(event)">
+                    <div class="settings-fields">
+                        <div class="form-group">
+                            <label for="terminal_ai_provider">服务类型</label>
+                            <select id="terminal_ai_provider">
+                                <option value="deepseek">DeepSeek</option>
+                                <option value="vllm">vLLM</option>
+                                <option value="sglang">SGLang</option>
+                                <option value="openai-compatible">其他兼容服务</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="terminal_ai_timeout">请求超时（秒）</label>
+                            <input id="terminal_ai_timeout" type="number" min="5" max="300" value="60">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="terminal_ai_model">模型名称</label>
+                        <input id="terminal_ai_model" maxlength="256" placeholder="deepseek-v4-flash 或已部署模型名">
+                    </div>
+                    <div class="form-group">
+                        <label for="terminal_ai_base_url">OpenAI 兼容 Base URL</label>
+                        <input id="terminal_ai_base_url" type="url" maxlength="2048" placeholder="https://api.deepseek.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="terminal_ai_api_key">API Key</label>
+                        <input id="terminal_ai_api_key" type="password" maxlength="4096" autocomplete="new-password" placeholder="留空则保留现有密钥">
+                        <small id="terminalAIKeyStatus" class="settings-help"></small>
+                        <label class="settings-check">
+                            <input id="terminal_ai_clear_key" type="checkbox"> 清除已保存的 API Key
+                        </label>
+                    </div>
+                    <div class="settings-card-actions">
+                        <button class="btn btn-primary" type="submit">保存 AI 配置</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <section class="card settings-card" aria-labelledby="announcement-title">
+            <div class="settings-card-header">
+                <div class="settings-card-heading">
+                    <span class="settings-card-icon" aria-hidden="true">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 13V9a2 2 0 012-2h3l7-3v14l-7-3H6a2 2 0 01-2-2zm5 2v5H6l-1-7m14-5a5 5 0 010 6" />
+                        </svg>
+                    </span>
+                    <div>
+                        <h3 id="announcement-title">Web 终端公告</h3>
+                        <p>向终端用户发布纯文本通知</p>
+                    </div>
+                </div>
+                <label class="settings-toggle" title="启用终端公告">
+                    <input id="terminal_announcement_enabled" type="checkbox" aria-label="启用终端公告">
+                    <span class="settings-toggle-track"></span>
+                </label>
+            </div>
+            <div class="settings-card-body">
+                <form id="terminalAnnouncementForm" class="settings-form" onsubmit="saveTerminalAnnouncement(event)">
+                    <div class="form-group">
+                        <label for="terminal_announcement_message">公告内容</label>
+                        <textarea id="terminal_announcement_message" rows="4" maxlength="2000" placeholder="例如：今晚 22:00–23:00 将进行集群维护。"></textarea>
+                        <small class="settings-help">最多 2000 个字符，支持换行，不解析 HTML。</small>
+                    </div>
+                    <div class="form-group">
+                        <label>公告样式</label>
+                        <div class="settings-colors">
+                            <label class="settings-color" for="terminal_announcement_text_color">
+                                <input id="terminal_announcement_text_color" type="color" value="#92400e">
+                                <span id="terminalAnnouncementTextColorValue">#92400e</span>
+                            </label>
+                            <label class="settings-color" for="terminal_announcement_background_color">
+                                <input id="terminal_announcement_background_color" type="color" value="#fef3c7">
+                                <span id="terminalAnnouncementBackgroundColorValue">#fef3c7</span>
+                            </label>
+                        </div>
+                        <label class="settings-check">
+                            <input id="terminal_announcement_bold" type="checkbox" checked> 加粗公告文字
+                        </label>
+                    </div>
+                    <span class="settings-preview-label">实时预览</span>
+                    <div id="terminalAnnouncementPreview" class="settings-preview">输入公告内容后将在此预览</div>
+                    <div class="settings-card-actions">
+                        <button class="btn btn-primary" type="submit">保存终端公告</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+    </div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<script>
+    const providerDefaults = {deepseek: "https://api.deepseek.com", vllm: "http://127.0.0.1:8000/v1", sglang: "http://127.0.0.1:30000/v1", "openai-compatible": ""};
+
+    async function loadTerminalAI() {
+        try {
+            const res = await fetch("/api/terminal/ai/settings");
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "读取终端 AI 配置失败");
+            document.getElementById("terminal_ai_enabled").checked = Boolean(data.enabled);
+            document.getElementById("terminal_ai_provider").value = data.provider || "deepseek";
+            document.getElementById("terminal_ai_model").value = data.model || "";
+            document.getElementById("terminal_ai_base_url").value = data.base_url || "";
+            document.getElementById("terminal_ai_timeout").value = data.timeout_seconds || 60;
+            document.getElementById("terminalAIKeyStatus").textContent = data.api_key_configured ? "已保存密钥；留空不会覆盖。" : "尚未保存密钥。本地 vLLM / SGLang 可按服务配置留空。";
+        } catch (error) {
+            showToast(error.message, "error");
+        }
+    }
+
+    document.getElementById("terminal_ai_provider").addEventListener("change", (event) => {
+        const input = document.getElementById("terminal_ai_base_url");
+        if (!input.value || Object.values(providerDefaults).includes(input.value)) input.value = providerDefaults[event.target.value] || "";
+    });
+
+    async function saveTerminalAI(event) {
+        event.preventDefault();
+        const button = event.submitter;
+        if (button) button.disabled = true;
+        try {
+            const apiKey = document.getElementById("terminal_ai_api_key").value;
+            const res = await fetch("/api/terminal/ai/settings", {
+                method: "PUT",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    enabled: document.getElementById("terminal_ai_enabled").checked,
+                    provider: document.getElementById("terminal_ai_provider").value,
+                    base_url: document.getElementById("terminal_ai_base_url").value,
+                    model: document.getElementById("terminal_ai_model").value,
+                    api_key: apiKey || null,
+                    clear_api_key: document.getElementById("terminal_ai_clear_key").checked,
+                    timeout_seconds: Number(document.getElementById("terminal_ai_timeout").value),
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "保存终端 AI 配置失败");
+            document.getElementById("terminal_ai_api_key").value = "";
+            document.getElementById("terminal_ai_clear_key").checked = false;
+            showToast(data.message, "success");
+            await loadTerminalAI();
+        } catch (error) {
+            showToast(error.message, "error");
+        } finally {
+            if (button) button.disabled = false;
+        }
+    }
+
+    function updateTerminalAnnouncementPreview() {
+        const preview = document.getElementById("terminalAnnouncementPreview");
+        const message = document.getElementById("terminal_announcement_message").value.trim();
+        const textColor = document.getElementById("terminal_announcement_text_color").value;
+        const backgroundColor = document.getElementById("terminal_announcement_background_color").value;
+        document.getElementById("terminalAnnouncementTextColorValue").textContent = textColor;
+        document.getElementById("terminalAnnouncementBackgroundColorValue").textContent = backgroundColor;
+        preview.textContent = message || "输入公告内容后将在此预览";
+        preview.style.color = message ? textColor : "#9ca3af";
+        preview.style.backgroundColor = message ? backgroundColor : "#fafafa";
+        preview.style.borderStyle = message ? "solid" : "dashed";
+        preview.style.borderColor = message ? textColor : "#d1d5db";
+        preview.style.fontWeight = message && document.getElementById("terminal_announcement_bold").checked ? "700" : "400";
+    }
+
+    async function loadTerminalAnnouncement() {
+        try {
+            const res = await fetch("/api/terminal/announcement/settings");
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "读取终端公告失败");
+            document.getElementById("terminal_announcement_enabled").checked = Boolean(data.enabled);
+            document.getElementById("terminal_announcement_message").value = data.message || "";
+            document.getElementById("terminal_announcement_text_color").value = data.text_color || "#92400e";
+            document.getElementById("terminal_announcement_background_color").value = data.background_color || "#fef3c7";
+            document.getElementById("terminal_announcement_bold").checked = Boolean(data.bold);
+            updateTerminalAnnouncementPreview();
+        } catch (error) {
+            showToast(error.message, "error");
+        }
+    }
+
+    async function saveTerminalAnnouncement(event) {
+        event.preventDefault();
+        const button = event.submitter;
+        if (button) button.disabled = true;
+        try {
+            const res = await fetch("/api/terminal/announcement/settings", {
+                method: "PUT",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    enabled: document.getElementById("terminal_announcement_enabled").checked,
+                    message: document.getElementById("terminal_announcement_message").value,
+                    text_color: document.getElementById("terminal_announcement_text_color").value,
+                    background_color: document.getElementById("terminal_announcement_background_color").value,
+                    bold: document.getElementById("terminal_announcement_bold").checked,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "保存终端公告失败");
+            showToast(data.message, "success");
+            await loadTerminalAnnouncement();
+        } catch (error) {
+            showToast(error.message, "error");
+        } finally {
+            if (button) button.disabled = false;
+        }
+    }
+
+    for (const id of ["terminal_announcement_message", "terminal_announcement_text_color", "terminal_announcement_background_color", "terminal_announcement_bold"]) {
+        document.getElementById(id).addEventListener("input", updateTerminalAnnouncementPreview);
+    }
+
+    loadTerminalAI();
+    loadTerminalAnnouncement();
+</script>
+{% endblock %}

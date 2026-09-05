@@ -167,7 +167,8 @@ openhpc_webui/
 - `/accounts`、`/cluster-users`：Slurm 账户与用户关联
 - `/partitions`、`/nodes`：分区和节点
 - `/jobs`：作业管理
-- `/account`：个人账户
+- `/account`：个人账户与密码修改
+- `/settings`：系统设置（仅管理员）
 - `/admin`：门户管理员权限
 
 API 按职责划分：
