@@ -836,19 +836,20 @@ async def _present_ai_reply(
 ) -> None:
     command = reply.command
     forced_confirmation = bool(command and command_requires_confirmation(command))
-    if command and ai_state.step_count >= ai_state.max_steps:
+    stopped_by_limit = bool(command and ai_state.step_count >= ai_state.max_steps)
+    if stopped_by_limit:
         command = None
         ai_state.loop_active = False
     else:
-        ai_state.loop_active = bool(command)
-    if not command:
+        ai_state.loop_active = bool(command) or not reply.done
+    if not command and reply.done:
         ai_state.active_goal = None
     ai_state.pending_command = command
     payload = {
         "type": message_type,
         "answer" if message_type == "ai_reply" else "summary": reply.answer,
         "command": command,
-        "done": not bool(command),
+        "done": True if stopped_by_limit else (reply.done and not bool(command)),
         "turns": len(ai_state.history) // 2,
         "step": ai_state.step_count,
         "max_steps": ai_state.max_steps,
@@ -1015,6 +1016,12 @@ async def _receive_terminal_input(
             if len(line.encode("utf-8")) > 4096:
                 await _send_ws_json(websocket, send_lock, {"type": "ai_error", "message": "输入过长"})
                 continue
+            continuing_goal = bool(
+                ai_state.loop_active
+                and ai_state.active_goal
+                and not ai_state.pending_command
+                and not ai_state.active_command
+            )
             if line.strip():
                 ai_state.pending_command = None
             config = get_terminal_ai_config()
@@ -1031,12 +1038,15 @@ async def _receive_terminal_input(
                 last_activity[0] = time.monotonic()
                 continue
             session.write(b"\x15\r")
-            ai_state.loop_active = False
-            ai_state.step_count = 0
-            ai_state.active_goal = line.strip()
+            if not continuing_goal:
+                ai_state.loop_active = False
+                ai_state.step_count = 0
+                ai_state.active_goal = line.strip()
             await _send_ws_json(websocket, send_lock, {"type": "ai_thinking"})
             try:
-                reply = await terminal_ai_client.ask(line.strip(), ai_state.history)
+                reply = await terminal_ai_client.ask(
+                    line.strip(), ai_state.history, ai_state.active_goal
+                )
             except TerminalAIError as exc:
                 await _send_ws_json(websocket, send_lock, {"type": "ai_error", "message": str(exc)})
                 continue

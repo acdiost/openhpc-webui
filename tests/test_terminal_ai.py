@@ -175,6 +175,32 @@ class TerminalAIReplyTests(unittest.TestCase):
         self.assertIn("不可信数据", client._complete.await_args.args[0][-1]["content"])
         self.assertEqual(len(history), 4)
 
+    def test_action_request_retries_an_unnecessary_clarification(self):
+        client = TerminalAIClient()
+        client._complete = AsyncMock(side_effect=[
+            json.dumps({
+                "answer": "请先提供集群调度系统类型和登录节点。",
+                "command": None,
+                "file": None,
+                "done": True,
+            }),
+            json.dumps({
+                "answer": "直接检查 Slurm 节点状态。",
+                "command": "sinfo -N",
+                "file": None,
+                "done": False,
+            }),
+        ])
+
+        reply = asyncio.run(client.ask("检查集群状态并提交测试作业", []))
+
+        self.assertEqual(reply.command, "sinfo -N")
+        self.assertEqual(client._complete.await_count, 2)
+        system_prompt = client._complete.await_args_list[0].args[0][0]["content"]
+        self.assertIn("集群调度器是 Slurm", system_prompt)
+        repair_prompt = client._complete.await_args_list[1].args[0][-1]["content"]
+        self.assertIn("不要向用户询问", repair_prompt)
+
     def test_multiline_ai_command_is_preserved_for_confirmed_scripts(self):
         reply = TerminalAIClient._parse_reply(
             '{"answer":"需要两步", "command":"echo one\\necho two"}'
@@ -269,6 +295,35 @@ class TerminalAIProtocolTests(unittest.TestCase):
         self.assertEqual(session.writes, [b"\x15\r"])
         self.assertEqual(state.pending_command, "squeue -u $USER")
         self.assertEqual(websocket.json[-1]["type"], "ai_reply")
+
+    def test_clarification_keeps_original_goal_for_the_follow_up(self):
+        websocket = _FakeWebSocket([
+            {"type": "websocket.receive", "text": '{"type":"submit","line":"检查集群并提交作业"}'},
+            {"type": "websocket.receive", "text": '{"type":"submit","line":"使用 slurm"}'},
+            {"type": "websocket.disconnect"},
+        ])
+        session = _FakeSession()
+        state = main._TerminalAIState()
+        ask = AsyncMock(side_effect=[
+            TerminalAIReply("还需要补充信息。", done=False),
+            TerminalAIReply("开始检查。", "sinfo", done=False),
+        ])
+
+        async def receive():
+            await main._receive_terminal_input(
+                websocket, session, [0.0], state, asyncio.Lock()
+            )
+
+        with patch.object(
+            main, "get_terminal_ai_config", return_value=SimpleNamespace(available=True)
+        ), patch.object(main, "is_probable_command", return_value=False), patch.object(
+            main.terminal_ai_client, "ask", ask
+        ):
+            asyncio.run(receive())
+
+        self.assertEqual(state.active_goal, "检查集群并提交作业")
+        self.assertEqual(state.pending_command, "sinfo")
+        self.assertEqual(ask.await_args_list[1].args[2], "检查集群并提交作业")
 
     def test_execute_message_runs_staged_command_with_completion_marker(self):
         websocket = _FakeWebSocket([

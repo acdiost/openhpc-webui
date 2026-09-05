@@ -273,6 +273,8 @@
                             ? "自动批准已启用，即将执行"
                             : "按 Ctrl+Enter 确认执行";
                     writeNotice(`建议命令：${message.command}\n${confirmation}`, message.requires_confirmation ? "31" : "33");
+                } else if (message.done === false) {
+                    writeNotice("当前目标尚未完成，可补充信息后继续", "33");
                 }
             } else if (message.type === "ai_executing") {
                 aiBusy = true;
@@ -292,6 +294,8 @@
                             : "按 Ctrl+Enter 确认执行";
                     maxSteps = Number(message.max_steps || maxSteps);
                     writeNotice(`下一步（${Number(message.step || 0) + 1}/${maxSteps}）：${message.command}\n${confirmation}`, message.requires_confirmation ? "31" : "33");
+                } else if (message.done === false) {
+                    writeNotice("AI 未生成可执行的下一步，当前目标已保留，可补充信息后继续", "33");
                 } else {
                     writeNotice("AI 目标循环已完成", "36");
                 }

@@ -113,6 +113,7 @@ class TerminalFrontendTests(unittest.TestCase):
         self.assertIn("terminal.onData(handleTerminalData)", script)
         self.assertIn("lineTrackingReliable = true", script)
         self.assertIn('if (/(?:\\r\\n?|\\n)$/.test(data))', script)
+        self.assertIn("当前目标尚未完成，可补充信息后继续", script)
 
 
 if __name__ == "__main__":
