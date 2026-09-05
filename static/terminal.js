@@ -41,6 +41,15 @@
     const terminalWindow = document.getElementById("terminalWindow");
     const minimizeButton = document.getElementById("minimizeTerminalButton");
     const newAIChatButton = document.getElementById("newAIChatButton");
+    const stepLimitControl = document.getElementById("terminalStepLimitControl");
+    const stepLimitInput = document.getElementById("terminalStepLimit");
+    const riskMaxSteps = document.getElementById("terminalRiskMaxSteps");
+    const autoApproveControl = document.getElementById("terminalAutoApproveControl");
+    const autoApproveCheckbox = document.getElementById("terminalAutoApprove");
+    const autoApproveDialog = document.getElementById("terminalAutoApproveDialog");
+    const autoApproveClose = document.getElementById("terminalAutoApproveClose");
+    const autoApproveCancel = document.getElementById("terminalAutoApproveCancel");
+    const autoApproveConfirm = document.getElementById("terminalAutoApproveConfirm");
     const leaveDialog = document.getElementById("terminalLeaveDialog");
     const leaveCloseButton = document.getElementById("terminalLeaveClose");
     const stayButton = document.getElementById("terminalStayButton");
@@ -60,6 +69,8 @@
     let lineTrackingReliable = true;
     let aiBusy = false;
     let aiTurns = 0;
+    let autoApprove = false;
+    let maxSteps = 10;
     let placeholderTimer = null;
     let placeholderVisible = false;
 
@@ -162,6 +173,14 @@
                 ready = true;
                 aiAvailable = Boolean(message.ai && message.ai.available);
                 newAIChatButton.style.display = aiAvailable ? "flex" : "none";
+                autoApproveControl.style.display = aiAvailable ? "flex" : "none";
+                stepLimitControl.style.display = aiAvailable ? "flex" : "none";
+                maxSteps = Number(message.ai_loop && message.ai_loop.max_steps) || 10;
+                stepLimitInput.max = String(Number(message.ai_loop && message.ai_loop.max_allowed_steps) || 50);
+                stepLimitInput.value = String(maxSteps);
+                riskMaxSteps.textContent = String(maxSteps);
+                autoApprove = false;
+                autoApproveCheckbox.checked = false;
                 newAIChatButton.title = "开始新的 AI 对话";
                 setStatus("connected", "已连接");
                 fitAddon.fit();
@@ -179,7 +198,12 @@
                 pendingAICommand = Boolean(message.command);
                 writeNotice(`AI：${message.answer || ""}`, "36");
                 if (message.command) {
-                    writeNotice(`建议命令：${message.command}\n按 Ctrl+Enter 确认执行`, "33");
+                    const confirmation = message.requires_confirmation
+                        ? "检测到高风险操作，自动批准已暂停；请审阅后按 Ctrl+Enter 确认执行"
+                        : message.auto_approve
+                            ? "自动批准已启用，即将执行"
+                            : "按 Ctrl+Enter 确认执行";
+                    writeNotice(`建议命令：${message.command}\n${confirmation}`, message.requires_confirmation ? "31" : "33");
                 }
             } else if (message.type === "ai_executing") {
                 aiBusy = true;
@@ -190,6 +214,32 @@
                 aiTurns = Number(message.turns || aiTurns);
                 newAIChatButton.title = `开始新的 AI 对话（当前上下文 ${aiTurns} 轮）`;
                 writeNotice(`AI 分析（退出码 ${message.exit_code}）：${message.summary}`, message.exit_code === 0 ? "32" : "33");
+                pendingAICommand = Boolean(message.command);
+                if (message.command) {
+                    const confirmation = message.requires_confirmation
+                        ? "检测到高风险操作，自动批准已暂停；请审阅后按 Ctrl+Enter 确认执行"
+                        : message.auto_approve
+                            ? "自动批准已启用，即将执行"
+                            : "按 Ctrl+Enter 确认执行";
+                    maxSteps = Number(message.max_steps || maxSteps);
+                    writeNotice(`下一步（${Number(message.step || 0) + 1}/${maxSteps}）：${message.command}\n${confirmation}`, message.requires_confirmation ? "31" : "33");
+                } else {
+                    writeNotice("AI 目标循环已完成", "36");
+                }
+            } else if (message.type === "ai_auto_approve") {
+                autoApprove = Boolean(message.enabled);
+                autoApproveCheckbox.checked = autoApprove;
+                writeNotice(autoApprove ? "自动批准已启用（高危命令仍需人工确认）" : "自动批准已关闭", autoApprove ? "33" : "36");
+            } else if (message.type === "ai_loop_settings") {
+                maxSteps = Number(message.max_steps || 10);
+                stepLimitInput.max = String(Number(message.max_allowed_steps || 50));
+                stepLimitInput.value = String(maxSteps);
+                riskMaxSteps.textContent = String(maxSteps);
+                writeNotice(`AI 单次目标循环上限已设为 ${maxSteps} 步`, "36");
+            } else if (message.type === "ai_loop_stopped") {
+                aiBusy = false;
+                pendingAICommand = false;
+                writeNotice(message.message || "AI 目标循环已停止", "33");
             } else if (message.type === "ai_error") {
                 aiBusy = false;
                 writeNotice(`AI：${message.message || "请求失败"}`, "31");
@@ -197,6 +247,8 @@
                 aiBusy = false;
                 aiTurns = 0;
                 pendingAICommand = false;
+                autoApprove = false;
+                autoApproveCheckbox.checked = false;
                 newAIChatButton.title = "开始新的 AI 对话";
                 writeNotice("已开始新的 AI 对话，Shell 会话保持不变", "36");
             } else if (message.type === "error") {
@@ -208,6 +260,8 @@
             window.clearInterval(keepaliveTimer);
             ready = false;
             aiBusy = false;
+            autoApprove = false;
+            autoApproveCheckbox.checked = false;
             clearPlaceholder();
             socket = null;
             if (!manuallyClosed) {
@@ -245,6 +299,12 @@
                 terminal.focus();
             });
         }
+    }
+
+    function closeAutoApproveDialog() {
+        autoApproveDialog.style.display = "none";
+        autoApproveCheckbox.checked = autoApprove;
+        terminal.focus();
     }
 
     function closeLeaveDialog() {
@@ -318,6 +378,33 @@
         send({type: "new_ai_chat"});
         terminal.focus();
     });
+    stepLimitInput.addEventListener("change", () => {
+        const upper = Number(stepLimitInput.max || 50);
+        const requested = Number.parseInt(stepLimitInput.value, 10);
+        const normalized = Number.isFinite(requested) ? Math.max(1, Math.min(upper, requested)) : maxSteps;
+        stepLimitInput.value = String(normalized);
+        send({type: "set_ai_max_steps", max_steps: normalized});
+        terminal.focus();
+    });
+    autoApproveCheckbox.addEventListener("change", () => {
+        if (!autoApproveCheckbox.checked) {
+            send({type: "set_auto_approve", enabled: false});
+            return;
+        }
+        autoApproveCheckbox.checked = false;
+        autoApproveDialog.style.display = "flex";
+        autoApproveConfirm.focus();
+    });
+    autoApproveClose.addEventListener("click", closeAutoApproveDialog);
+    autoApproveCancel.addEventListener("click", closeAutoApproveDialog);
+    autoApproveConfirm.addEventListener("click", () => {
+        autoApproveDialog.style.display = "none";
+        send({type: "set_auto_approve", enabled: true});
+        terminal.focus();
+    });
+    autoApproveDialog.addEventListener("click", (event) => {
+        if (event.target === autoApproveDialog) closeAutoApproveDialog();
+    });
     minimizeButton.addEventListener("click", () => setMinimized(!minimized));
     leaveCloseButton.addEventListener("click", closeLeaveDialog);
     stayButton.addEventListener("click", closeLeaveDialog);
@@ -342,8 +429,9 @@
         openLeaveDialog(link.href);
     });
     document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape" && leaveDialog.style.display !== "none") {
-            closeLeaveDialog();
+        if (event.key === "Escape") {
+            if (autoApproveDialog.style.display !== "none") closeAutoApproveDialog();
+            else if (leaveDialog.style.display !== "none") closeLeaveDialog();
         }
     });
     window.addEventListener("resize", () => {

@@ -67,6 +67,29 @@ class TerminalFrontendTests(unittest.TestCase):
         self.assertIn('message.type === "ai_chat_reset"', script)
         self.assertIn("terminal_script_version", template)
 
+    def test_terminal_ai_auto_approval_requires_risk_acknowledgement(self):
+        template = (PROJECT_ROOT / "templates/terminal.html").read_text(
+            encoding="utf-8"
+        )
+        script = (PROJECT_ROOT / "static/terminal.js").read_text(
+            encoding="utf-8"
+        )
+
+        for element_id in (
+            "terminalAutoApprove",
+            "terminalAutoApproveDialog",
+            "terminalAutoApproveCancel",
+            "terminalAutoApproveConfirm",
+            "terminalStepLimit",
+        ):
+            self.assertIn(f'id="{element_id}"', template)
+        self.assertIn("可能覆盖文件、提交作业、占用 GPU 配额", template)
+        self.assertIn('send({type: "set_auto_approve", enabled: true})', script)
+        self.assertIn("message.requires_confirmation", script)
+        self.assertIn("默认上限 10 步", template)
+        self.assertIn('max="50"', template)
+        self.assertIn('send({type: "set_ai_max_steps", max_steps: normalized})', script)
+
     def test_terminal_ai_tracks_bracketed_paste_as_user_text(self):
         script = (PROJECT_ROOT / "static/terminal.js").read_text(
             encoding="utf-8"

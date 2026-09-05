@@ -83,7 +83,9 @@ from .services.terminal_manager import TerminalError, TerminalManager, TerminalS
 from .services.terminal_ai import (
     TerminalAIClient,
     TerminalAIError,
+    TerminalAIReply,
     clean_terminal_output,
+    command_requires_confirmation,
     get_config as get_terminal_ai_config,
     is_probable_command,
     public_config as public_terminal_ai_config,
@@ -719,12 +721,21 @@ def _websocket_origin_is_valid(websocket: WebSocket) -> bool:
 @dataclass
 class _TerminalAIState:
     history: list[dict[str, str]] = field(default_factory=list)
+    active_goal: Optional[str] = None
     pending_command: Optional[str] = None
     active_command: Optional[str] = None
     start_marker: Optional[bytes] = None
     marker: Optional[bytes] = None
     capture: bytearray = field(default_factory=bytearray)
     display_pending: bytearray = field(default_factory=bytearray)
+    auto_approve: bool = False
+    loop_active: bool = False
+    step_count: int = 0
+    max_steps: int = 10
+
+
+_TERMINAL_AI_DEFAULT_MAX_STEPS = 10
+_TERMINAL_AI_MAX_ALLOWED_STEPS = 50
 
 
 async def _send_ws_json(
@@ -741,6 +752,125 @@ async def _send_ws_bytes(
         return
     async with send_lock:
         await websocket.send_bytes(payload)
+
+
+async def _execute_ai_command(
+    websocket: WebSocket,
+    session: TerminalSession,
+    last_activity: list[float],
+    ai_state: _TerminalAIState,
+    send_lock: asyncio.Lock,
+    *,
+    automatic: bool = False,
+) -> bool:
+    command = ai_state.pending_command
+    if not command:
+        await _send_ws_json(
+            websocket, send_lock,
+            {"type": "ai_error", "message": "没有待确认的 AI 命令"},
+        )
+        return False
+    if ai_state.active_command:
+        await _send_ws_json(
+            websocket, send_lock,
+            {"type": "ai_error", "message": "上一条 AI 命令仍在执行"},
+        )
+        return False
+    if ai_state.step_count >= ai_state.max_steps:
+        ai_state.pending_command = None
+        ai_state.loop_active = False
+        ai_state.active_goal = None
+        await _send_ws_json(
+            websocket,
+            send_lock,
+            {
+                "type": "ai_loop_stopped",
+                "message": f"已达到当前设置的 {ai_state.max_steps} 步上限，循环已停止",
+            },
+        )
+        return False
+
+    token = secrets.token_hex(16)
+    start_marker = f"__OPENHPC_AI_START_{token}__".encode("ascii")
+    marker = f"__OPENHPC_AI_DONE_{token}__".encode("ascii")
+    ai_state.pending_command = None
+    ai_state.active_command = command
+    ai_state.start_marker = start_marker
+    ai_state.marker = marker
+    ai_state.capture.clear()
+    ai_state.display_pending.clear()
+    ai_state.step_count += 1
+    wrapper = (
+        f"__oh_sa=__OPENHPC_AI_; __oh_sb=START_{token}__; "
+        "printf '%s%s\\n' \"$__oh_sa\" \"$__oh_sb\"; "
+        f"eval {shlex.quote(command)}; __oh_status=$?; __oh_a=__OPENHPC_AI_; "
+        f"__oh_b=DONE_{token}__; printf '\\n%s%s:%s\\n' "
+        '"$__oh_a" "$__oh_b" "$__oh_status"\r'
+    )
+    session.write(b"\x15" + wrapper.encode("utf-8"))
+    last_activity[0] = time.monotonic()
+    await _send_ws_json(
+        websocket,
+        send_lock,
+        {
+            "type": "ai_executing",
+            "command": command,
+            "step": ai_state.step_count,
+            "max_steps": ai_state.max_steps,
+            "auto_approved": automatic,
+        },
+    )
+    return True
+
+
+async def _present_ai_reply(
+    websocket: WebSocket,
+    session: TerminalSession,
+    last_activity: list[float],
+    ai_state: _TerminalAIState,
+    send_lock: asyncio.Lock,
+    reply: TerminalAIReply,
+    *,
+    message_type: str,
+    exit_code: Optional[int] = None,
+) -> None:
+    command = reply.command
+    forced_confirmation = bool(command and command_requires_confirmation(command))
+    if command and ai_state.step_count >= ai_state.max_steps:
+        command = None
+        ai_state.loop_active = False
+    else:
+        ai_state.loop_active = bool(command)
+    if not command:
+        ai_state.active_goal = None
+    ai_state.pending_command = command
+    payload = {
+        "type": message_type,
+        "answer" if message_type == "ai_reply" else "summary": reply.answer,
+        "command": command,
+        "done": not bool(command),
+        "turns": len(ai_state.history) // 2,
+        "step": ai_state.step_count,
+        "max_steps": ai_state.max_steps,
+        "auto_approve": ai_state.auto_approve,
+        "requires_confirmation": forced_confirmation,
+    }
+    if exit_code is not None:
+        payload["exit_code"] = exit_code
+    await _send_ws_json(websocket, send_lock, payload)
+    if reply.command and command is None:
+        await _send_ws_json(
+            websocket,
+            send_lock,
+            {
+                "type": "ai_loop_stopped",
+                "message": f"已达到当前设置的 {ai_state.max_steps} 步上限，循环已停止",
+            },
+        )
+    elif command and ai_state.auto_approve and not forced_confirmation:
+        await _execute_ai_command(
+            websocket, session, last_activity, ai_state, send_lock, automatic=True
+        )
 
 
 async def _send_terminal_output(
@@ -816,22 +946,25 @@ async def _send_terminal_output(
         ai_state.capture.clear()
         ai_state.display_pending.clear()
         try:
-            summary = await terminal_ai_client.summarize(command, output, exit_code)
-            if ai_state.history and ai_state.history[-1].get("role") == "assistant":
-                ai_state.history[-1]["content"] += (
-                    f"\n执行结果（退出码 {exit_code}）：{summary}"
-                )
-            await _send_ws_json(
+            reply = await terminal_ai_client.analyze_and_continue(
+                ai_state.history,
+                command,
+                output,
+                exit_code,
+                ai_state.active_goal,
+            )
+            await _present_ai_reply(
                 websocket,
+                session,
+                last_activity,
+                ai_state,
                 send_lock,
-                {
-                    "type": "ai_summary",
-                    "summary": summary,
-                    "exit_code": exit_code,
-                    "turns": len(ai_state.history) // 2,
-                },
+                reply,
+                message_type="ai_summary",
+                exit_code=exit_code,
             )
         except TerminalAIError as exc:
+            ai_state.loop_active = False
             await _send_ws_json(
                 websocket, send_lock, {"type": "ai_error", "message": str(exc)}
             )
@@ -886,6 +1019,10 @@ async def _receive_terminal_input(
                 ai_state.pending_command = None
             config = get_terminal_ai_config()
             if not config.available or is_probable_command(line):
+                if line.strip():
+                    ai_state.loop_active = False
+                    ai_state.step_count = 0
+                    ai_state.active_goal = None
                 if line.lstrip().startswith("!"):
                     forced = line.lstrip()[1:].lstrip()
                     session.write(b"\x15" + forced.encode("utf-8") + b"\r")
@@ -894,56 +1031,86 @@ async def _receive_terminal_input(
                 last_activity[0] = time.monotonic()
                 continue
             session.write(b"\x15\r")
+            ai_state.loop_active = False
+            ai_state.step_count = 0
+            ai_state.active_goal = line.strip()
             await _send_ws_json(websocket, send_lock, {"type": "ai_thinking"})
             try:
                 reply = await terminal_ai_client.ask(line.strip(), ai_state.history)
             except TerminalAIError as exc:
                 await _send_ws_json(websocket, send_lock, {"type": "ai_error", "message": str(exc)})
                 continue
-            ai_state.pending_command = reply.command
+            await _present_ai_reply(
+                websocket,
+                session,
+                last_activity,
+                ai_state,
+                send_lock,
+                reply,
+                message_type="ai_reply",
+            )
+        elif message_type == "new_ai_chat":
+            if ai_state.active_command:
+                await _send_ws_json(
+                    websocket,
+                    send_lock,
+                    {"type": "ai_error", "message": "AI 命令执行期间不能开始新对话"},
+                )
+                continue
+            ai_state.history.clear()
+            ai_state.active_goal = None
+            ai_state.pending_command = None
+            ai_state.loop_active = False
+            ai_state.step_count = 0
+            ai_state.auto_approve = False
+            await _send_ws_json(
+                websocket, send_lock,
+                {"type": "ai_chat_reset", "auto_approve": False},
+            )
+        elif message_type == "set_auto_approve":
+            ai_state.auto_approve = payload.get("enabled") is True
             await _send_ws_json(
                 websocket,
                 send_lock,
                 {
-                    "type": "ai_reply",
-                    "answer": reply.answer,
-                    "command": reply.command,
-                    "turns": len(ai_state.history) // 2,
+                    "type": "ai_auto_approve",
+                    "enabled": ai_state.auto_approve,
                 },
             )
-        elif message_type == "new_ai_chat":
-            ai_state.history.clear()
-            ai_state.pending_command = None
+            if (
+                ai_state.auto_approve
+                and ai_state.pending_command
+                and not command_requires_confirmation(ai_state.pending_command)
+            ):
+                await _execute_ai_command(
+                    websocket,
+                    session,
+                    last_activity,
+                    ai_state,
+                    send_lock,
+                    automatic=True,
+                )
+        elif message_type == "set_ai_max_steps":
+            try:
+                requested_steps = int(payload.get("max_steps"))
+            except (TypeError, ValueError):
+                requested_steps = _TERMINAL_AI_DEFAULT_MAX_STEPS
+            ai_state.max_steps = max(
+                1, min(_TERMINAL_AI_MAX_ALLOWED_STEPS, requested_steps)
+            )
             await _send_ws_json(
-                websocket, send_lock, {"type": "ai_chat_reset"}
+                websocket,
+                send_lock,
+                {
+                    "type": "ai_loop_settings",
+                    "max_steps": ai_state.max_steps,
+                    "max_allowed_steps": _TERMINAL_AI_MAX_ALLOWED_STEPS,
+                },
             )
         elif message_type == "execute_ai":
-            command = ai_state.pending_command
-            if not command:
-                await _send_ws_json(websocket, send_lock, {"type": "ai_error", "message": "没有待确认的 AI 命令"})
-                continue
-            if ai_state.active_command:
-                await _send_ws_json(websocket, send_lock, {"type": "ai_error", "message": "上一条 AI 命令仍在执行"})
-                continue
-            token = secrets.token_hex(16)
-            start_marker = f"__OPENHPC_AI_START_{token}__".encode("ascii")
-            marker = f"__OPENHPC_AI_DONE_{token}__".encode("ascii")
-            ai_state.pending_command = None
-            ai_state.active_command = command
-            ai_state.start_marker = start_marker
-            ai_state.marker = marker
-            ai_state.capture.clear()
-            ai_state.display_pending.clear()
-            wrapper = (
-                f"__oh_sa=__OPENHPC_AI_; __oh_sb=START_{token}__; "
-                "printf '%s%s\\n' \"$__oh_sa\" \"$__oh_sb\"; "
-                f"eval {shlex.quote(command)}; __oh_status=$?; __oh_a=__OPENHPC_AI_; "
-                f"__oh_b=DONE_{token}__; printf '\\n%s%s:%s\\n' "
-                '"$__oh_a" "$__oh_b" "$__oh_status"\r'
+            await _execute_ai_command(
+                websocket, session, last_activity, ai_state, send_lock
             )
-            session.write(b"\x15" + wrapper.encode("utf-8"))
-            last_activity[0] = time.monotonic()
-            await _send_ws_json(websocket, send_lock, {"type": "ai_executing", "command": command})
         elif message_type == "ping":
             await _send_ws_json(websocket, send_lock, {"type": "pong"})
 
@@ -1007,6 +1174,10 @@ async def terminal_websocket(websocket: WebSocket):
                 "username": username,
                 "idle_minutes": settings.terminal_idle_minutes,
                 "ai": public_terminal_ai_config(),
+                "ai_loop": {
+                    "max_steps": ai_state.max_steps,
+                    "max_allowed_steps": _TERMINAL_AI_MAX_ALLOWED_STEPS,
+                },
             }
         )
         last_activity = [time.monotonic()]

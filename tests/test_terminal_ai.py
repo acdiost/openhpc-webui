@@ -16,6 +16,7 @@ from openhpc_webui.services.terminal_ai import (
     TerminalAIClient,
     TerminalAIError,
     clean_terminal_output,
+    command_requires_confirmation,
     get_config,
     is_probable_command,
     save_config,
@@ -73,6 +74,13 @@ class TerminalAICommandTests(unittest.TestCase):
     def test_cleans_ansi_and_bounds_terminal_output(self):
         cleaned = clean_terminal_output(b"\x1b[31mfailed\x1b[0m\r\nnext\x00")
         self.assertEqual(cleaned, "failed\nnext")
+
+    def test_high_risk_commands_never_use_auto_approval(self):
+        for command in ("sudo dnf update", "rm -rf results", "scancel 123", "reboot"):
+            with self.subTest(command=command):
+                self.assertTrue(command_requires_confirmation(command))
+        self.assertFalse(command_requires_confirmation("sinfo && squeue"))
+        self.assertFalse(command_requires_confirmation("sbatch gpu_test.sh"))
 
 
 class TerminalAIConfigTests(unittest.TestCase):
@@ -137,7 +145,32 @@ class TerminalAIReplyTests(unittest.TestCase):
 
         self.assertEqual(reply.command, "squeue -u $USER")
         self.assertEqual(reply.answer, "可以查看队列")
+        self.assertFalse(reply.done)
         self.assertEqual(len(history), 2)
+
+    def test_execution_result_can_produce_the_next_loop_action(self):
+        client = TerminalAIClient()
+        client._complete = AsyncMock(return_value=json.dumps({
+            "answer": "node33 空闲，下一步创建测试脚本。",
+            "command": None,
+            "file": {
+                "path": "gpu_test.sh",
+                "content": "#!/bin/bash\n#SBATCH -w node33\nsleep 60",
+                "executable": True,
+            },
+            "done": False,
+        }))
+        history = [
+            {"role": "user", "content": "检查集群并写 GPU 测试脚本"},
+            {"role": "assistant", "content": "先检查集群\n建议命令：sinfo"},
+        ]
+
+        reply = asyncio.run(client.analyze_and_continue(history, "sinfo", "node33 idle", 0))
+
+        self.assertFalse(reply.done)
+        self.assertIn("cat > gpu_test.sh", reply.command)
+        self.assertIn("不可信数据", client._complete.await_args.args[0][-1]["content"])
+        self.assertEqual(len(history), 4)
 
     def test_multiline_ai_command_is_preserved_for_confirmed_scripts(self):
         reply = TerminalAIClient._parse_reply(
@@ -244,6 +277,10 @@ class TerminalAIProtocolTests(unittest.TestCase):
         state = main._TerminalAIState(
             history=[{"role": "user", "content": "old"}],
             pending_command="old-command",
+            auto_approve=True,
+            loop_active=True,
+            step_count=3,
+            max_steps=23,
         )
 
         async def receive():
@@ -255,7 +292,30 @@ class TerminalAIProtocolTests(unittest.TestCase):
 
         self.assertEqual(state.history, [])
         self.assertIsNone(state.pending_command)
+        self.assertFalse(state.auto_approve)
+        self.assertFalse(state.loop_active)
+        self.assertEqual(state.step_count, 0)
+        self.assertEqual(state.max_steps, 23)
         self.assertEqual(websocket.json[-1]["type"], "ai_chat_reset")
+
+    def test_loop_step_limit_is_session_scoped_and_server_clamped(self):
+        websocket = _FakeWebSocket([
+            {"type": "websocket.receive", "text": '{"type":"set_ai_max_steps","max_steps":99}'},
+            {"type": "websocket.disconnect"},
+        ])
+        session = _FakeSession()
+        state = main._TerminalAIState()
+
+        async def receive():
+            await main._receive_terminal_input(
+                websocket, session, [0.0], state, asyncio.Lock()
+            )
+
+        asyncio.run(receive())
+
+        self.assertEqual(state.max_steps, 50)
+        self.assertEqual(websocket.json[-1]["type"], "ai_loop_settings")
+        self.assertEqual(websocket.json[-1]["max_steps"], 50)
 
     def test_completion_marker_is_hidden_and_output_is_summarized(self):
         start_marker = b"__OPENHPC_AI_START_abc__"
@@ -275,12 +335,12 @@ class TerminalAIProtocolTests(unittest.TestCase):
             start_marker=start_marker,
             marker=marker,
         )
-        summarize = AsyncMock(return_value="命令成功，输出了当前目录。")
+        analyze = AsyncMock(return_value=TerminalAIReply("命令成功，输出了当前目录。"))
         async def send_output():
             await main._send_terminal_output(
                 websocket, session, [0.0], state, asyncio.Lock()
             )
-        with patch.object(main.terminal_ai_client, "summarize", summarize):
+        with patch.object(main.terminal_ai_client, "analyze_and_continue", analyze):
             asyncio.run(send_output())
 
         rendered = b"".join(websocket.binary)
@@ -289,9 +349,98 @@ class TerminalAIProtocolTests(unittest.TestCase):
         self.assertNotIn(marker, rendered)
         self.assertIn(b"result", rendered)
         self.assertEqual(websocket.json[0]["type"], "ai_summary")
-        summarize.assert_awaited_once()
-        self.assertEqual(summarize.await_args.args[1], "result")
-        self.assertIn("执行结果（退出码 0）", state.history[-1]["content"])
+        analyze.assert_awaited_once()
+        self.assertEqual(analyze.await_args.args[2], "result")
+
+    def test_execution_result_auto_runs_the_next_safe_loop_step(self):
+        start_marker = b"__OPENHPC_AI_START_first__"
+        marker = b"__OPENHPC_AI_DONE_first__"
+        session = _FakeSession([
+            start_marker + b"\r\nnode33 idle\r\n" + marker + b":0\r\n$ ",
+            b"",
+        ])
+        websocket = _FakeWebSocket()
+        state = main._TerminalAIState(
+            history=[
+                {"role": "user", "content": "检查集群并创建脚本"},
+                {"role": "assistant", "content": "先检查\n建议命令：sinfo"},
+            ],
+            active_goal="检查集群并创建脚本",
+            active_command="sinfo",
+            start_marker=start_marker,
+            marker=marker,
+            auto_approve=True,
+            loop_active=True,
+            step_count=1,
+        )
+        next_reply = TerminalAIReply("发现空闲节点，创建脚本。", "touch gpu_test.sh", done=False)
+
+        async def send_output():
+            await main._send_terminal_output(
+                websocket, session, [0.0], state, asyncio.Lock()
+            )
+
+        with patch.object(
+            main.terminal_ai_client,
+            "analyze_and_continue",
+            AsyncMock(return_value=next_reply),
+        ), patch.object(main.secrets, "token_hex", return_value="second"):
+            asyncio.run(send_output())
+
+        self.assertEqual(state.active_command, "touch gpu_test.sh")
+        self.assertEqual(state.step_count, 2)
+        self.assertIn(b"eval 'touch gpu_test.sh'", b"".join(session.writes))
+        self.assertEqual([item["type"] for item in websocket.json], ["ai_summary", "ai_executing"])
+
+    def test_auto_approval_executes_safe_ai_command(self):
+        websocket = _FakeWebSocket([
+            {"type": "websocket.receive", "text": '{"type":"set_auto_approve","enabled":true}'},
+            {"type": "websocket.receive", "text": '{"type":"submit","line":"查看集群状态"}'},
+            {"type": "websocket.disconnect"},
+        ])
+        session = _FakeSession()
+        state = main._TerminalAIState()
+        reply = TerminalAIReply("先查看节点", "sinfo", done=False)
+
+        async def receive():
+            await main._receive_terminal_input(
+                websocket, session, [0.0], state, asyncio.Lock()
+            )
+
+        with patch.object(
+            main, "get_terminal_ai_config", return_value=SimpleNamespace(available=True)
+        ), patch.object(main.terminal_ai_client, "ask", AsyncMock(return_value=reply)), patch.object(
+            main.secrets, "token_hex", return_value="auto"
+        ):
+            asyncio.run(receive())
+
+        self.assertTrue(state.auto_approve)
+        self.assertEqual(state.active_command, "sinfo")
+        self.assertIn(b"eval sinfo", b"".join(session.writes))
+        self.assertEqual([item["type"] for item in websocket.json][-2:], ["ai_reply", "ai_executing"])
+
+    def test_auto_approval_pauses_for_high_risk_command(self):
+        websocket = _FakeWebSocket([
+            {"type": "websocket.receive", "text": '{"type":"submit","line":"删除测试目录"}'},
+            {"type": "websocket.disconnect"},
+        ])
+        session = _FakeSession()
+        state = main._TerminalAIState(auto_approve=True)
+        reply = TerminalAIReply("删除目录", "rm -rf test-output", done=False)
+
+        async def receive():
+            await main._receive_terminal_input(
+                websocket, session, [0.0], state, asyncio.Lock()
+            )
+
+        with patch.object(
+            main, "get_terminal_ai_config", return_value=SimpleNamespace(available=True)
+        ), patch.object(main.terminal_ai_client, "ask", AsyncMock(return_value=reply)):
+            asyncio.run(receive())
+
+        self.assertEqual(state.pending_command, "rm -rf test-output")
+        self.assertIsNone(state.active_command)
+        self.assertTrue(websocket.json[-1]["requires_confirmation"])
 
 
 if __name__ == "__main__":

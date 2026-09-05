@@ -18,6 +18,12 @@
     .terminal-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:42px; padding:0 14px; border-bottom:1px solid #29313c; background:#171d26; color:#aab4c3; font:12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
     .terminal-bar-title { flex:1; min-width:0; overflow:hidden; text-align:center; text-overflow:ellipsis; white-space:nowrap; }
     .terminal-bar-actions { display:flex; align-items:center; gap:7px; }
+    .terminal-step-limit { display:none; align-items:center; gap:5px; color:#aab4c3; white-space:nowrap; }
+    .terminal-step-limit input { width:48px; padding:4px 3px; color:#e5e7eb; border:1px solid #364152; border-radius:5px; background:#202733; font:inherit; text-align:center; }
+    .terminal-step-limit input:focus { outline:1px solid #60a5fa; border-color:#60a5fa; }
+    .terminal-auto-approve { display:none; align-items:center; gap:6px; padding:5px 8px; color:#fbbf24; border:1px solid #59481d; border-radius:5px; background:#292516; cursor:pointer; }
+    .terminal-auto-approve input { margin:0; accent-color:#d97706; }
+    .terminal-auto-approve:has(input:checked) { color:#fde68a; border-color:#d97706; background:#3a2b13; }
     .terminal-minimize { display:flex; align-items:center; gap:5px; padding:5px 8px; color:#aab4c3; border:1px solid #364152; border-radius:5px; background:#202733; cursor:pointer; font:inherit; }
     .terminal-minimize:hover { color:#fff; border-color:#526174; background:#293241; }
     .terminal-minimize svg { width:13px; height:13px; }
@@ -35,6 +41,8 @@
     .terminal-card.is-minimized .terminal-dots, .terminal-card.is-minimized #terminal { display:none; }
     .terminal-leave-body { padding:20px; color:#4b5563; font-size:14px; line-height:1.7; }
     .terminal-leave-body strong { color:#111827; }
+    .terminal-risk-list { margin:10px 0 0 20px; padding:0; }
+    .terminal-risk-list li { margin-top:5px; }
     .terminal-leave-footer { flex-wrap:wrap; }
     @media (max-width:760px) {
         .terminal-heading { align-items:stretch; flex-direction:column; }
@@ -62,6 +70,15 @@
         <div class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></div>
         <span class="terminal-bar-title">{{ user.get('username') }}@{{ request.url.hostname or 'cluster' }}</span>
         <div class="terminal-bar-actions">
+            <label id="terminalStepLimitControl" class="terminal-step-limit" title="单个 AI 目标允许执行的最大步骤数（1–50）">
+                <span>上限</span>
+                <input id="terminalStepLimit" type="number" value="10" min="1" max="50" step="1" inputmode="numeric" aria-label="AI 循环最大步骤数">
+                <span>步</span>
+            </label>
+            <label id="terminalAutoApproveControl" class="terminal-auto-approve" title="自动执行 AI 后续建议（高危命令除外）">
+                <input id="terminalAutoApprove" type="checkbox">
+                <span>自动批准</span>
+            </label>
             <button id="newAIChatButton" class="terminal-minimize" type="button" style="display:none" title="清除当前终端会话中的 AI 对话上下文">
                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
                 <span>新对话</span>
@@ -74,7 +91,7 @@
     </div>
     <div id="terminal" aria-label="交互式终端"></div>
 </div>
-<p class="terminal-help">AI 会在当前终端连接内保留最近多轮上下文；“新对话”只清除 AI 上下文，不影响 Shell。AI 建议命令按 Ctrl+Enter 确认执行；输入 <code>!</code> 加命令可强制按 Shell 命令执行。复制/粘贴：Ctrl/⌘+Shift+C / V。</p>
+<p class="terminal-help">AI 会按“执行一步 → 分析结果 → 建议下一步”循环完成目标，默认上限 10 步，可在标题栏调整为 1–50 步。默认每一步按 Ctrl+Enter 确认；“自动批准”仅在当前连接生效，高危操作仍强制人工确认。“新对话”会清除 AI 上下文并关闭自动批准，不影响 Shell。输入 <code>!</code> 加命令可强制按 Shell 命令执行。复制/粘贴：Ctrl/⌘+Shift+C / V。</p>
 {% endblock %}
 
 {% block modals %}
@@ -91,6 +108,27 @@
             <button id="terminalStayButton" class="btn btn-secondary" type="button">留在终端</button>
             <a id="terminalOpenTargetButton" class="btn btn-secondary" target="_blank" rel="noopener">新标签打开目标</a>
             <button id="terminalLeaveButton" class="btn btn-primary" type="button">断开并离开</button>
+        </div>
+    </div>
+</div>
+<div id="terminalAutoApproveDialog" class="modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="terminalAutoApproveTitle">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="terminalAutoApproveTitle">启用自动批准？</h3>
+            <button id="terminalAutoApproveClose" class="modal-close" type="button" aria-label="关闭">&times;</button>
+        </div>
+        <div class="terminal-leave-body">
+            <strong>这会让 AI 建议的普通命令和文件写入无需 Ctrl+Enter 即可执行。</strong>
+            <ul class="terminal-risk-list">
+                <li>可能覆盖文件、提交作业、占用 GPU 配额，或发送终端输出给模型服务；</li>
+                <li>自动循环最多执行当前设置的 <strong><span id="terminalRiskMaxSteps">10</span> 步</strong>，可随时取消勾选；</li>
+                <li>系统识别到的高危、破坏性或提权命令仍会暂停并要求人工确认。</li>
+            </ul>
+            此设置仅对当前终端连接有效，“新对话”、断开或刷新页面后自动关闭。
+        </div>
+        <div class="modal-footer terminal-leave-footer">
+            <button id="terminalAutoApproveCancel" class="btn btn-secondary" type="button">取消</button>
+            <button id="terminalAutoApproveConfirm" class="btn btn-primary" type="button">我了解风险，启用</button>
         </div>
     </div>
 </div>
