@@ -34,14 +34,26 @@
     .terminal-ai-model-input:focus { outline:1px solid #60a5fa; border-color:#60a5fa; }
     .terminal-ai-model-apply { padding:4px 7px; }
     .terminal-ai-provider { display:none; }
-    .terminal-ai-config-form { padding:20px; }
-    .terminal-ai-config-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
-    .terminal-ai-config-form .form-group { margin:0 0 14px; }
-    .terminal-ai-config-form label { display:block; margin-bottom:6px; color:#374151; font-size:13px; font-weight:600; }
-    .terminal-ai-config-form input:not([type="checkbox"]), .terminal-ai-config-form select { width:100%; min-height:40px; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; background:#fff; color:#111827; font:inherit; }
+    #terminalAIConfigDialog { box-sizing:border-box; padding:20px; }
+    #terminalAIConfigDialog .terminal-ai-config-modal { display:flex; width:min(680px,100%); max-width:680px; max-height:calc(100vh - 40px); overflow:hidden; flex-direction:column; border-radius:12px; box-shadow:0 22px 55px rgba(15,23,42,.28); }
+    #terminalAIConfigDialog .modal-header { flex:none; padding:18px 22px; }
+    #terminalAIConfigDialog .modal-header h3 { color:#111827; font-size:18px; font-weight:700; }
+    #terminalAIConfigForm { display:flex; min-height:0; flex:1; flex-direction:column; overflow:hidden; }
+    .terminal-ai-config-form { min-height:0; padding:20px 22px 18px; overflow-y:auto; }
+    .terminal-ai-config-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(150px,190px); gap:14px; }
+    .terminal-ai-config-form .form-group { min-width:0; margin:0 0 16px; padding:0; }
+    .terminal-ai-config-form label { display:block; margin-bottom:6px; color:#374151; font-size:13px; font-weight:600; line-height:1.45; }
+    .terminal-ai-config-form input:not([type="checkbox"]), .terminal-ai-config-form select { display:block; width:100%; min-height:40px; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; background:#fff; color:#111827; font:inherit; }
     .terminal-ai-config-form input:focus, .terminal-ai-config-form select:focus { outline:none; border-color:#dc3023; box-shadow:0 0 0 3px rgba(220,48,35,.1); }
-    .terminal-ai-config-form .terminal-ai-config-check { display:flex; align-items:center; gap:7px; margin:0; color:#4b5563; font-size:13px; font-weight:400; }
-    .terminal-ai-config-help { margin:5px 0 0; color:#6b7280; font-size:12px; line-height:1.5; }
+    .terminal-ai-config-form .terminal-ai-config-check { display:flex; min-height:22px; align-items:flex-start; gap:8px; margin:0; color:#374151; font-size:13px; font-weight:500; line-height:1.55; cursor:pointer; }
+    .terminal-ai-config-form .terminal-ai-config-check input[type="checkbox"] { width:16px; min-width:16px; height:16px; min-height:0; margin:2px 0 0; padding:0; flex:none; accent-color:#dc3023; box-shadow:none; }
+    .terminal-ai-config-help { margin:6px 0 0 24px; color:#6b7280; font-size:12px; line-height:1.55; overflow-wrap:anywhere; }
+    .terminal-ai-key-help { margin-left:0; }
+    .terminal-ai-persist-box { padding:12px 13px !important; border:1px solid #e5e7eb; border-radius:8px; background:#f8fafc; }
+    .terminal-ai-config-security { margin:0; padding:10px 12px; border-left:3px solid #94a3b8; border-radius:0 6px 6px 0; background:#f8fafc; color:#64748b; font-size:12px; line-height:1.55; }
+    #terminalAIConfigStatus:empty { display:none; }
+    #terminalAIConfigStatus { margin:12px 0 0; padding:9px 11px; border-radius:6px; background:#fef2f2; }
+    #terminalAIConfigDialog .modal-footer { flex:none; padding:14px 22px; background:#f8fafc; }
     .terminal-dots { display:flex; gap:6px; }
     .terminal-dots span { width:9px; height:9px; border-radius:50%; background:#4b5563; }
     .terminal-dots span:first-child { background:#ef4444; }
@@ -68,7 +80,13 @@
         .terminal-bar-title { display:none; }
         .terminal-ai-model-input { width:125px; }
         .terminal-ai-model-control > span { display:none; }
-        .terminal-ai-config-grid { grid-template-columns:1fr; }
+        #terminalAIConfigDialog { padding:0; align-items:flex-end; }
+        #terminalAIConfigDialog .terminal-ai-config-modal { width:100%; max-height:94vh; border-radius:12px 12px 0 0; }
+        #terminalAIConfigDialog .modal-header { padding:16px 18px; }
+        .terminal-ai-config-form { padding:18px; }
+        .terminal-ai-config-grid { grid-template-columns:1fr; gap:0; }
+        #terminalAIConfigDialog .modal-footer { padding:12px 18px; }
+        #terminalAIConfigDialog .modal-footer .btn { flex:1; }
         #terminal { height:calc(100vh - 330px); min-height:360px; }
     }
 </style>
@@ -138,7 +156,7 @@
 
 {% block modals %}
 <div id="terminalAIConfigDialog" class="modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="terminalAIConfigTitle">
-    <div class="modal-content">
+    <div class="modal-content terminal-ai-config-modal">
         <div class="modal-header">
             <h3 id="terminalAIConfigTitle">当前终端的 AI 配置</h3>
             <button id="terminalAIConfigClose" class="modal-close" type="button" aria-label="关闭">&times;</button>
@@ -174,14 +192,14 @@
                 <div class="form-group">
                     <label for="terminal_user_ai_api_key">API Key</label>
                     <input id="terminal_user_ai_api_key" type="password" maxlength="4096" autocomplete="new-password" placeholder="输入当前连接使用的 API Key">
-                    <p id="terminalUserAIKeyStatus" class="terminal-ai-config-help">默认只保存在当前服务端会话中。</p>
+                    <p id="terminalUserAIKeyStatus" class="terminal-ai-config-help terminal-ai-key-help">默认只保存在当前服务端会话中。</p>
                     <label class="terminal-ai-config-check"><input id="terminal_user_ai_clear_key" type="checkbox"> 清除当前连接中的 API Key</label>
                 </div>
-                <div class="form-group">
+                <div class="form-group terminal-ai-persist-box">
                     <label class="terminal-ai-config-check"><input id="terminal_user_ai_persist" type="checkbox"> 使用 AES-GCM 加密保存在此浏览器</label>
                     <p id="terminalUserAIPersistHelp" class="terminal-ai-config-help">勾选后，下次使用同一浏览器登录此账户时会自动恢复；清除站点数据会删除配置。</p>
                 </div>
-                <p class="terminal-ai-config-help">配置不会修改管理员的全局默认值，也不会影响其他用户。浏览器持久化只能防止磁盘明文泄露，不能抵御已获得当前网页执行权限的恶意脚本。</p>
+                <p class="terminal-ai-config-security">配置不会修改管理员的全局默认值，也不会影响其他用户。浏览器持久化只能防止磁盘明文泄露，不能抵御已获得当前网页执行权限的恶意脚本。</p>
                 <p id="terminalAIConfigStatus" class="terminal-ai-config-help" role="status" aria-live="polite"></p>
             </div>
             <div class="modal-footer terminal-leave-footer">

@@ -179,6 +179,14 @@ class TerminalFrontendTests(unittest.TestCase):
         self.assertIn("window.crypto.subtle.decrypt", script)
         self.assertIn("window.indexedDB.open", script)
         self.assertIn("restoreEncryptedAIConfig()", script)
+        self.assertIn(
+            "#terminalAIConfigDialog .terminal-ai-config-modal", template
+        )
+        self.assertIn(
+            '.terminal-ai-config-check input[type="checkbox"]', template
+        )
+        self.assertIn("grid-template-columns:minmax(0,1fr)", template)
+        self.assertIn("#terminalAIConfigForm { display:flex", template)
 
     def test_terminal_ai_tracks_bracketed_paste_as_user_text(self):
         script = (PROJECT_ROOT / "static/terminal.js").read_text(
