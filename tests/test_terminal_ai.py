@@ -181,6 +181,27 @@ class TerminalAIReplyTests(unittest.TestCase):
         )
         self.assertEqual(reply.command, "echo one\necho two")
 
+    def test_recovers_command_embedded_in_structured_answer(self):
+        reply = TerminalAIClient._parse_reply(json.dumps({
+            "answer": "脚本已创建，现在提交作业。\n建议命令：sbatch node_test.sh",
+            "command": None,
+            "file": None,
+            "done": True,
+        }))
+
+        self.assertEqual(reply.answer, "脚本已创建，现在提交作业。")
+        self.assertEqual(reply.command, "sbatch node_test.sh")
+        self.assertFalse(reply.done)
+
+    def test_recovers_command_from_plain_model_reply(self):
+        reply = TerminalAIClient._parse_reply(
+            "作业输出已生成，下一步查看结果。下一步命令：`cat node_test_123.out`"
+        )
+
+        self.assertEqual(reply.answer, "作业输出已生成，下一步查看结果。")
+        self.assertEqual(reply.command, "cat node_test_123.out")
+        self.assertFalse(reply.done)
+
     def test_file_action_becomes_a_confirmed_shell_write(self):
         reply = TerminalAIClient._parse_reply(json.dumps({
             "answer": "将创建 GPU 测试脚本",

@@ -111,6 +111,8 @@ class TerminalFrontendTests(unittest.TestCase):
         self.assertIn('const submitted = Boolean(match[2])', script)
         self.assertIn("if (submitted) submitTrackedLine()", script)
         self.assertIn("terminal.onData(handleTerminalData)", script)
+        self.assertIn("lineTrackingReliable = true", script)
+        self.assertIn('if (/(?:\\r\\n?|\\n)$/.test(data))', script)
 
 
 if __name__ == "__main__":

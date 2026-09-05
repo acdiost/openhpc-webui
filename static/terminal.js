@@ -157,7 +157,15 @@
         // Classify it as one line instead of forwarding the Enter to the shell.
         if (handleSingleLineInput(data)) return;
         send({type: "input", data});
-        if (aiAvailable) trackTerminalInput(data);
+        if (aiAvailable) {
+            trackTerminalInput(data);
+            // Editing keys make only the current line impossible to reconstruct.
+            // Once that line is submitted to the shell, resume AI classification.
+            if (/(?:\r\n?|\n)$/.test(data)) {
+                currentLine = "";
+                lineTrackingReliable = true;
+            }
+        }
     }
 
     function clearPlaceholder() {
