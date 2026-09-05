@@ -220,7 +220,13 @@ class TerminalAIProtocolTests(unittest.TestCase):
         ])
         websocket = _FakeWebSocket()
         state = main._TerminalAIState(
-            active_command="pwd", start_marker=start_marker, marker=marker
+            history=[
+                {"role": "user", "content": "当前目录是什么"},
+                {"role": "assistant", "content": "建议执行 pwd"},
+            ],
+            active_command="pwd",
+            start_marker=start_marker,
+            marker=marker,
         )
         summarize = AsyncMock(return_value="命令成功，输出了当前目录。")
         async def send_output():
@@ -237,6 +243,8 @@ class TerminalAIProtocolTests(unittest.TestCase):
         self.assertIn(b"result", rendered)
         self.assertEqual(websocket.json[0]["type"], "ai_summary")
         summarize.assert_awaited_once()
+        self.assertEqual(summarize.await_args.args[1], "result")
+        self.assertIn("执行结果（退出码 0）", state.history[-1]["content"])
 
 
 if __name__ == "__main__":

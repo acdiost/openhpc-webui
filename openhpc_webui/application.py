@@ -141,6 +141,9 @@ router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.globals["app_version"] = __version__
 templates.env.globals["terminal_enabled"] = settings.terminal_enabled and AUTH_ENABLED
+templates.env.globals["terminal_script_version"] = str(
+    (STATIC_DIR / "terminal.js").stat().st_mtime_ns
+)
 
 # Initialize managers
 ldap_mgr = LDAPManager()
@@ -813,10 +816,19 @@ async def _send_terminal_output(
         ai_state.display_pending.clear()
         try:
             summary = await terminal_ai_client.summarize(command, output, exit_code)
+            if ai_state.history and ai_state.history[-1].get("role") == "assistant":
+                ai_state.history[-1]["content"] += (
+                    f"\n执行结果（退出码 {exit_code}）：{summary}"
+                )
             await _send_ws_json(
                 websocket,
                 send_lock,
-                {"type": "ai_summary", "summary": summary, "exit_code": exit_code},
+                {
+                    "type": "ai_summary",
+                    "summary": summary,
+                    "exit_code": exit_code,
+                    "turns": len(ai_state.history) // 2,
+                },
             )
         except TerminalAIError as exc:
             await _send_ws_json(

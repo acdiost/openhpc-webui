@@ -69,6 +69,26 @@
         return Array.from(value).reduce((width, character) => width + (character.codePointAt(0) > 255 ? 2 : 1), 0);
     }
 
+    function trackTerminalInput(data) {
+        // bash/zsh wrap pasted text when bracketed-paste mode is enabled. These
+        // markers are terminal protocol, not part of the user's command line.
+        const pasteStart = "\x1b[200~";
+        const pasteEnd = "\x1b[201~";
+        const hadPasteMarker = data.includes(pasteStart) || data.includes(pasteEnd);
+        const value = data.split(pasteStart).join("").split(pasteEnd).join("");
+        if (!value && hadPasteMarker) return;
+
+        if (value === "\x7f") {
+            currentLine = currentLine.slice(0, -1);
+        } else if (value === "\x15" || value === "\x03") {
+            currentLine = "";
+        } else if (/^[^\x00-\x1f\x7f]+$/.test(value)) {
+            currentLine += value;
+        } else {
+            lineTrackingReliable = false;
+        }
+    }
+
     function clearPlaceholder() {
         window.clearTimeout(placeholderTimer);
         placeholderTimer = null;
@@ -167,6 +187,8 @@
                 writeNotice(`正在执行 AI 建议：${message.command}`, "35");
             } else if (message.type === "ai_summary") {
                 aiBusy = false;
+                aiTurns = Number(message.turns || aiTurns);
+                newAIChatButton.title = `开始新的 AI 对话（当前上下文 ${aiTurns} 轮）`;
                 writeNotice(`AI 分析（退出码 ${message.exit_code}）：${message.summary}`, message.exit_code === 0 ? "32" : "33");
             } else if (message.type === "ai_error") {
                 aiBusy = false;
@@ -261,15 +283,7 @@
         }
         send({type: "input", data});
         if (!aiAvailable) return;
-        if (data === "\x7f") {
-            currentLine = currentLine.slice(0, -1);
-        } else if (data === "\x15" || data === "\x03") {
-            currentLine = "";
-        } else if (/^[^\x00-\x1f\x7f]+$/.test(data)) {
-            currentLine += data;
-        } else {
-            lineTrackingReliable = false;
-        }
+        trackTerminalInput(data);
     });
     terminal.onResize(sendSize);
     terminal.attachCustomKeyEventHandler((event) => {

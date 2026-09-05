@@ -28,6 +28,7 @@
 - 补充 Nginx WebSocket `Upgrade` 和 `Connection` 转发配置，避免 `/ws/terminal` 被代理为普通 HTTP GET 并返回 404。
 - 断开终端或关闭页面时主动回收 PTY 文件描述符和 Shell 进程，避免残留会话。
 - 隐藏 AI 命令执行使用的内部包装与完成标记，并避免模型总结复述这些实现细节。
+- 修复 bash/zsh bracketed paste 包装导致粘贴的自然语言被误交给 Shell 并报 `command not found`。
 
 ### Security
 

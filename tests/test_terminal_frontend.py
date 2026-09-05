@@ -65,6 +65,16 @@ class TerminalFrontendTests(unittest.TestCase):
         self.assertIn("输入命令，或输入问题与 AI 对话", script)
         self.assertIn('send({type: "new_ai_chat"})', script)
         self.assertIn('message.type === "ai_chat_reset"', script)
+        self.assertIn("terminal_script_version", template)
+
+    def test_terminal_ai_tracks_bracketed_paste_as_user_text(self):
+        script = (PROJECT_ROOT / "static/terminal.js").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('const pasteStart = "\\x1b[200~"', script)
+        self.assertIn('const pasteEnd = "\\x1b[201~"', script)
+        self.assertIn("trackTerminalInput(data)", script)
 
 
 if __name__ == "__main__":
