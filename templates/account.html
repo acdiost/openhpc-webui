@@ -99,6 +99,42 @@
         <button class="btn btn-primary" type="submit">保存 AI 配置</button>
     </form>
 </div>
+
+<div class="card" style="max-width:680px; margin-top:20px">
+    <h3 class="card-title">Web 终端公告</h3>
+    <p style="color:#6b7280; font-size:13px; line-height:1.7; margin-bottom:18px">
+        公告将在用户打开 Web 终端时显示在页面顶部。公告按纯文本显示，不支持 HTML。
+    </p>
+    <form id="terminalAnnouncementForm" onsubmit="saveTerminalAnnouncement(event)">
+        <div class="form-group">
+            <label style="display:flex; align-items:center; gap:8px">
+                <input id="terminal_announcement_enabled" type="checkbox" style="width:auto"> 启用终端公告
+            </label>
+        </div>
+        <div class="form-group">
+            <label for="terminal_announcement_message">公告内容</label>
+            <textarea id="terminal_announcement_message" rows="4" maxlength="2000" placeholder="例如：今晚 22:00–23:00 将进行集群维护。"></textarea>
+            <small style="display:block; color:#6b7280; margin-top:5px">最多 2000 个字符，支持换行。</small>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px">
+            <div class="form-group">
+                <label for="terminal_announcement_text_color">文字颜色</label>
+                <input id="terminal_announcement_text_color" type="color" value="#92400e">
+            </div>
+            <div class="form-group">
+                <label for="terminal_announcement_background_color">背景颜色</label>
+                <input id="terminal_announcement_background_color" type="color" value="#fef3c7">
+            </div>
+        </div>
+        <div class="form-group">
+            <label style="display:flex; align-items:center; gap:8px">
+                <input id="terminal_announcement_bold" type="checkbox" style="width:auto" checked> 加粗公告文字
+            </label>
+        </div>
+        <div id="terminalAnnouncementPreview" style="display:none; margin-bottom:16px; padding:10px 12px; border:1px solid currentColor; border-radius:6px; white-space:pre-wrap; overflow-wrap:anywhere"></div>
+        <button class="btn btn-primary" type="submit">保存终端公告</button>
+    </form>
+</div>
 {% endif %}
 {% endblock %}
 
@@ -198,7 +234,70 @@
         }
     }
 
+    function updateTerminalAnnouncementPreview() {
+        const preview = document.getElementById("terminalAnnouncementPreview");
+        const message = document.getElementById("terminal_announcement_message").value.trim();
+        preview.textContent = message;
+        preview.style.display = message ? "block" : "none";
+        preview.style.color = document.getElementById("terminal_announcement_text_color").value;
+        preview.style.backgroundColor = document.getElementById("terminal_announcement_background_color").value;
+        preview.style.fontWeight = document.getElementById("terminal_announcement_bold").checked ? "700" : "400";
+    }
+
+    async function loadTerminalAnnouncement() {
+        try {
+            const res = await fetch("/api/terminal/announcement/settings");
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "读取终端公告失败");
+            document.getElementById("terminal_announcement_enabled").checked = Boolean(data.enabled);
+            document.getElementById("terminal_announcement_message").value = data.message || "";
+            document.getElementById("terminal_announcement_text_color").value = data.text_color || "#92400e";
+            document.getElementById("terminal_announcement_background_color").value = data.background_color || "#fef3c7";
+            document.getElementById("terminal_announcement_bold").checked = Boolean(data.bold);
+            updateTerminalAnnouncementPreview();
+        } catch (error) {
+            showToast(error.message, "error");
+        }
+    }
+
+    async function saveTerminalAnnouncement(event) {
+        event.preventDefault();
+        const button = event.submitter;
+        if (button) button.disabled = true;
+        try {
+            const res = await fetch("/api/terminal/announcement/settings", {
+                method: "PUT",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    enabled: document.getElementById("terminal_announcement_enabled").checked,
+                    message: document.getElementById("terminal_announcement_message").value,
+                    text_color: document.getElementById("terminal_announcement_text_color").value,
+                    background_color: document.getElementById("terminal_announcement_background_color").value,
+                    bold: document.getElementById("terminal_announcement_bold").checked,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "保存终端公告失败");
+            showToast(data.message, "success");
+            await loadTerminalAnnouncement();
+        } catch (error) {
+            showToast(error.message, "error");
+        } finally {
+            if (button) button.disabled = false;
+        }
+    }
+
+    for (const id of [
+        "terminal_announcement_message",
+        "terminal_announcement_text_color",
+        "terminal_announcement_background_color",
+        "terminal_announcement_bold",
+    ]) {
+        document.getElementById(id).addEventListener("input", updateTerminalAnnouncementPreview);
+    }
+
     loadTerminalAI();
+    loadTerminalAnnouncement();
     {% endif %}
 </script>
 {% endblock %}

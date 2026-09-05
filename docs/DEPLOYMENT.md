@@ -187,6 +187,18 @@ Supervisor 配置只信任来自 `127.0.0.1` 的代理头。Nginx 不在同一�
 
 Web 终端要求登录用户已经通过 SSSD/NSS 同步为本机 Linux 账户，具有唯一 UID、存在的 Home 目录和可执行的登录 Shell。服务以 root 运行时会在启动 Shell 前调用 `initgroups`、`setgid` 和 `setuid` 降权；应用环境变量不会传入终端。门户管理员也始终以自己的系统身份启动，并以 NSS 返回的个人 Home 作为初始工作目录，不沿用管理员文件管理的 `/` 或 `/root` 范围。可用 `TERMINAL_ENABLED=False` 完全关闭入口。生产环境必须使用 HTTPS/WSS，并保留上面的 WebSocket `Upgrade` 请求头。
 
+管理员可在“账户设置”中维护 Web 终端顶部公告，也可直接配置 `.env`：
+
+```dotenv
+TERMINAL_ANNOUNCEMENT_ENABLED=True
+TERMINAL_ANNOUNCEMENT_MESSAGE="今晚 22:00–23:00 进行集群维护，请提前保存作业。"
+TERMINAL_ANNOUNCEMENT_TEXT_COLOR="#92400e"
+TERMINAL_ANNOUNCEMENT_BACKGROUND_COLOR="#fef3c7"
+TERMINAL_ANNOUNCEMENT_BOLD=True
+```
+
+在线保存后当前进程立即生效，新打开或刷新的终端页面会显示新内容；直接编辑 `.env` 后需要重启应用。公告最长 2000 个字符，仅接受六位十六进制颜色，并以纯文本转义显示，不允许使用 HTML 定制样式。
+
 终端页面支持悬浮收缩，但该模式仍属于当前浏览器页面，不会跨页面迁移 WebSocket。用户需要同时操作其他门户页面时，应使用侧边栏的新标签入口，或在离开确认框中选择“新标签打开目标”。浏览器刷新、关闭页签或确认离开时会关闭当前 Shell，因此不要把 Web 终端作为脱离会话的长期任务托管工具；长任务应使用 Slurm、`tmux` 或 `screen`。
 
 ### 终端 AI 模型

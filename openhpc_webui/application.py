@@ -66,6 +66,7 @@ from .schemas import (
     PartitionCreate,
     PartitionUpdate,
     PasswordChangeRequest,
+    TerminalAnnouncementSettingsUpdate,
     TerminalAISettingsUpdate,
     UserCreate,
     UserCreditRequest,
@@ -80,6 +81,11 @@ from .services.login_limiter import LoginAttemptLimiter
 from .services.nfs_quota_manager import NFSQuotaManager
 from .services.slurm_manager import SlurmManager
 from .services.terminal_manager import TerminalError, TerminalManager, TerminalSession
+from .services.terminal_announcement import (
+    TerminalAnnouncementError,
+    public_config as public_terminal_announcement_config,
+    save_config as save_terminal_announcement_config,
+)
 from .services.terminal_ai import (
     TerminalAIClient,
     TerminalAIError,
@@ -665,6 +671,36 @@ async def update_terminal_ai_settings(
     return {"message": "终端 AI 配置已保存并立即生效", **result}
 
 
+@router.get("/api/terminal/announcement/settings")
+async def get_terminal_announcement_settings(
+    user: dict = Depends(get_current_user),
+):
+    """Return terminal announcement settings to administrators."""
+    _require_admin(user)
+    return public_terminal_announcement_config()
+
+
+@router.put("/api/terminal/announcement/settings")
+async def update_terminal_announcement_settings(
+    payload: TerminalAnnouncementSettingsUpdate,
+    user: dict = Depends(get_current_user),
+):
+    """Persist the global terminal announcement shown to terminal users."""
+    _require_admin(user)
+    try:
+        result = await run_in_threadpool(
+            save_terminal_announcement_config,
+            enabled=payload.enabled,
+            message=payload.message,
+            text_color=payload.text_color,
+            background_color=payload.background_color,
+            bold=payload.bold,
+        )
+    except TerminalAnnouncementError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"message": "终端公告已保存并立即生效", **result}
+
+
 @router.get("/files", response_class=HTMLResponse)
 async def files_page(request: Request, user: dict = Depends(get_current_user)):
     """文件管理：普通用户以 Home 为根，管理员以系统根目录为根。"""
@@ -705,7 +741,12 @@ async def terminal_page(request: Request, user: dict = Depends(get_current_user)
     if not settings.terminal_enabled or not AUTH_ENABLED:
         raise HTTPException(status_code=404, detail="终端功能未启用")
     return templates.TemplateResponse(
-        "terminal.html", {"request": request, "user": user}
+        "terminal.html",
+        {
+            "request": request,
+            "user": user,
+            "terminal_announcement": public_terminal_announcement_config(),
+        },
     )
 
 

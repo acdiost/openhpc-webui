@@ -224,6 +224,14 @@ class TerminalAISettingsUpdate(BaseModel):
     timeout_seconds: int = Field(60, ge=5, le=300)
 
 
+class TerminalAnnouncementSettingsUpdate(BaseModel):
+    enabled: bool = False
+    message: str = Field("", max_length=2000)
+    text_color: str = Field("#92400e", pattern=r"^#[0-9a-fA-F]{6}$")
+    background_color: str = Field("#fef3c7", pattern=r"^#[0-9a-fA-F]{6}$")
+    bold: bool = True
+
+
 class FileDirectoryCreate(BaseModel):
     path: str = Field("/", max_length=4096)
     name: str = Field(..., min_length=1, max_length=255)

@@ -8,6 +8,8 @@
     .terminal-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:16px; }
     .terminal-heading h2 { margin:0; font-size:28px; font-weight:700; }
     .terminal-description { margin-top:5px; color:#6b7280; font-size:13px; }
+    .terminal-announcement { display:flex; align-items:flex-start; gap:9px; margin-bottom:14px; padding:11px 14px; border:1px solid currentColor; border-radius:7px; line-height:1.55; white-space:pre-wrap; overflow-wrap:anywhere; }
+    .terminal-announcement svg { flex:0 0 auto; width:18px; height:18px; margin-top:2px; }
     .terminal-actions { display:flex; align-items:center; gap:8px; }
     .terminal-status { display:inline-flex; align-items:center; gap:7px; min-width:92px; color:#6b7280; font-size:13px; }
     .terminal-status-dot { width:8px; height:8px; border-radius:999px; background:#9ca3af; }
@@ -75,6 +77,15 @@
         <button id="disconnectButton" class="btn btn-secondary" type="button" disabled>断开</button>
     </div>
 </div>
+
+{% if terminal_announcement.visible %}
+<div
+    class="terminal-announcement"
+    role="status"
+    aria-label="终端公告"
+    style="color:{{ terminal_announcement.text_color }}; background-color:{{ terminal_announcement.background_color }}; font-weight:{{ 700 if terminal_announcement.bold else 400 }}"
+><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" /></svg><span>{{ terminal_announcement.message }}</span></div>
+{% endif %}
 
 <div id="terminalWindow" class="card terminal-card">
     <div class="terminal-bar">

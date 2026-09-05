@@ -6,6 +6,30 @@ PROJECT_ROOT = Path(__file__).parents[1]
 
 
 class TerminalFrontendTests(unittest.TestCase):
+    def test_terminal_announcement_is_configurable_and_rendered_as_text(self):
+        terminal_template = (PROJECT_ROOT / "templates/terminal.html").read_text(
+            encoding="utf-8"
+        )
+        account_template = (PROJECT_ROOT / "templates/account.html").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("terminal_announcement.visible", terminal_template)
+        self.assertIn("{{ terminal_announcement.message }}", terminal_template)
+        self.assertNotIn("terminal_announcement.message|safe", terminal_template)
+        for element_id in (
+            "terminalAnnouncementForm",
+            "terminal_announcement_enabled",
+            "terminal_announcement_message",
+            "terminal_announcement_text_color",
+            "terminal_announcement_background_color",
+            "terminal_announcement_bold",
+            "terminalAnnouncementPreview",
+        ):
+            self.assertIn(f'id="{element_id}"', account_template)
+        self.assertIn('preview.textContent = message', account_template)
+        self.assertIn('/api/terminal/announcement/settings', account_template)
+
     def test_sidebar_offers_current_and_new_tab_terminal_entries(self):
         sidebar = (PROJECT_ROOT / "templates/components/sidebar.html").read_text(
             encoding="utf-8"
