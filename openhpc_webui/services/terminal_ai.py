@@ -57,7 +57,7 @@ _ACTION_GOAL = re.compile(
 )
 _INCOMPLETE_ACTION_REPLY = re.compile(
     r"(?:请先提供|请提供|需要提供|建议创建|建议执行|下一步|现在(?:编写|创建|提交|检查|执行)|"
-    r"先确认|无法生成|无法执行|please provide|next step|suggested command)",
+    r"先(?:查询|查看|检查|执行|运行|确认)|无法生成|无法执行|please provide|next step|suggested command)",
     re.IGNORECASE,
 )
 
@@ -562,6 +562,7 @@ class TerminalAIClient:
         if payload is None:
             recovered = (
                 TerminalAIClient._recover_fenced_file(content)
+                or TerminalAIClient._recover_fenced_command(content)
                 or TerminalAIClient._recover_suggested_command(content)
             )
             return recovered or TerminalAIReply(answer=content.strip())
@@ -575,6 +576,11 @@ class TerminalAIClient:
                 command = file_command
         if not command:
             recovered = TerminalAIClient._recover_fenced_file(answer)
+            if recovered:
+                answer = recovered.answer
+                command = recovered.command
+        if not command:
+            recovered = TerminalAIClient._recover_fenced_command(answer)
             if recovered:
                 answer = recovered.answer
                 command = recovered.command
@@ -700,6 +706,45 @@ class TerminalAIClient:
             )
         ):
             return None
+        return TerminalAIReply(
+            answer=answer or "模型建议执行下一步。",
+            command=command,
+            done=False,
+        )
+
+    @staticmethod
+    def _recover_fenced_command(content: str) -> Optional[TerminalAIReply]:
+        """Recover one explicitly introduced shell fence as a pending action."""
+        matches = list(re.finditer(
+            r"```(?:bash|sh|shell|zsh)\s*\r?\n(.*?)```",
+            content,
+            re.DOTALL | re.IGNORECASE,
+        ))
+        if len(matches) != 1:
+            return None
+        match = matches[0]
+        introduction = content[:match.start()].strip()
+        action_cue = re.search(
+            r"(?:先|请|建议|现在|下一步|可以|可|将).{0,30}"
+            r"(?:执行|运行|查询|查看|检查|获取|使用)|"
+            r"(?:run|execute|query|check|inspect|use)\b",
+            introduction,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if not action_cue:
+            return None
+        command = match.group(1).strip()
+        if (
+            not command
+            or len(command) > 65_536
+            or any(
+                ord(character) < 32 and character not in {"\n", "\t"}
+                for character in command
+            )
+        ):
+            return None
+        trailing = content[match.end():].strip()
+        answer = "\n".join(part for part in (introduction, trailing) if part).strip()
         return TerminalAIReply(
             answer=answer or "模型建议执行下一步。",
             command=command,

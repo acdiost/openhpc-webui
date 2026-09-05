@@ -66,6 +66,7 @@ class TerminalAICommandTests(unittest.TestCase):
         self.assertTrue(is_probable_command("FOO=bar ./run.sh"))
         self.assertTrue(is_probable_command("!my-cluster-alias"))
         self.assertFalse(is_probable_command("帮我查看当前 GPU 使用情况"))
+        self.assertFalse(is_probable_command("看看我还剩多少核时?"))
         self.assertFalse(is_probable_command("how can I inspect a slurm job"))
         self.assertFalse(is_probable_command(
             "帮我检查集群状态并写一个空闲节点的测试脚本后提交作业,再检查输出结果进行分析."
@@ -252,6 +253,30 @@ class TerminalAIReplyTests(unittest.TestCase):
         self.assertEqual(reply.answer, "作业输出已生成，下一步查看结果。")
         self.assertEqual(reply.command, "cat node_test_123.out")
         self.assertFalse(reply.done)
+
+    def test_recovers_explicit_standalone_shell_fence(self):
+        reply = TerminalAIClient._parse_reply(
+            "先查询 Slurm 中你的账户配额与使用限制信息（可能含核时上限）。\n"
+            "```bash\n"
+            "sacctmgr show assoc user=$USER format=Account,User,GrpTRESMins -p; "
+            "sshare -u $USER -A -l\n"
+            "```"
+        )
+
+        self.assertEqual(
+            reply.answer,
+            "先查询 Slurm 中你的账户配额与使用限制信息（可能含核时上限）。",
+        )
+        self.assertIn("sacctmgr show assoc", reply.command)
+        self.assertIn("sshare -u $USER", reply.command)
+        self.assertFalse(reply.done)
+
+    def test_does_not_execute_an_unintroduced_shell_example(self):
+        reply = TerminalAIClient._parse_reply(
+            "下面是一个 Bash 循环示例：\n```bash\nfor item in *; do echo \"$item\"; done\n```"
+        )
+
+        self.assertIsNone(reply.command)
 
     def test_extracts_file_action_from_prose_prefixed_json(self):
         reply = TerminalAIClient._parse_reply(

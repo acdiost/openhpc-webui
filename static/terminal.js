@@ -131,6 +131,15 @@
         lineTrackingReliable = true;
     }
 
+    function restoreAIInputTracking() {
+        // AI notices are written directly to xterm and are never user input.
+        // Once a response finishes at an empty prompt, resume classification
+        // even if an IME/control sequence made the previous line unreliable.
+        if (!currentLine && bracketedPasteBuffer === null) {
+            lineTrackingReliable = true;
+        }
+    }
+
     function handleSingleLineInput(data) {
         if (!aiAvailable || !lineTrackingReliable) return false;
         const match = data.match(/^([^\r\n\x00-\x1f\x7f]*)(\r\n?|\n)?$/);
@@ -283,6 +292,8 @@
                 autoApprove = false;
                 autoApproveCheckbox.checked = false;
                 bracketedPasteBuffer = null;
+                currentLine = "";
+                lineTrackingReliable = true;
                 newAIChatButton.title = "开始新的 AI 对话";
                 setStatus("connected", "已连接");
                 fitAddon.fit();
@@ -295,6 +306,7 @@
                 writeNotice("AI 正在思考…", "36");
             } else if (message.type === "ai_reply") {
                 aiBusy = false;
+                restoreAIInputTracking();
                 aiTurns = Number(message.turns || aiTurns + 1);
                 newAIChatButton.title = `开始新的 AI 对话（当前上下文 ${aiTurns} 轮）`;
                 pendingAICommand = Boolean(message.command);
@@ -315,6 +327,7 @@
                 writeNotice(`正在执行 AI 建议：${message.command}`, "35");
             } else if (message.type === "ai_summary") {
                 aiBusy = false;
+                restoreAIInputTracking();
                 aiTurns = Number(message.turns || aiTurns);
                 newAIChatButton.title = `开始新的 AI 对话（当前上下文 ${aiTurns} 轮）`;
                 writeNotice(`AI 分析（退出码 ${message.exit_code}）：${message.summary}`, message.exit_code === 0 ? "32" : "33");
@@ -355,6 +368,7 @@
                     pendingAICommand = false;
                     autoApprove = false;
                     autoApproveCheckbox.checked = false;
+                    restoreAIInputTracking();
                     newAIChatButton.title = "开始新的 AI 对话";
                     writeNotice(`已切换 AI 模型：${message.model}；已开始新对话并关闭自动批准`, "36");
                 } else {
@@ -363,9 +377,11 @@
             } else if (message.type === "ai_loop_stopped") {
                 aiBusy = false;
                 pendingAICommand = false;
+                restoreAIInputTracking();
                 writeNotice(message.message || "AI 目标循环已停止", "33");
             } else if (message.type === "ai_error") {
                 aiBusy = false;
+                restoreAIInputTracking();
                 writeNotice(`AI：${message.message || "请求失败"}`, "31");
             } else if (message.type === "ai_chat_reset") {
                 aiBusy = false;
@@ -373,6 +389,7 @@
                 pendingAICommand = false;
                 autoApprove = false;
                 autoApproveCheckbox.checked = false;
+                restoreAIInputTracking();
                 newAIChatButton.title = "开始新的 AI 对话";
                 writeNotice("已开始新的 AI 对话，Shell 会话保持不变", "36");
             } else if (message.type === "error") {
