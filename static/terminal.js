@@ -40,6 +40,7 @@
     const statusText = document.getElementById("terminalStatusText");
     const terminalWindow = document.getElementById("terminalWindow");
     const minimizeButton = document.getElementById("minimizeTerminalButton");
+    const newAIChatButton = document.getElementById("newAIChatButton");
     const leaveDialog = document.getElementById("terminalLeaveDialog");
     const leaveCloseButton = document.getElementById("terminalLeaveClose");
     const stayButton = document.getElementById("terminalStayButton");
@@ -57,6 +58,37 @@
     let pendingAICommand = false;
     let currentLine = "";
     let lineTrackingReliable = true;
+    let aiBusy = false;
+    let aiTurns = 0;
+    let placeholderTimer = null;
+    let placeholderVisible = false;
+
+    const placeholderText = "输入命令，或输入问题与 AI 对话…";
+
+    function displayWidth(value) {
+        return Array.from(value).reduce((width, character) => width + (character.codePointAt(0) > 255 ? 2 : 1), 0);
+    }
+
+    function clearPlaceholder() {
+        window.clearTimeout(placeholderTimer);
+        placeholderTimer = null;
+        if (!placeholderVisible) return;
+        placeholderVisible = false;
+        terminal.write("\x1b[K");
+    }
+
+    function schedulePlaceholder() {
+        window.clearTimeout(placeholderTimer);
+        placeholderTimer = null;
+        if (!ready || !aiAvailable || aiBusy || pendingAICommand || currentLine || !lineTrackingReliable) return;
+        if (terminal.buffer.active.type === "alternate") return;
+        placeholderTimer = window.setTimeout(() => {
+            if (!ready || aiBusy || pendingAICommand || currentLine || !lineTrackingReliable) return;
+            if (terminal.cols - terminal.buffer.active.cursorX < displayWidth(placeholderText)) return;
+            placeholderVisible = true;
+            terminal.write(`\x1b7\x1b[2m${placeholderText}\x1b[0m\x1b8`);
+        }, 350);
+    }
 
     function setStatus(state, text) {
         status.className = `terminal-status${state ? ` is-${state}` : ""}`;
@@ -66,8 +98,9 @@
     }
 
     function writeNotice(message, color) {
+        clearPlaceholder();
         const safe = String(message || "").replace(/\x1b/g, "").replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
-        terminal.writeln(`\r\n\x1b[${color || "33"}m${safe.replace(/\n/g, "\r\n")}\x1b[0m`);
+        terminal.writeln(`\r\n\x1b[${color || "33"}m${safe.replace(/\n/g, "\r\n")}\x1b[0m`, schedulePlaceholder);
     }
 
     function send(payload) {
@@ -95,7 +128,8 @@
         });
         socket.addEventListener("message", (event) => {
             if (event.data instanceof ArrayBuffer) {
-                terminal.write(new Uint8Array(event.data));
+                clearPlaceholder();
+                terminal.write(new Uint8Array(event.data), schedulePlaceholder);
                 return;
             }
             let message;
@@ -107,27 +141,42 @@
             if (message.type === "ready") {
                 ready = true;
                 aiAvailable = Boolean(message.ai && message.ai.available);
+                newAIChatButton.style.display = aiAvailable ? "flex" : "none";
+                newAIChatButton.title = "开始新的 AI 对话";
                 setStatus("connected", "已连接");
                 fitAddon.fit();
                 sendSize();
                 terminal.focus();
                 writeNotice(aiAvailable ? `AI 已启用：${message.ai.provider} / ${message.ai.model}` : "AI 未启用，所有输入均按 Shell 命令执行", aiAvailable ? "36" : "90");
             } else if (message.type === "ai_thinking") {
+                aiBusy = true;
                 pendingAICommand = false;
                 writeNotice("AI 正在思考…", "36");
             } else if (message.type === "ai_reply") {
+                aiBusy = false;
+                aiTurns = Number(message.turns || aiTurns + 1);
+                newAIChatButton.title = `开始新的 AI 对话（当前上下文 ${aiTurns} 轮）`;
                 pendingAICommand = Boolean(message.command);
                 writeNotice(`AI：${message.answer || ""}`, "36");
                 if (message.command) {
                     writeNotice(`建议命令：${message.command}\n按 Ctrl+Enter 确认执行`, "33");
                 }
             } else if (message.type === "ai_executing") {
+                aiBusy = true;
                 pendingAICommand = false;
                 writeNotice(`正在执行 AI 建议：${message.command}`, "35");
             } else if (message.type === "ai_summary") {
+                aiBusy = false;
                 writeNotice(`AI 分析（退出码 ${message.exit_code}）：${message.summary}`, message.exit_code === 0 ? "32" : "33");
             } else if (message.type === "ai_error") {
+                aiBusy = false;
                 writeNotice(`AI：${message.message || "请求失败"}`, "31");
+            } else if (message.type === "ai_chat_reset") {
+                aiBusy = false;
+                aiTurns = 0;
+                pendingAICommand = false;
+                newAIChatButton.title = "开始新的 AI 对话";
+                writeNotice("已开始新的 AI 对话，Shell 会话保持不变", "36");
             } else if (message.type === "error") {
                 setStatus("error", "连接异常");
                 writeNotice(message.message || "终端连接异常", "31");
@@ -136,6 +185,8 @@
         socket.addEventListener("close", (event) => {
             window.clearInterval(keepaliveTimer);
             ready = false;
+            aiBusy = false;
+            clearPlaceholder();
             socket = null;
             if (!manuallyClosed) {
                 setStatus(event.code === 1000 ? "" : "error", "已断开");
@@ -199,6 +250,7 @@
 
     terminal.onData((data) => {
         if (!ready) return;
+        clearPlaceholder();
         if (aiAvailable && data === "\r") {
             if (lineTrackingReliable) send({type: "submit", line: currentLine});
             else send({type: "input", data});
@@ -247,6 +299,11 @@
 
     connectButton.addEventListener("click", connect);
     disconnectButton.addEventListener("click", disconnect);
+    newAIChatButton.addEventListener("click", () => {
+        if (!ready || !aiAvailable || aiBusy) return;
+        send({type: "new_ai_chat"});
+        terminal.focus();
+    });
     minimizeButton.addEventListener("click", () => setMinimized(!minimized));
     leaveCloseButton.addEventListener("click", closeLeaveDialog);
     stayButton.addEventListener("click", closeLeaveDialog);

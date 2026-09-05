@@ -53,6 +53,19 @@ class TerminalFrontendTests(unittest.TestCase):
         self.assertIn('event.ctrlKey', script)
         self.assertNotIn('send({type: "input", data: message.command', script)
 
+    def test_terminal_ai_offers_inline_hint_and_new_conversation(self):
+        template = (PROJECT_ROOT / "templates/terminal.html").read_text(
+            encoding="utf-8"
+        )
+        script = (PROJECT_ROOT / "static/terminal.js").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('id="newAIChatButton"', template)
+        self.assertIn("输入命令，或输入问题与 AI 对话", script)
+        self.assertIn('send({type: "new_ai_chat"})', script)
+        self.assertIn('message.type === "ai_chat_reset"', script)
+
 
 if __name__ == "__main__":
     unittest.main()

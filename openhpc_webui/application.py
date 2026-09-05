@@ -717,6 +717,7 @@ class _TerminalAIState:
     history: list[dict[str, str]] = field(default_factory=list)
     pending_command: Optional[str] = None
     active_command: Optional[str] = None
+    start_marker: Optional[bytes] = None
     marker: Optional[bytes] = None
     capture: bytearray = field(default_factory=bytearray)
     display_pending: bytearray = field(default_factory=bytearray)
@@ -750,6 +751,27 @@ async def _send_terminal_output(
         if not data:
             return
         last_activity[0] = time.monotonic()
+        start_marker = ai_state.start_marker
+        if start_marker:
+            ai_state.display_pending.extend(data)
+            start_index = ai_state.display_pending.find(start_marker)
+            if start_index < 0:
+                # Discard the wrapper echo, retaining only a possible partial marker.
+                keep = len(start_marker) + 4
+                if len(ai_state.display_pending) > keep:
+                    del ai_state.display_pending[:-keep]
+                continue
+            suffix = ai_state.display_pending[start_index + len(start_marker):]
+            line_end = re.match(rb"\r?\n", suffix)
+            if not line_end:
+                continue
+            data = bytes(suffix[line_end.end():])
+            ai_state.start_marker = None
+            ai_state.capture.clear()
+            ai_state.display_pending.clear()
+            if not data:
+                continue
+
         marker = ai_state.marker
         if not marker:
             await _send_ws_bytes(websocket, send_lock, data)
@@ -869,7 +891,18 @@ async def _receive_terminal_input(
             await _send_ws_json(
                 websocket,
                 send_lock,
-                {"type": "ai_reply", "answer": reply.answer, "command": reply.command},
+                {
+                    "type": "ai_reply",
+                    "answer": reply.answer,
+                    "command": reply.command,
+                    "turns": len(ai_state.history) // 2,
+                },
+            )
+        elif message_type == "new_ai_chat":
+            ai_state.history.clear()
+            ai_state.pending_command = None
+            await _send_ws_json(
+                websocket, send_lock, {"type": "ai_chat_reset"}
             )
         elif message_type == "execute_ai":
             command = ai_state.pending_command
@@ -880,13 +913,17 @@ async def _receive_terminal_input(
                 await _send_ws_json(websocket, send_lock, {"type": "ai_error", "message": "上一条 AI 命令仍在执行"})
                 continue
             token = secrets.token_hex(16)
+            start_marker = f"__OPENHPC_AI_START_{token}__".encode("ascii")
             marker = f"__OPENHPC_AI_DONE_{token}__".encode("ascii")
             ai_state.pending_command = None
             ai_state.active_command = command
+            ai_state.start_marker = start_marker
             ai_state.marker = marker
             ai_state.capture.clear()
             ai_state.display_pending.clear()
             wrapper = (
+                f"__oh_sa=__OPENHPC_AI_; __oh_sb=START_{token}__; "
+                "printf '%s%s\\n' \"$__oh_sa\" \"$__oh_sb\"; "
                 f"{command}; __oh_status=$?; __oh_a=__OPENHPC_AI_; "
                 f"__oh_b=DONE_{token}__; printf '\\n%s%s:%s\\n' "
                 '"$__oh_a" "$__oh_b" "$__oh_status"\r'

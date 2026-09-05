@@ -11,6 +11,7 @@
 - 新增 Nginx HTTPS/WebSocket 示例配置，以及终端使用、部署和故障排查文档。
 - 新增终端 AI 对话，支持 DeepSeek、vLLM、SGLang 及其他 OpenAI 兼容接口，并可由管理员在账户设置中维护模型、地址、密钥和超时。
 - 新增 Shell 命令与自然语言分流；AI 建议命令必须按 Ctrl+Enter 确认，执行完成后自动分析退出码与输出。
+- 新增终端命令行 AI 输入提示、多轮上下文和“新对话”操作；重置 AI 对话不会影响当前 Shell。
 
 ### Changed
 
@@ -26,6 +27,7 @@
 
 - 补充 Nginx WebSocket `Upgrade` 和 `Connection` 转发配置，避免 `/ws/terminal` 被代理为普通 HTTP GET 并返回 404。
 - 断开终端或关闭页面时主动回收 PTY 文件描述符和 Shell 进程，避免残留会话。
+- 隐藏 AI 命令执行使用的内部包装与完成标记，并避免模型总结复述这些实现细节。
 
 ### Security
 

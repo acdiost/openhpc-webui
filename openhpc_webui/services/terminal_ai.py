@@ -246,7 +246,14 @@ class TerminalAIClient:
             f"命令：{command}\n输出（可能已截断）：\n{output or '(无输出)'}"
         )
         return await self._complete([
-            {"role": "system", "content": "你是 Linux/HPC 运维助手。指出成功或失败、关键结果和必要的下一步，不要编造。"},
+            {
+                "role": "system",
+                "content": (
+                    "你是 Linux/HPC 运维助手。用中文最多三个短句总结成功或失败、"
+                    "关键结果和必要的下一步；不要使用 Markdown 标题或列表，不要编造，"
+                    "不要提及任何内部状态标记或包装命令。"
+                ),
+            },
             {"role": "user", "content": prompt},
         ])
 

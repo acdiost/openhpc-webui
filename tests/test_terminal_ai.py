@@ -181,16 +181,47 @@ class TerminalAIProtocolTests(unittest.TestCase):
             asyncio.run(receive())
 
         written = b"".join(session.writes)
-        self.assertTrue(written.startswith(b"\x15pwd;"))
+        self.assertTrue(written.startswith(b"\x15__oh_sa="))
+        self.assertIn(b"; pwd;", written)
+        self.assertIn(b"START_abc__", written)
         self.assertIn(b"DONE_abc__", written)
         self.assertIsNone(state.pending_command)
         self.assertEqual(state.active_command, "pwd")
 
+    def test_new_chat_clears_history_and_pending_command(self):
+        websocket = _FakeWebSocket([
+            {"type": "websocket.receive", "text": '{"type":"new_ai_chat"}'},
+            {"type": "websocket.disconnect"},
+        ])
+        session = _FakeSession()
+        state = main._TerminalAIState(
+            history=[{"role": "user", "content": "old"}],
+            pending_command="old-command",
+        )
+
+        async def receive():
+            await main._receive_terminal_input(
+                websocket, session, [0.0], state, asyncio.Lock()
+            )
+
+        asyncio.run(receive())
+
+        self.assertEqual(state.history, [])
+        self.assertIsNone(state.pending_command)
+        self.assertEqual(websocket.json[-1]["type"], "ai_chat_reset")
+
     def test_completion_marker_is_hidden_and_output_is_summarized(self):
+        start_marker = b"__OPENHPC_AI_START_abc__"
         marker = b"__OPENHPC_AI_DONE_abc__"
-        session = _FakeSession([b"result\r\n" + marker + b":0\r\n$ ", b""])
+        echoed_wrapper = b"internal wrapper text\r\n"
+        session = _FakeSession([
+            echoed_wrapper + start_marker + b"\r\nresult\r\n" + marker + b":0\r\n$ ",
+            b"",
+        ])
         websocket = _FakeWebSocket()
-        state = main._TerminalAIState(active_command="pwd", marker=marker)
+        state = main._TerminalAIState(
+            active_command="pwd", start_marker=start_marker, marker=marker
+        )
         summarize = AsyncMock(return_value="命令成功，输出了当前目录。")
         async def send_output():
             await main._send_terminal_output(
@@ -200,6 +231,8 @@ class TerminalAIProtocolTests(unittest.TestCase):
             asyncio.run(send_output())
 
         rendered = b"".join(websocket.binary)
+        self.assertNotIn(echoed_wrapper, rendered)
+        self.assertNotIn(start_marker, rendered)
         self.assertNotIn(marker, rendered)
         self.assertIn(b"result", rendered)
         self.assertEqual(websocket.json[0]["type"], "ai_summary")

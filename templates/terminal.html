@@ -17,6 +17,7 @@
     .terminal-card { overflow:hidden; padding:0; border:1px solid #252b35; background:#0f141b; box-shadow:0 10px 30px rgba(15,20,27,.14); transition:width .18s, box-shadow .18s; }
     .terminal-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:42px; padding:0 14px; border-bottom:1px solid #29313c; background:#171d26; color:#aab4c3; font:12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
     .terminal-bar-title { flex:1; min-width:0; overflow:hidden; text-align:center; text-overflow:ellipsis; white-space:nowrap; }
+    .terminal-bar-actions { display:flex; align-items:center; gap:7px; }
     .terminal-minimize { display:flex; align-items:center; gap:5px; padding:5px 8px; color:#aab4c3; border:1px solid #364152; border-radius:5px; background:#202733; cursor:pointer; font:inherit; }
     .terminal-minimize:hover { color:#fff; border-color:#526174; background:#293241; }
     .terminal-minimize svg { width:13px; height:13px; }
@@ -60,14 +61,20 @@
     <div class="terminal-bar">
         <div class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></div>
         <span class="terminal-bar-title">{{ user.get('username') }}@{{ request.url.hostname or 'cluster' }}</span>
-        <button id="minimizeTerminalButton" class="terminal-minimize" type="button" aria-expanded="true">
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-width="2" d="M5 12h14" /></svg>
-            <span>收起</span>
-        </button>
+        <div class="terminal-bar-actions">
+            <button id="newAIChatButton" class="terminal-minimize" type="button" style="display:none" title="清除当前终端会话中的 AI 对话上下文">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                <span>新对话</span>
+            </button>
+            <button id="minimizeTerminalButton" class="terminal-minimize" type="button" aria-expanded="true">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-width="2" d="M5 12h14" /></svg>
+                <span>收起</span>
+            </button>
+        </div>
     </div>
     <div id="terminal" aria-label="交互式终端"></div>
 </div>
-<p class="terminal-help">AI 建议命令：按 Ctrl+Enter 确认执行。输入 <code>!</code> 加命令可强制按 Shell 命令执行。复制/粘贴：Ctrl/⌘+Shift+C / V。关闭页面或断开连接会结束当前 Shell 进程。</p>
+<p class="terminal-help">AI 会在当前终端连接内保留最近多轮上下文；“新对话”只清除 AI 上下文，不影响 Shell。AI 建议命令按 Ctrl+Enter 确认执行；输入 <code>!</code> 加命令可强制按 Shell 命令执行。复制/粘贴：Ctrl/⌘+Shift+C / V。</p>
 {% endblock %}
 
 {% block modals %}
