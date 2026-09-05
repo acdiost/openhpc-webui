@@ -1,5 +1,7 @@
 # Changelog
 
+- Web 终端新增用户 AI 配置入口，可自行启用 AI、选择 Provider，并配置 Base URL、模型、API Key 与超时；默认仅在当前服务端会话保存，也可选择使用 AES-GCM 加密持久化到本地浏览器并在重连时恢复，切换端点时不会复用旧密钥。
+
 本文件记录 OpenHPC WebUI 的重要功能变化。
 
 ## Unreleased

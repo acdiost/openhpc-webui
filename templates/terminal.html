@@ -34,6 +34,14 @@
     .terminal-ai-model-input:focus { outline:1px solid #60a5fa; border-color:#60a5fa; }
     .terminal-ai-model-apply { padding:4px 7px; }
     .terminal-ai-provider { display:none; }
+    .terminal-ai-config-form { padding:20px; }
+    .terminal-ai-config-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+    .terminal-ai-config-form .form-group { margin:0 0 14px; }
+    .terminal-ai-config-form label { display:block; margin-bottom:6px; color:#374151; font-size:13px; font-weight:600; }
+    .terminal-ai-config-form input:not([type="checkbox"]), .terminal-ai-config-form select { width:100%; min-height:40px; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; background:#fff; color:#111827; font:inherit; }
+    .terminal-ai-config-form input:focus, .terminal-ai-config-form select:focus { outline:none; border-color:#dc3023; box-shadow:0 0 0 3px rgba(220,48,35,.1); }
+    .terminal-ai-config-form .terminal-ai-config-check { display:flex; align-items:center; gap:7px; margin:0; color:#4b5563; font-size:13px; font-weight:400; }
+    .terminal-ai-config-help { margin:5px 0 0; color:#6b7280; font-size:12px; line-height:1.5; }
     .terminal-dots { display:flex; gap:6px; }
     .terminal-dots span { width:9px; height:9px; border-radius:50%; background:#4b5563; }
     .terminal-dots span:first-child { background:#ef4444; }
@@ -60,6 +68,7 @@
         .terminal-bar-title { display:none; }
         .terminal-ai-model-input { width:125px; }
         .terminal-ai-model-control > span { display:none; }
+        .terminal-ai-config-grid { grid-template-columns:1fr; }
         #terminal { height:calc(100vh - 330px); min-height:360px; }
     }
 </style>
@@ -92,6 +101,10 @@
         <div class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></div>
         <span class="terminal-bar-title">{{ user.get('username') }}@{{ request.url.hostname or 'cluster' }}</span>
         <div class="terminal-bar-actions">
+            <button id="terminalAIConfigButton" class="terminal-minimize" type="button" title="配置当前终端连接的 AI 服务">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15.5a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM19.4 15a1.7 1.7 0 00.34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0015 19.4a1.7 1.7 0 00-1 .6V20h-4v-.08a1.7 1.7 0 00-1-.52 1.7 1.7 0 00-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 004.6 15a1.7 1.7 0 00-.6-1H4v-4h.08a1.7 1.7 0 00.52-1 1.7 1.7 0 00-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 009 4.6a1.7 1.7 0 001-.6V4h4v.08a1.7 1.7 0 001 .52 1.7 1.7 0 001.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0019.4 9c.08.38.29.73.6 1h.08v4H20a1.7 1.7 0 00-.6 1z" /></svg>
+                <span>AI 配置</span>
+            </button>
             <div id="terminalAIModelBar" class="terminal-ai-model-control">
                 <span>模型</span>
                 <input id="terminalAIModelInput" class="terminal-ai-model-input" type="text" list="terminalAIModelOptions" maxlength="256" autocomplete="off" spellcheck="false" placeholder="选择或输入模型 ID" aria-label="当前 AI 模型">
@@ -120,10 +133,64 @@
     </div>
     <div id="terminal" aria-label="交互式终端"></div>
 </div>
-<p class="terminal-help">当前 AI 模型显示在标题栏步数旁，可从建议项选择或手动输入兼容服务支持的模型 ID；切换模型会开始新对话并关闭自动批准。AI 会按“执行一步 → 分析结果 → 建议下一步”循环完成目标，默认上限 10 步，可在标题栏调整为 1–50 步。默认每一步按 Ctrl+Enter 确认；“自动批准”仅在当前连接生效，高危操作仍强制人工确认。“新对话”会清除 AI 上下文并关闭自动批准，不影响 Shell。输入 <code>!</code> 加命令可强制按 Shell 命令执行。复制/粘贴：Ctrl/⌘+Shift+C / V。</p>
+<p class="terminal-help">“AI 配置”可为当前连接启用并配置自己的 OpenAI 兼容服务。API Key 默认只保存在当前服务端会话内，用户也可选择使用 AES-GCM 加密保存在本地浏览器并在下次连接时自动恢复。当前模型显示在标题栏步数旁；切换配置或模型会开始新对话并关闭自动批准。AI 会按“执行一步 → 分析结果 → 建议下一步”循环完成目标，默认上限 10 步。默认每一步按 Ctrl+Enter 确认，高危操作始终强制人工确认。输入 <code>!</code> 加命令可强制按 Shell 命令执行。复制/粘贴：Ctrl/⌘+Shift+C / V。</p>
 {% endblock %}
 
 {% block modals %}
+<div id="terminalAIConfigDialog" class="modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="terminalAIConfigTitle">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="terminalAIConfigTitle">当前终端的 AI 配置</h3>
+            <button id="terminalAIConfigClose" class="modal-close" type="button" aria-label="关闭">&times;</button>
+        </div>
+        <form id="terminalAIConfigForm">
+            <div class="terminal-ai-config-form">
+                <div class="form-group">
+                    <label class="terminal-ai-config-check"><input id="terminal_user_ai_enabled" type="checkbox"> 启用 AI 对话</label>
+                </div>
+                <div class="terminal-ai-config-grid">
+                    <div class="form-group">
+                        <label for="terminal_user_ai_provider">Provider</label>
+                        <select id="terminal_user_ai_provider">
+                            <option value="deepseek">DeepSeek</option>
+                            <option value="vllm">vLLM</option>
+                            <option value="sglang">SGLang</option>
+                            <option value="openai-compatible">其他 OpenAI 兼容服务</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="terminal_user_ai_timeout">请求超时（秒）</label>
+                        <input id="terminal_user_ai_timeout" type="number" min="5" max="300" value="60">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="terminal_user_ai_model">模型名称</label>
+                    <input id="terminal_user_ai_model" maxlength="256" autocomplete="off" placeholder="例如 deepseek-chat 或已部署模型 ID">
+                </div>
+                <div class="form-group">
+                    <label for="terminal_user_ai_base_url">OpenAI 兼容 Base URL</label>
+                    <input id="terminal_user_ai_base_url" type="url" maxlength="2048" placeholder="https://api.deepseek.com">
+                </div>
+                <div class="form-group">
+                    <label for="terminal_user_ai_api_key">API Key</label>
+                    <input id="terminal_user_ai_api_key" type="password" maxlength="4096" autocomplete="new-password" placeholder="输入当前连接使用的 API Key">
+                    <p id="terminalUserAIKeyStatus" class="terminal-ai-config-help">默认只保存在当前服务端会话中。</p>
+                    <label class="terminal-ai-config-check"><input id="terminal_user_ai_clear_key" type="checkbox"> 清除当前连接中的 API Key</label>
+                </div>
+                <div class="form-group">
+                    <label class="terminal-ai-config-check"><input id="terminal_user_ai_persist" type="checkbox"> 使用 AES-GCM 加密保存在此浏览器</label>
+                    <p id="terminalUserAIPersistHelp" class="terminal-ai-config-help">勾选后，下次使用同一浏览器登录此账户时会自动恢复；清除站点数据会删除配置。</p>
+                </div>
+                <p class="terminal-ai-config-help">配置不会修改管理员的全局默认值，也不会影响其他用户。浏览器持久化只能防止磁盘明文泄露，不能抵御已获得当前网页执行权限的恶意脚本。</p>
+                <p id="terminalAIConfigStatus" class="terminal-ai-config-help" role="status" aria-live="polite"></p>
+            </div>
+            <div class="modal-footer terminal-leave-footer">
+                <button id="terminalAIConfigCancel" class="btn btn-secondary" type="button">取消</button>
+                <button class="btn btn-primary" type="submit">应用配置</button>
+            </div>
+        </form>
+    </div>
+</div>
 <div id="terminalLeaveDialog" class="modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="terminalLeaveTitle">
     <div class="modal-content">
         <div class="modal-header">

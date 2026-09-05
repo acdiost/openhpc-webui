@@ -17,7 +17,7 @@
 | 节点管理 | 节点配置维护、Drain、Resume 和状态查看 |
 | 作业管理 | 活动作业、近期完成作业、详情、取消及标准输出/错误查看 |
 | 文件管理 | Home/系统路径分页浏览、隐藏项切换、文本编辑、上传下载、新建、重命名和删除 |
-| Web 终端 | 基于 xterm.js 的交互式 Shell、窗口自适应、当前页/新标签入口、悬浮收缩、离开确认、会话超时和断线清理 |
+| Web 终端 | 基于 xterm.js 的交互式 Shell、用户 AI Provider/API Key 配置、可选浏览器 AES-GCM 加密持久化、窗口自适应、悬浮收缩、离开确认、会话超时和断线清理 |
 | 权限管理 | 门户管理员授权与撤销 |
 
 页面资源随项目提供，不依赖外部 CDN。列表采用固定表头、对齐的数字和状态列，并在内容溢出时提供横向滚动。
@@ -138,7 +138,7 @@ uv run openhpc_webui
 | `TERMINAL_ENABLED` | 是否启用 xterm.js Web 终端，默认启用；认证关闭时始终不可用 |
 | `TERMINAL_IDLE_MINUTES` | 终端无输入输出的自动断开时间，默认 30 分钟 |
 | `TERMINAL_MAX_SESSIONS` | 每个用户最多同时打开的终端数，默认 2 |
-| `TERMINAL_AI_ENABLED` | 是否启用终端 AI 对话，默认关闭 |
+| `TERMINAL_AI_ENABLED` | 新终端连接是否默认启用 AI 对话，默认关闭；用户可在当前连接中覆盖 |
 | `TERMINAL_AI_PROVIDER` | 模型服务类型：`deepseek`、`vllm`、`sglang` 或 `openai-compatible` |
 | `TERMINAL_AI_BASE_URL` | OpenAI 兼容 API 根地址，通常以 `/v1` 结尾 |
 | `TERMINAL_AI_MODEL` | 服务端可用的模型名称 |

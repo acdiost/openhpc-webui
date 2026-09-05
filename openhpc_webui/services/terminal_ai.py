@@ -8,7 +8,7 @@ import re
 import shlex
 import shutil
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlsplit
@@ -72,7 +72,7 @@ class TerminalAIConfig:
     provider: str
     base_url: str
     model: str
-    api_key: str
+    api_key: str = field(repr=False)
     timeout_seconds: int
 
     @property
@@ -134,8 +134,10 @@ def get_config() -> TerminalAIConfig:
     )
 
 
-def public_config(*, include_endpoint: bool = False) -> Dict[str, Any]:
-    config = get_config()
+def public_config(
+    *, include_endpoint: bool = False, config: Optional[TerminalAIConfig] = None
+) -> Dict[str, Any]:
+    config = config or get_config()
     result: Dict[str, Any] = {
         "enabled": config.enabled,
         "available": config.available,
@@ -183,6 +185,39 @@ def save_config(
     *, enabled: bool, provider: str, base_url: str, model: str,
     api_key: Optional[str], clear_api_key: bool, timeout_seconds: int,
 ) -> Dict[str, Any]:
+    config = build_config(
+        enabled=enabled,
+        provider=provider,
+        base_url=base_url,
+        model=model,
+        api_key=api_key or "",
+        timeout_seconds=timeout_seconds,
+    )
+    provider = config.provider
+    base_url = config.base_url
+    model = config.model
+    timeout_seconds = config.timeout_seconds
+    api_key = config.api_key if api_key is not None else None
+    values = {
+        _ENV_KEYS["enabled"]: "True" if enabled else "False",
+        _ENV_KEYS["provider"]: provider,
+        _ENV_KEYS["base_url"]: base_url,
+        _ENV_KEYS["model"]: model,
+        _ENV_KEYS["timeout_seconds"]: str(timeout_seconds),
+    }
+    if clear_api_key:
+        values[_ENV_KEYS["api_key"]] = ""
+    elif api_key:
+        values[_ENV_KEYS["api_key"]] = api_key
+    _write_env(values)
+    return public_config(include_endpoint=True)
+
+
+def build_config(
+    *, enabled: bool, provider: str, base_url: str, model: str,
+    api_key: str, timeout_seconds: int,
+) -> TerminalAIConfig:
+    """Validate an OpenAI-compatible configuration without persisting it."""
     provider = provider.strip().lower()
     if provider not in _PROVIDERS:
         raise TerminalAIError("不支持的模型服务类型")
@@ -191,24 +226,25 @@ def save_config(
         raise TerminalAIError("启用终端 AI 前必须填写模型名称")
     if enabled and not base_url:
         raise TerminalAIError("启用终端 AI 前必须填写 Base URL")
+    if len(base_url) > 2048:
+        raise TerminalAIError("Base URL 过长")
     if base_url:
         base_url = _validate_url(base_url)
-    for label, value in (("模型名称", model), ("API Key", api_key or "")):
+    if len(model) > 256:
+        raise TerminalAIError("模型名称无效")
+    if len(api_key) > 4096:
+        raise TerminalAIError("API Key 过长")
+    for label, value in (("模型名称", model), ("API Key", api_key)):
         if any(ord(character) < 32 for character in value):
             raise TerminalAIError(f"{label}不能包含控制字符")
-    values = {
-        _ENV_KEYS["enabled"]: "True" if enabled else "False",
-        _ENV_KEYS["provider"]: provider,
-        _ENV_KEYS["base_url"]: base_url,
-        _ENV_KEYS["model"]: model.strip(),
-        _ENV_KEYS["timeout_seconds"]: str(max(5, min(timeout_seconds, 300))),
-    }
-    if clear_api_key:
-        values[_ENV_KEYS["api_key"]] = ""
-    elif api_key is not None and api_key.strip():
-        values[_ENV_KEYS["api_key"]] = api_key.strip()
-    _write_env(values)
-    return public_config(include_endpoint=True)
+    return TerminalAIConfig(
+        enabled=enabled,
+        provider=provider,
+        base_url=base_url,
+        model=model.strip(),
+        api_key=api_key.strip(),
+        timeout_seconds=max(5, min(timeout_seconds, 300)),
+    )
 
 
 def _write_env(values: Dict[str, str]) -> None:
@@ -283,6 +319,7 @@ class TerminalAIClient:
         history: List[Dict[str, str]],
         goal: Optional[str] = None,
         model: Optional[str] = None,
+        config: Optional[TerminalAIConfig] = None,
     ) -> TerminalAIReply:
         system = (
             "你是具备受控操作能力的 Linux/HPC 终端助手。回答必须是一个 JSON 对象，"
@@ -318,10 +355,10 @@ class TerminalAIClient:
             })
         else:
             messages.append({"role": "user", "content": question})
-        content = await self._complete(messages, model=model)
+        content = await self._complete(messages, model=model, config=config)
         reply = self._parse_reply(content)
         reply = await self._repair_missing_action(
-            messages, content, reply, goal or question, model
+            messages, content, reply, goal or question, model, config
         )
         history.extend([
             {"role": "user", "content": question},
@@ -338,6 +375,7 @@ class TerminalAIClient:
         exit_code: int,
         goal: Optional[str] = None,
         model: Optional[str] = None,
+        config: Optional[TerminalAIConfig] = None,
     ) -> TerminalAIReply:
         """Analyze one action and decide the next action for the same user goal."""
         observation = (
@@ -370,10 +408,10 @@ class TerminalAIClient:
         messages = [{"role": "system", "content": system}]
         messages.extend(history[-8:])
         messages.append({"role": "user", "content": observation})
-        content = await self._complete(messages, model=model)
+        content = await self._complete(messages, model=model, config=config)
         reply = self._parse_reply(content)
         reply = await self._repair_missing_action(
-            messages, content, reply, goal or "", model
+            messages, content, reply, goal or "", model, config
         )
         history.extend([
             {"role": "user", "content": observation},
@@ -393,6 +431,7 @@ class TerminalAIClient:
         reply: TerminalAIReply,
         goal: str,
         model: Optional[str],
+        config: Optional[TerminalAIConfig],
     ) -> TerminalAIReply:
         """Give a model one chance to replace an incomplete description with an action."""
         if not self._needs_action_repair(goal, reply):
@@ -412,7 +451,9 @@ class TerminalAIClient:
                 ),
             },
         ])
-        repaired_content = await self._complete(repair_messages, model=model)
+        repaired_content = await self._complete(
+            repair_messages, model=model, config=config
+        )
         repaired = self._parse_reply(repaired_content)
         if self._needs_action_repair(goal, repaired):
             return TerminalAIReply(
@@ -453,7 +494,13 @@ class TerminalAIClient:
             return False
         return not reply.done or bool(_INCOMPLETE_ACTION_REPLY.search(reply.answer))
 
-    async def summarize(self, command: str, output: str, exit_code: int) -> str:
+    async def summarize(
+        self,
+        command: str,
+        output: str,
+        exit_code: int,
+        config: Optional[TerminalAIConfig] = None,
+    ) -> str:
         prompt = (
             f"分析下面终端命令的执行结果并用中文简洁总结。退出码：{exit_code}\n"
             f"命令：{command}\n输出（可能已截断）：\n{output or '(无输出)'}"
@@ -468,15 +515,16 @@ class TerminalAIClient:
                 ),
             },
             {"role": "user", "content": prompt},
-        ])
+        ], config=config)
 
     async def _complete(
         self,
         messages: List[Dict[str, str]],
         *,
         model: Optional[str] = None,
+        config: Optional[TerminalAIConfig] = None,
     ) -> str:
-        config = get_config()
+        config = config or get_config()
         if not config.available:
             raise TerminalAIError("终端 AI 尚未配置或未启用")
         selected_model = validate_model_name(model) if model else config.model
@@ -516,7 +564,7 @@ class TerminalAIClient:
         except TerminalAIError:
             raise
         except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
-            raise TerminalAIError("模型服务请求失败，请联系管理员检查配置") from exc
+            raise TerminalAIError("模型服务请求失败，请检查当前 AI 配置") from exc
         raise TerminalAIError("模型服务连续返回空内容，请尝试切换模型或联系管理员")
 
     @staticmethod

@@ -46,6 +46,22 @@
     const aiModelOptions = document.getElementById("terminalAIModelOptions");
     const aiModelApply = document.getElementById("terminalAIModelApply");
     const aiProvider = document.getElementById("terminalAIProvider");
+    const aiConfigButton = document.getElementById("terminalAIConfigButton");
+    const aiConfigDialog = document.getElementById("terminalAIConfigDialog");
+    const aiConfigClose = document.getElementById("terminalAIConfigClose");
+    const aiConfigCancel = document.getElementById("terminalAIConfigCancel");
+    const aiConfigForm = document.getElementById("terminalAIConfigForm");
+    const aiEnabledInput = document.getElementById("terminal_user_ai_enabled");
+    const aiProviderInput = document.getElementById("terminal_user_ai_provider");
+    const aiBaseURLInput = document.getElementById("terminal_user_ai_base_url");
+    const aiConfigModelInput = document.getElementById("terminal_user_ai_model");
+    const aiAPIKeyInput = document.getElementById("terminal_user_ai_api_key");
+    const aiClearKeyInput = document.getElementById("terminal_user_ai_clear_key");
+    const aiTimeoutInput = document.getElementById("terminal_user_ai_timeout");
+    const aiKeyStatus = document.getElementById("terminalUserAIKeyStatus");
+    const aiConfigStatus = document.getElementById("terminalAIConfigStatus");
+    const aiPersistInput = document.getElementById("terminal_user_ai_persist");
+    const aiPersistHelp = document.getElementById("terminalUserAIPersistHelp");
     const stepLimitControl = document.getElementById("terminalStepLimitControl");
     const stepLimitInput = document.getElementById("terminalStepLimit");
     const riskMaxSteps = document.getElementById("terminalRiskMaxSteps");
@@ -79,10 +95,149 @@
     let placeholderTimer = null;
     let placeholderVisible = false;
     let bracketedPasteBuffer = null;
+    let currentAIConfig = {};
+    let currentUsername = "";
+    let persistedAIConfig = null;
+    let pendingAIConfigPersistence = null;
+    let restoringPersistedAIConfig = false;
 
     const placeholderText = "输入命令，或输入问题与 AI 对话…";
     const pasteStart = "\x1b[200~";
     const pasteEnd = "\x1b[201~";
+    const providerDefaults = {
+        deepseek: "https://api.deepseek.com",
+        vllm: "http://127.0.0.1:8000/v1",
+        sglang: "http://127.0.0.1:30000/v1",
+        "openai-compatible": ""
+    };
+    const aiConfigDatabaseName = "openhpc-terminal-ai";
+    const aiConfigStoreName = "encrypted-configs";
+
+    function encryptedStorageAvailable() {
+        return Boolean(window.isSecureContext && window.crypto && window.crypto.subtle && window.indexedDB);
+    }
+
+    function openAIConfigDatabase() {
+        return new Promise((resolve, reject) => {
+            const request = window.indexedDB.open(aiConfigDatabaseName, 1);
+            request.onupgradeneeded = () => {
+                const database = request.result;
+                if (!database.objectStoreNames.contains(aiConfigStoreName)) {
+                    database.createObjectStore(aiConfigStoreName);
+                }
+            };
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error || new Error("无法打开浏览器配置存储"));
+        });
+    }
+
+    async function accessStoredAIConfig(mode, action) {
+        const database = await openAIConfigDatabase();
+        try {
+            return await new Promise((resolve, reject) => {
+                const transaction = database.transaction(aiConfigStoreName, mode);
+                const request = action(transaction.objectStore(aiConfigStoreName));
+                let result;
+                request.onsuccess = () => { result = request.result; };
+                request.onerror = () => reject(request.error || new Error("浏览器配置存储失败"));
+                transaction.oncomplete = () => resolve(result);
+                transaction.onabort = () => reject(transaction.error || new Error("浏览器配置事务失败"));
+            });
+        } finally {
+            database.close();
+        }
+    }
+
+    async function saveEncryptedAIConfig(config) {
+        if (!encryptedStorageAvailable() || !currentUsername) {
+            throw new Error("当前浏览器环境不支持安全的本地加密存储");
+        }
+        const key = await window.crypto.subtle.generateKey(
+            {name: "AES-GCM", length: 256},
+            false,
+            ["encrypt", "decrypt"]
+        );
+        const iv = window.crypto.getRandomValues(new Uint8Array(12));
+        const plaintext = new TextEncoder().encode(JSON.stringify(config));
+        const ciphertext = await window.crypto.subtle.encrypt(
+            {name: "AES-GCM", iv}, key, plaintext
+        );
+        await accessStoredAIConfig("readwrite", (store) => store.put({
+            version: 1,
+            algorithm: "AES-GCM",
+            key,
+            iv,
+            ciphertext,
+        }, currentUsername));
+        persistedAIConfig = Object.assign({}, config);
+    }
+
+    async function loadEncryptedAIConfig() {
+        if (!encryptedStorageAvailable() || !currentUsername) return null;
+        const record = await accessStoredAIConfig(
+            "readonly", (store) => store.get(currentUsername)
+        );
+        if (!record) return null;
+        if (record.version !== 1 || record.algorithm !== "AES-GCM") {
+            throw new Error("浏览器中的 AI 配置版本不受支持");
+        }
+        const plaintext = await window.crypto.subtle.decrypt(
+            {name: "AES-GCM", iv: new Uint8Array(record.iv)},
+            record.key,
+            record.ciphertext
+        );
+        const config = JSON.parse(new TextDecoder().decode(plaintext));
+        if (
+            !config || typeof config !== "object"
+            || !Object.prototype.hasOwnProperty.call(providerDefaults, config.provider)
+            || typeof config.base_url !== "string"
+            || config.base_url.length > 2048
+            || typeof config.model !== "string"
+            || config.model.length > 256
+            || typeof config.api_key !== "string"
+            || config.api_key.length > 4096
+            || !Number.isFinite(Number(config.timeout_seconds))
+        ) {
+            throw new Error("浏览器中的 AI 配置无效");
+        }
+        return config;
+    }
+
+    async function deleteEncryptedAIConfig() {
+        if (!window.indexedDB || !currentUsername) return;
+        await accessStoredAIConfig(
+            "readwrite", (store) => store.delete(currentUsername)
+        );
+        persistedAIConfig = null;
+    }
+
+    async function restoreEncryptedAIConfig() {
+        if (!encryptedStorageAvailable()) return;
+        restoringPersistedAIConfig = true;
+        try {
+            const config = await loadEncryptedAIConfig();
+            persistedAIConfig = config;
+            if (!config || !ready) {
+                restoringPersistedAIConfig = false;
+                return;
+            }
+            send({
+                type: "set_ai_config",
+                enabled: config.enabled === true,
+                provider: config.provider,
+                base_url: config.base_url,
+                model: config.model,
+                api_key: config.api_key || null,
+                clear_api_key: config.clear_api_key === true,
+                timeout_seconds: Number(config.timeout_seconds || 60)
+            });
+            writeNotice("正在恢复此浏览器保存的 AI 配置…", "36");
+        } catch (_) {
+            restoringPersistedAIConfig = false;
+            await deleteEncryptedAIConfig().catch(() => {});
+            writeNotice("浏览器中保存的 AI 配置无法解密，已清除，请重新配置", "33");
+        }
+    }
 
     function displayWidth(value) {
         return Array.from(value).reduce((width, character) => width + (character.codePointAt(0) > 255 ? 2 : 1), 0);
@@ -96,6 +251,55 @@
             option.value = String(model);
             aiModelOptions.appendChild(option);
         }
+    }
+
+    function syncAIConfig(config) {
+        currentAIConfig = Object.assign({}, config || {});
+        aiAvailable = Boolean(currentAIConfig.available);
+        newAIChatButton.style.display = aiAvailable ? "flex" : "none";
+        aiModelBar.style.display = aiAvailable ? "flex" : "none";
+        aiModelInput.value = aiAvailable ? String(currentAIConfig.model || "") : "";
+        aiProvider.textContent = aiAvailable ? `${currentAIConfig.provider} / OpenAI 兼容接口` : "";
+        aiModelBar.title = aiAvailable ? `模型服务：${currentAIConfig.provider} / OpenAI 兼容接口` : "";
+        setModelChoices(aiAvailable ? currentAIConfig.model_options : []);
+        autoApproveControl.style.display = aiAvailable ? "flex" : "none";
+        stepLimitControl.style.display = aiAvailable ? "flex" : "none";
+    }
+
+    function openAIConfigDialog() {
+        if (!ready) return;
+        if (restoringPersistedAIConfig) {
+            writeNotice("正在恢复此浏览器保存的 AI 配置，请稍候…", "36");
+            return;
+        }
+        aiEnabledInput.checked = Boolean(currentAIConfig.enabled);
+        aiProviderInput.value = currentAIConfig.provider || "deepseek";
+        aiBaseURLInput.value = currentAIConfig.base_url || providerDefaults[aiProviderInput.value] || "";
+        aiConfigModelInput.value = currentAIConfig.model || "";
+        aiTimeoutInput.value = String(currentAIConfig.timeout_seconds || 60);
+        aiAPIKeyInput.value = "";
+        aiClearKeyInput.checked = false;
+        aiPersistInput.checked = Boolean(persistedAIConfig);
+        aiPersistInput.disabled = !encryptedStorageAvailable();
+        aiPersistHelp.textContent = encryptedStorageAvailable()
+            ? "勾选后，下次使用同一浏览器登录此账户时会自动恢复；清除站点数据会删除配置。"
+            : "当前页面不是安全上下文或浏览器不支持 Web Crypto，无法持久化密钥。";
+        aiKeyStatus.textContent = persistedAIConfig && persistedAIConfig.api_key
+            ? "当前连接使用了此浏览器加密保存的密钥；留空可继续使用。"
+            : currentAIConfig.api_key_configured
+            ? "当前连接已有密钥；端点不变时留空可继续使用。"
+            : "当前连接没有 API Key；本地服务可按实际配置留空。";
+        aiConfigStatus.textContent = "";
+        aiConfigStatus.style.color = "";
+        aiConfigDialog.style.display = "flex";
+        aiEnabledInput.focus();
+    }
+
+    function closeAIConfigDialog() {
+        aiConfigDialog.style.display = "none";
+        aiAPIKeyInput.value = "";
+        aiClearKeyInput.checked = false;
+        terminal.focus();
     }
 
     function applyAIModel() {
@@ -277,15 +481,9 @@
             }
             if (message.type === "ready") {
                 ready = true;
-                aiAvailable = Boolean(message.ai && message.ai.available);
-                newAIChatButton.style.display = aiAvailable ? "flex" : "none";
-                aiModelBar.style.display = aiAvailable ? "flex" : "none";
-                aiModelInput.value = aiAvailable ? String(message.ai.model || "") : "";
-                aiProvider.textContent = aiAvailable ? `${message.ai.provider} / OpenAI 兼容接口` : "";
-                aiModelBar.title = aiAvailable ? `模型服务：${message.ai.provider} / OpenAI 兼容接口` : "";
-                setModelChoices(aiAvailable ? message.ai.model_options : []);
-                autoApproveControl.style.display = aiAvailable ? "flex" : "none";
-                stepLimitControl.style.display = aiAvailable ? "flex" : "none";
+                currentUsername = String(message.username || "");
+                aiConfigButton.disabled = false;
+                syncAIConfig(message.ai);
                 maxSteps = Number(message.ai_loop && message.ai_loop.max_steps) || 10;
                 stepLimitInput.max = String(Number(message.ai_loop && message.ai_loop.max_allowed_steps) || 50);
                 stepLimitInput.value = String(maxSteps);
@@ -301,6 +499,55 @@
                 sendSize();
                 terminal.focus();
                 writeNotice(aiAvailable ? `AI 已启用：${message.ai.provider} / ${message.ai.model}` : "AI 未启用，所有输入均按 Shell 命令执行", aiAvailable ? "36" : "90");
+                restoreEncryptedAIConfig();
+            } else if (message.type === "ai_config_changed") {
+                restoringPersistedAIConfig = false;
+                syncAIConfig(message.ai);
+                aiBusy = false;
+                aiTurns = 0;
+                pendingAICommand = false;
+                autoApprove = false;
+                autoApproveCheckbox.checked = false;
+                currentLine = "";
+                lineTrackingReliable = true;
+                closeAIConfigDialog();
+                newAIChatButton.title = "开始新的 AI 对话";
+                writeNotice(
+                    aiAvailable
+                        ? `AI 配置已应用：${message.ai.provider} / ${message.ai.model}`
+                        : "当前连接的 AI 已关闭，所有输入均按 Shell 命令执行",
+                    aiAvailable ? "36" : "90"
+                );
+                const persistence = pendingAIConfigPersistence;
+                pendingAIConfigPersistence = null;
+                if (persistence) {
+                    const operation = persistence.persist
+                        ? saveEncryptedAIConfig(persistence.config)
+                        : deleteEncryptedAIConfig();
+                    operation.then(() => {
+                        writeNotice(
+                            persistence.persist
+                                ? "AI 配置已使用 AES-GCM 加密保存在此浏览器"
+                                : "已停止持久化并清除此浏览器保存的 AI 配置",
+                            "36"
+                        );
+                    }).catch(() => {
+                        writeNotice("AI 配置已应用，但浏览器加密存储失败", "33");
+                    });
+                }
+            } else if (message.type === "ai_config_error") {
+                if (restoringPersistedAIConfig) {
+                    restoringPersistedAIConfig = false;
+                    deleteEncryptedAIConfig().catch(() => {});
+                    writeNotice(
+                        `浏览器保存的 AI 配置无法恢复，已清除：${message.message || "配置无效"}`,
+                        "33"
+                    );
+                    return;
+                }
+                pendingAIConfigPersistence = null;
+                aiConfigStatus.textContent = message.message || "AI 配置无效";
+                aiConfigStatus.style.color = "#b91c1c";
             } else if (message.type === "ai_thinking") {
                 aiBusy = true;
                 pendingAICommand = false;
@@ -401,6 +648,9 @@
         socket.addEventListener("close", (event) => {
             window.clearInterval(keepaliveTimer);
             ready = false;
+            aiConfigButton.disabled = true;
+            pendingAIConfigPersistence = null;
+            restoringPersistedAIConfig = false;
             aiBusy = false;
             autoApprove = false;
             autoApproveCheckbox.checked = false;
@@ -502,6 +752,64 @@
 
     connectButton.addEventListener("click", connect);
     disconnectButton.addEventListener("click", disconnect);
+    aiConfigButton.disabled = true;
+    aiConfigButton.addEventListener("click", openAIConfigDialog);
+    aiConfigClose.addEventListener("click", closeAIConfigDialog);
+    aiConfigCancel.addEventListener("click", closeAIConfigDialog);
+    aiConfigDialog.addEventListener("click", (event) => {
+        if (event.target === aiConfigDialog) closeAIConfigDialog();
+    });
+    aiProviderInput.addEventListener("change", () => {
+        const oldDefaults = Object.values(providerDefaults);
+        if (!aiBaseURLInput.value || oldDefaults.includes(aiBaseURLInput.value)) {
+            aiBaseURLInput.value = providerDefaults[aiProviderInput.value] || "";
+        }
+        if (currentAIConfig.api_key_configured) {
+            aiKeyStatus.textContent = "切换 Provider 或端点时必须重新输入 API Key；旧密钥不会发送到新端点。";
+        }
+    });
+    aiConfigForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        if (!ready || aiBusy) {
+            writeNotice("请连接终端并等待当前 AI 操作结束后再修改配置", "33");
+            return;
+        }
+        const provider = aiProviderInput.value;
+        const baseURL = aiBaseURLInput.value.trim().replace(/\/$/, "");
+        const samePersistedEndpoint = Boolean(
+            persistedAIConfig
+            && persistedAIConfig.provider === provider
+            && String(persistedAIConfig.base_url || "").replace(/\/$/, "") === baseURL
+        );
+        const apiKey = aiClearKeyInput.checked
+            ? ""
+            : aiAPIKeyInput.value || (samePersistedEndpoint ? persistedAIConfig.api_key : "");
+        const config = {
+            enabled: aiEnabledInput.checked,
+            provider,
+            base_url: aiBaseURLInput.value,
+            model: aiConfigModelInput.value,
+            api_key: apiKey,
+            clear_api_key: aiClearKeyInput.checked,
+            timeout_seconds: Number(aiTimeoutInput.value)
+        };
+        pendingAIConfigPersistence = {
+            persist: aiPersistInput.checked,
+            config
+        };
+        send({
+            type: "set_ai_config",
+            enabled: config.enabled,
+            provider: config.provider,
+            base_url: config.base_url,
+            model: config.model,
+            api_key: apiKey || null,
+            clear_api_key: aiClearKeyInput.checked,
+            timeout_seconds: config.timeout_seconds
+        });
+        aiConfigStatus.textContent = "正在应用配置…";
+        aiConfigStatus.style.color = "";
+    });
     newAIChatButton.addEventListener("click", () => {
         if (!ready || !aiAvailable || aiBusy) return;
         send({type: "new_ai_chat"});
@@ -565,7 +873,8 @@
     });
     document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
-            if (autoApproveDialog.style.display !== "none") closeAutoApproveDialog();
+            if (aiConfigDialog.style.display !== "none") closeAIConfigDialog();
+            else if (autoApproveDialog.style.display !== "none") closeAutoApproveDialog();
             else if (leaveDialog.style.display !== "none") closeLeaveDialog();
         }
     });

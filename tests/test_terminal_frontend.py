@@ -146,6 +146,40 @@ class TerminalFrontendTests(unittest.TestCase):
         self.assertIn('message.type === "ai_model_changed"', script)
         self.assertIn("选择或输入模型 ID", template)
 
+    def test_terminal_user_can_configure_session_ai_provider_and_key(self):
+        template = (PROJECT_ROOT / "templates/terminal.html").read_text(
+            encoding="utf-8"
+        )
+        script = (PROJECT_ROOT / "static/terminal.js").read_text(
+            encoding="utf-8"
+        )
+
+        for element_id in (
+            "terminalAIConfigButton",
+            "terminalAIConfigDialog",
+            "terminalAIConfigForm",
+            "terminal_user_ai_enabled",
+            "terminal_user_ai_provider",
+            "terminal_user_ai_base_url",
+            "terminal_user_ai_model",
+            "terminal_user_ai_api_key",
+            "terminal_user_ai_clear_key",
+            "terminal_user_ai_persist",
+            "terminalUserAIPersistHelp",
+        ):
+            self.assertIn(f'id="{element_id}"', template)
+        self.assertIn('type: "set_ai_config"', script)
+        self.assertIn('message.type === "ai_config_changed"', script)
+        self.assertIn('message.type === "ai_config_error"', script)
+        self.assertIn("旧密钥不会发送到新端点", script)
+        self.assertIn("API Key 默认只保存在当前服务端会话内", template)
+        self.assertIn('{name: "AES-GCM", length: 256}', script)
+        self.assertIn('false,\n            ["encrypt", "decrypt"]', script)
+        self.assertIn("window.crypto.subtle.encrypt", script)
+        self.assertIn("window.crypto.subtle.decrypt", script)
+        self.assertIn("window.indexedDB.open", script)
+        self.assertIn("restoreEncryptedAIConfig()", script)
+
     def test_terminal_ai_tracks_bracketed_paste_as_user_text(self):
         script = (PROJECT_ROOT / "static/terminal.js").read_text(
             encoding="utf-8"

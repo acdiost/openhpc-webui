@@ -88,8 +88,10 @@ from .services.terminal_announcement import (
 )
 from .services.terminal_ai import (
     TerminalAIClient,
+    TerminalAIConfig,
     TerminalAIError,
     TerminalAIReply,
+    build_config as build_terminal_ai_config,
     clean_terminal_output,
     command_requires_confirmation,
     get_config as get_terminal_ai_config,
@@ -783,6 +785,7 @@ class _TerminalAIState:
     step_count: int = 0
     max_steps: int = 10
     model: Optional[str] = None
+    config: Optional[TerminalAIConfig] = None
 
 
 _TERMINAL_AI_DEFAULT_MAX_STEPS = 10
@@ -1008,6 +1011,7 @@ async def _send_terminal_output(
                 exit_code,
                 ai_state.active_goal,
                 model=ai_state.model,
+                config=ai_state.config,
             )
             await _present_ai_reply(
                 websocket,
@@ -1079,7 +1083,7 @@ async def _receive_terminal_input(
             )
             if line.strip():
                 ai_state.pending_command = None
-            config = get_terminal_ai_config()
+            config = ai_state.config or get_terminal_ai_config()
             if not config.available or is_probable_command(line):
                 if line.strip():
                     ai_state.loop_active = False
@@ -1104,6 +1108,7 @@ async def _receive_terminal_input(
                     ai_state.history,
                     ai_state.active_goal,
                     model=ai_state.model,
+                    config=ai_state.config,
                 )
             except TerminalAIError as exc:
                 await _send_ws_json(websocket, send_lock, {"type": "ai_error", "message": str(exc)})
@@ -1209,6 +1214,73 @@ async def _receive_terminal_input(
                     "auto_approve": ai_state.auto_approve,
                 },
             )
+        elif message_type == "set_ai_config":
+            if ai_state.active_command:
+                await _send_ws_json(
+                    websocket,
+                    send_lock,
+                    {"type": "ai_error", "message": "AI 命令执行期间不能修改配置"},
+                )
+                continue
+            current = ai_state.config or get_terminal_ai_config()
+            provider = str(payload.get("provider", ""))
+            base_url = str(payload.get("base_url", ""))
+            supplied_key = payload.get("api_key")
+            clear_key = payload.get("clear_api_key") is True
+            normalized_base_url = base_url.strip().rstrip("/")
+            same_endpoint = (
+                provider.strip().lower() == current.provider
+                and normalized_base_url == current.base_url
+            )
+            if clear_key:
+                api_key = ""
+            elif isinstance(supplied_key, str) and supplied_key.strip():
+                api_key = supplied_key
+            elif same_endpoint:
+                api_key = current.api_key
+            else:
+                # Never forward an existing secret to a newly selected endpoint.
+                api_key = ""
+            try:
+                session_config = build_terminal_ai_config(
+                    enabled=payload.get("enabled") is True,
+                    provider=provider,
+                    base_url=base_url,
+                    model=str(payload.get("model", "")),
+                    api_key=api_key,
+                    timeout_seconds=int(payload.get("timeout_seconds", 60)),
+                )
+            except (TerminalAIError, TypeError, ValueError) as exc:
+                message = (
+                    str(exc)
+                    if isinstance(exc, TerminalAIError)
+                    else "请求超时设置无效"
+                )
+                await _send_ws_json(
+                    websocket,
+                    send_lock,
+                    {"type": "ai_config_error", "message": message},
+                )
+                continue
+            ai_state.config = session_config
+            ai_state.model = session_config.model or None
+            ai_state.history.clear()
+            ai_state.active_goal = None
+            ai_state.pending_command = None
+            ai_state.loop_active = False
+            ai_state.step_count = 0
+            ai_state.auto_approve = False
+            await _send_ws_json(
+                websocket,
+                send_lock,
+                {
+                    "type": "ai_config_changed",
+                    "ai": public_terminal_ai_config(
+                        include_endpoint=True, config=session_config
+                    ),
+                    "conversation_reset": True,
+                },
+            )
         elif message_type == "execute_ai":
             await _execute_ai_command(
                 websocket, session, last_activity, ai_state, send_lock
@@ -1270,13 +1342,18 @@ async def terminal_websocket(websocket: WebSocket):
         )
         send_lock = asyncio.Lock()
         terminal_ai_config = get_terminal_ai_config()
-        ai_state = _TerminalAIState(model=terminal_ai_config.model or None)
+        ai_state = _TerminalAIState(
+            model=terminal_ai_config.model or None,
+            config=terminal_ai_config,
+        )
         await _send_ws_json(websocket, send_lock,
             {
                 "type": "ready",
                 "username": username,
                 "idle_minutes": settings.terminal_idle_minutes,
-                "ai": public_terminal_ai_config(),
+                "ai": public_terminal_ai_config(
+                    include_endpoint=True, config=terminal_ai_config
+                ),
                 "ai_loop": {
                     "max_steps": ai_state.max_steps,
                     "max_allowed_steps": _TERMINAL_AI_MAX_ALLOWED_STEPS,

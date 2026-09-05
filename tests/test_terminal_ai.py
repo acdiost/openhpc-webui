@@ -14,7 +14,9 @@ from openhpc_webui.audit import sanitize
 from openhpc_webui.services import terminal_ai
 from openhpc_webui.services.terminal_ai import (
     TerminalAIClient,
+    TerminalAIConfig,
     TerminalAIError,
+    build_config,
     clean_terminal_output,
     command_requires_confirmation,
     get_config,
@@ -90,6 +92,24 @@ class TerminalAICommandTests(unittest.TestCase):
 
 
 class TerminalAIConfigTests(unittest.TestCase):
+    def test_builds_session_config_without_persisting_or_exposing_key(self):
+        config = build_config(
+            enabled=True,
+            provider="openai-compatible",
+            base_url="https://models.example.test/v1/",
+            model="example/model",
+            api_key="session-secret",
+            timeout_seconds=999,
+        )
+
+        self.assertTrue(config.available)
+        self.assertEqual(config.base_url, "https://models.example.test/v1")
+        self.assertEqual(config.timeout_seconds, 300)
+        self.assertNotIn("session-secret", repr(config))
+        public = terminal_ai.public_config(include_endpoint=True, config=config)
+        self.assertTrue(public["api_key_configured"])
+        self.assertNotIn("api_key", public)
+
     def test_persists_quoted_settings_without_returning_key(self):
         with tempfile.TemporaryDirectory() as temp_dir, patch.object(
             terminal_ai, "PROJECT_ROOT", Path(temp_dir)
@@ -440,6 +460,75 @@ class TerminalAIReplyTests(unittest.TestCase):
 
 
 class TerminalAIProtocolTests(unittest.TestCase):
+    def test_user_can_enable_session_provider_and_api_key(self):
+        websocket = _FakeWebSocket([
+            {
+                "type": "websocket.receive",
+                "text": json.dumps({
+                    "type": "set_ai_config",
+                    "enabled": True,
+                    "provider": "openai-compatible",
+                    "base_url": "https://models.example.test/v1",
+                    "model": "example/model",
+                    "api_key": "user-secret",
+                    "timeout_seconds": 45,
+                }),
+            },
+            {"type": "websocket.disconnect"},
+        ])
+        state = main._TerminalAIState()
+
+        async def receive():
+            await main._receive_terminal_input(
+                websocket, _FakeSession(), [0.0], state, asyncio.Lock()
+            )
+
+        asyncio.run(receive())
+
+        self.assertTrue(state.config.available)
+        self.assertEqual(state.config.provider, "openai-compatible")
+        self.assertEqual(state.config.api_key, "user-secret")
+        self.assertEqual(websocket.json[-1]["type"], "ai_config_changed")
+        self.assertTrue(websocket.json[-1]["ai"]["api_key_configured"])
+        self.assertNotIn("api_key", websocket.json[-1]["ai"])
+
+    def test_changing_session_endpoint_does_not_reuse_existing_key(self):
+        current = TerminalAIConfig(
+            enabled=True,
+            provider="deepseek",
+            base_url="https://api.deepseek.com",
+            model="deepseek-v4-flash",
+            api_key="global-secret",
+            timeout_seconds=60,
+        )
+        websocket = _FakeWebSocket([
+            {
+                "type": "websocket.receive",
+                "text": json.dumps({
+                    "type": "set_ai_config",
+                    "enabled": True,
+                    "provider": "openai-compatible",
+                    "base_url": "https://other.example.test/v1",
+                    "model": "other-model",
+                    "api_key": None,
+                    "timeout_seconds": 60,
+                }),
+            },
+            {"type": "websocket.disconnect"},
+        ])
+        state = main._TerminalAIState(config=current, model=current.model)
+
+        async def receive():
+            await main._receive_terminal_input(
+                websocket, _FakeSession(), [0.0], state, asyncio.Lock()
+            )
+
+        asyncio.run(receive())
+
+        self.assertEqual(state.config.base_url, "https://other.example.test/v1")
+        self.assertEqual(state.config.api_key, "")
+        self.assertFalse(websocket.json[-1]["ai"]["api_key_configured"])
+
     def test_ai_reply_only_stages_command_until_execute_message(self):
         websocket = _FakeWebSocket([
             {"type": "websocket.receive", "text": '{"type":"submit","line":"查看作业"}'},
