@@ -41,6 +41,11 @@
     const terminalWindow = document.getElementById("terminalWindow");
     const minimizeButton = document.getElementById("minimizeTerminalButton");
     const newAIChatButton = document.getElementById("newAIChatButton");
+    const aiModelBar = document.getElementById("terminalAIModelBar");
+    const aiModelInput = document.getElementById("terminalAIModelInput");
+    const aiModelOptions = document.getElementById("terminalAIModelOptions");
+    const aiModelApply = document.getElementById("terminalAIModelApply");
+    const aiProvider = document.getElementById("terminalAIProvider");
     const stepLimitControl = document.getElementById("terminalStepLimitControl");
     const stepLimitInput = document.getElementById("terminalStepLimit");
     const riskMaxSteps = document.getElementById("terminalRiskMaxSteps");
@@ -81,6 +86,30 @@
 
     function displayWidth(value) {
         return Array.from(value).reduce((width, character) => width + (character.codePointAt(0) > 255 ? 2 : 1), 0);
+    }
+
+    function setModelChoices(models) {
+        aiModelOptions.replaceChildren();
+        for (const model of models || []) {
+            if (!model) continue;
+            const option = document.createElement("option");
+            option.value = String(model);
+            aiModelOptions.appendChild(option);
+        }
+    }
+
+    function applyAIModel() {
+        const model = aiModelInput.value.trim();
+        if (!ready || !aiAvailable) return;
+        if (aiBusy) {
+            writeNotice("请等待当前 AI 操作结束后再切换模型", "33");
+            return;
+        }
+        if (!model) {
+            writeNotice("模型名称不能为空", "31");
+            return;
+        }
+        send({type: "set_ai_model", model});
     }
 
     function trackTerminalInput(data) {
@@ -241,6 +270,10 @@
                 ready = true;
                 aiAvailable = Boolean(message.ai && message.ai.available);
                 newAIChatButton.style.display = aiAvailable ? "flex" : "none";
+                aiModelBar.style.display = aiAvailable ? "flex" : "none";
+                aiModelInput.value = aiAvailable ? String(message.ai.model || "") : "";
+                aiProvider.textContent = aiAvailable ? `${message.ai.provider} / OpenAI 兼容接口` : "";
+                setModelChoices(aiAvailable ? message.ai.model_options : []);
                 autoApproveControl.style.display = aiAvailable ? "flex" : "none";
                 stepLimitControl.style.display = aiAvailable ? "flex" : "none";
                 maxSteps = Number(message.ai_loop && message.ai_loop.max_steps) || 10;
@@ -309,6 +342,24 @@
                 stepLimitInput.value = String(maxSteps);
                 riskMaxSteps.textContent = String(maxSteps);
                 writeNotice(`AI 单次目标循环上限已设为 ${maxSteps} 步`, "36");
+            } else if (message.type === "ai_model_changed") {
+                aiModelInput.value = String(message.model || "");
+                if (![...aiModelOptions.options].some((option) => option.value === message.model)) {
+                    const option = document.createElement("option");
+                    option.value = String(message.model || "");
+                    aiModelOptions.appendChild(option);
+                }
+                if (message.conversation_reset) {
+                    aiBusy = false;
+                    aiTurns = 0;
+                    pendingAICommand = false;
+                    autoApprove = false;
+                    autoApproveCheckbox.checked = false;
+                    newAIChatButton.title = "开始新的 AI 对话";
+                    writeNotice(`已切换 AI 模型：${message.model}；已开始新对话并关闭自动批准`, "36");
+                } else {
+                    writeNotice(`当前 AI 模型：${message.model}`, "36");
+                }
             } else if (message.type === "ai_loop_stopped") {
                 aiBusy = false;
                 pendingAICommand = false;
@@ -437,6 +488,12 @@
         if (!ready || !aiAvailable || aiBusy) return;
         send({type: "new_ai_chat"});
         terminal.focus();
+    });
+    aiModelApply.addEventListener("click", applyAIModel);
+    aiModelInput.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        applyAIModel();
     });
     stepLimitInput.addEventListener("change", () => {
         const upper = Number(stepLimitInput.max || 50);

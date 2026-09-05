@@ -90,6 +90,7 @@ from .services.terminal_ai import (
     is_probable_command,
     public_config as public_terminal_ai_config,
     save_config as save_terminal_ai_config,
+    validate_model_name,
 )
 
 AUTH_ENABLED = settings.auth_enabled
@@ -732,6 +733,7 @@ class _TerminalAIState:
     loop_active: bool = False
     step_count: int = 0
     max_steps: int = 10
+    model: Optional[str] = None
 
 
 _TERMINAL_AI_DEFAULT_MAX_STEPS = 10
@@ -953,6 +955,7 @@ async def _send_terminal_output(
                 output,
                 exit_code,
                 ai_state.active_goal,
+                model=ai_state.model,
             )
             await _present_ai_reply(
                 websocket,
@@ -1045,7 +1048,10 @@ async def _receive_terminal_input(
             await _send_ws_json(websocket, send_lock, {"type": "ai_thinking"})
             try:
                 reply = await terminal_ai_client.ask(
-                    line.strip(), ai_state.history, ai_state.active_goal
+                    line.strip(),
+                    ai_state.history,
+                    ai_state.active_goal,
+                    model=ai_state.model,
                 )
             except TerminalAIError as exc:
                 await _send_ws_json(websocket, send_lock, {"type": "ai_error", "message": str(exc)})
@@ -1117,6 +1123,40 @@ async def _receive_terminal_input(
                     "max_allowed_steps": _TERMINAL_AI_MAX_ALLOWED_STEPS,
                 },
             )
+        elif message_type == "set_ai_model":
+            if ai_state.active_command:
+                await _send_ws_json(
+                    websocket,
+                    send_lock,
+                    {"type": "ai_error", "message": "AI 命令执行期间不能切换模型"},
+                )
+                continue
+            try:
+                selected_model = validate_model_name(str(payload.get("model", "")))
+            except TerminalAIError as exc:
+                await _send_ws_json(
+                    websocket, send_lock, {"type": "ai_error", "message": str(exc)}
+                )
+                continue
+            changed = selected_model != ai_state.model
+            ai_state.model = selected_model
+            if changed:
+                ai_state.history.clear()
+                ai_state.active_goal = None
+                ai_state.pending_command = None
+                ai_state.loop_active = False
+                ai_state.step_count = 0
+                ai_state.auto_approve = False
+            await _send_ws_json(
+                websocket,
+                send_lock,
+                {
+                    "type": "ai_model_changed",
+                    "model": ai_state.model,
+                    "conversation_reset": changed,
+                    "auto_approve": ai_state.auto_approve,
+                },
+            )
         elif message_type == "execute_ai":
             await _execute_ai_command(
                 websocket, session, last_activity, ai_state, send_lock
@@ -1177,7 +1217,8 @@ async def terminal_websocket(websocket: WebSocket):
             pid=session.pid,
         )
         send_lock = asyncio.Lock()
-        ai_state = _TerminalAIState()
+        terminal_ai_config = get_terminal_ai_config()
+        ai_state = _TerminalAIState(model=terminal_ai_config.model or None)
         await _send_ws_json(websocket, send_lock,
             {
                 "type": "ready",

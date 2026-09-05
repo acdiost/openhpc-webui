@@ -81,6 +81,10 @@ class TerminalFrontendTests(unittest.TestCase):
             "terminalAutoApproveCancel",
             "terminalAutoApproveConfirm",
             "terminalStepLimit",
+            "terminalAIModelBar",
+            "terminalAIModelInput",
+            "terminalAIModelOptions",
+            "terminalAIModelApply",
         ):
             self.assertIn(f'id="{element_id}"', template)
         self.assertIn("可能覆盖文件、提交作业、占用 GPU 配额", template)
@@ -89,6 +93,9 @@ class TerminalFrontendTests(unittest.TestCase):
         self.assertIn("默认上限 10 步", template)
         self.assertIn('max="50"', template)
         self.assertIn('send({type: "set_ai_max_steps", max_steps: normalized})', script)
+        self.assertIn('send({type: "set_ai_model", model})', script)
+        self.assertIn('message.type === "ai_model_changed"', script)
+        self.assertIn("选择或输入模型 ID", template)
 
     def test_terminal_ai_tracks_bracketed_paste_as_user_text(self):
         script = (PROJECT_ROOT / "static/terminal.js").read_text(

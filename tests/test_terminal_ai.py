@@ -19,8 +19,10 @@ from openhpc_webui.services.terminal_ai import (
     command_requires_confirmation,
     get_config,
     is_probable_command,
+    model_options,
     save_config,
     TerminalAIReply,
+    validate_model_name,
 )
 import openhpc_webui.application as main
 
@@ -131,6 +133,16 @@ class TerminalAIConfigTests(unittest.TestCase):
             config = get_config()
         self.assertTrue(config.available)
         self.assertEqual(config.base_url, "https://api.deepseek.com/v1")
+        self.assertEqual(
+            model_options(config), ["deepseek-chat", "deepseek-reasoner"]
+        )
+
+    def test_terminal_model_name_validation(self):
+        self.assertEqual(validate_model_name("  Qwen/Qwen3-32B  "), "Qwen/Qwen3-32B")
+        for value in ("", "bad\nmodel", "x" * 257):
+            with self.subTest(value=value[:20]):
+                with self.assertRaises(TerminalAIError):
+                    validate_model_name(value)
 
     def test_audit_sanitizer_redacts_api_key(self):
         self.assertEqual(sanitize({"api_key": "secret"})["api_key"], "[REDACTED]")
@@ -150,6 +162,16 @@ class TerminalAIReplyTests(unittest.TestCase):
         self.assertEqual(reply.answer, "可以查看队列")
         self.assertFalse(reply.done)
         self.assertEqual(len(history), 2)
+
+    def test_session_model_is_forwarded_to_completion(self):
+        client = TerminalAIClient()
+        client._complete = AsyncMock(
+            return_value='{"answer":"完成", "command":null, "done":true}'
+        )
+
+        asyncio.run(client.ask("你好", [], model="custom-model"))
+
+        self.assertEqual(client._complete.await_args.kwargs["model"], "custom-model")
 
     def test_execution_result_can_produce_the_next_loop_action(self):
         client = TerminalAIClient()
@@ -395,6 +417,34 @@ class TerminalAIProtocolTests(unittest.TestCase):
         self.assertEqual(state.max_steps, 50)
         self.assertEqual(websocket.json[-1]["type"], "ai_loop_settings")
         self.assertEqual(websocket.json[-1]["max_steps"], 50)
+
+    def test_switching_model_resets_ai_state_for_the_session(self):
+        websocket = _FakeWebSocket([
+            {"type": "websocket.receive", "text": '{"type":"set_ai_model","model":"Qwen/Qwen3-32B"}'},
+            {"type": "websocket.disconnect"},
+        ])
+        session = _FakeSession()
+        state = main._TerminalAIState(
+            history=[{"role": "user", "content": "old"}],
+            active_goal="old goal",
+            pending_command="old command",
+            auto_approve=True,
+            model="deepseek-chat",
+        )
+
+        async def receive():
+            await main._receive_terminal_input(
+                websocket, session, [0.0], state, asyncio.Lock()
+            )
+
+        asyncio.run(receive())
+
+        self.assertEqual(state.model, "Qwen/Qwen3-32B")
+        self.assertEqual(state.history, [])
+        self.assertIsNone(state.pending_command)
+        self.assertFalse(state.auto_approve)
+        self.assertEqual(websocket.json[-1]["type"], "ai_model_changed")
+        self.assertTrue(websocket.json[-1]["conversation_reset"])
 
     def test_completion_marker_is_hidden_and_output_is_summarized(self):
         start_marker = b"__OPENHPC_AI_START_abc__"

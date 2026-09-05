@@ -20,6 +20,10 @@ from ..config import PROJECT_ROOT
 
 _PROVIDERS = {"deepseek", "vllm", "sglang", "openai-compatible"}
 _DEFAULT_BASE_URLS = {"deepseek": "https://api.deepseek.com/v1"}
+_PROVIDER_MODEL_OPTIONS = {
+    "deepseek": ("deepseek-v4-flash", "deepseek-v4-pro",
+    "deepseek-v4-flash-vision-exp"),
+}
 _ENV_KEYS = {
     "enabled": "TERMINAL_AI_ENABLED",
     "provider": "TERMINAL_AI_PROVIDER",
@@ -138,10 +142,28 @@ def public_config(*, include_endpoint: bool = False) -> Dict[str, Any]:
         "model": config.model,
         "api_key_configured": bool(config.api_key),
         "timeout_seconds": config.timeout_seconds,
+        "model_options": model_options(config),
     }
     if include_endpoint:
         result["base_url"] = config.base_url
     return result
+
+
+def model_options(config: Optional[TerminalAIConfig] = None) -> List[str]:
+    """Return useful terminal choices without claiming unserved local models."""
+    current = config or get_config()
+    candidates = [current.model]
+    candidates.extend(_PROVIDER_MODEL_OPTIONS.get(current.provider, ()))
+    return list(dict.fromkeys(value for value in candidates if value))
+
+
+def validate_model_name(value: str) -> str:
+    model = value.strip()
+    if not model:
+        raise TerminalAIError("模型名称不能为空")
+    if len(model) > 256 or any(ord(character) < 32 for character in model):
+        raise TerminalAIError("模型名称无效")
+    return model
 
 
 def _validate_url(value: str) -> str:
@@ -259,6 +281,7 @@ class TerminalAIClient:
         question: str,
         history: List[Dict[str, str]],
         goal: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> TerminalAIReply:
         system = (
             "你是具备受控操作能力的 Linux/HPC 终端助手。回答必须是一个 JSON 对象，"
@@ -289,9 +312,11 @@ class TerminalAIClient:
             })
         else:
             messages.append({"role": "user", "content": question})
-        content = await self._complete(messages)
+        content = await self._complete(messages, model=model)
         reply = self._parse_reply(content)
-        reply = await self._repair_missing_action(messages, content, reply, goal or question)
+        reply = await self._repair_missing_action(
+            messages, content, reply, goal or question, model
+        )
         history.extend([
             {"role": "user", "content": question},
             {"role": "assistant", "content": reply.answer + (f"\n建议命令：{reply.command}" if reply.command else "")},
@@ -306,6 +331,7 @@ class TerminalAIClient:
         output: str,
         exit_code: int,
         goal: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> TerminalAIReply:
         """Analyze one action and decide the next action for the same user goal."""
         observation = (
@@ -333,9 +359,11 @@ class TerminalAIClient:
         messages = [{"role": "system", "content": system}]
         messages.extend(history[-8:])
         messages.append({"role": "user", "content": observation})
-        content = await self._complete(messages)
+        content = await self._complete(messages, model=model)
         reply = self._parse_reply(content)
-        reply = await self._repair_missing_action(messages, content, reply, goal or "")
+        reply = await self._repair_missing_action(
+            messages, content, reply, goal or "", model
+        )
         history.extend([
             {"role": "user", "content": observation},
             {
@@ -353,6 +381,7 @@ class TerminalAIClient:
         raw_content: str,
         reply: TerminalAIReply,
         goal: str,
+        model: Optional[str],
     ) -> TerminalAIReply:
         """Give a model one chance to replace an incomplete description with an action."""
         if not self._needs_action_repair(goal, reply):
@@ -370,7 +399,7 @@ class TerminalAIClient:
                 ),
             },
         ])
-        repaired_content = await self._complete(repair_messages)
+        repaired_content = await self._complete(repair_messages, model=model)
         repaired = self._parse_reply(repaired_content)
         if self._needs_action_repair(goal, repaired):
             return TerminalAIReply(
@@ -403,10 +432,16 @@ class TerminalAIClient:
             {"role": "user", "content": prompt},
         ])
 
-    async def _complete(self, messages: List[Dict[str, str]]) -> str:
+    async def _complete(
+        self,
+        messages: List[Dict[str, str]],
+        *,
+        model: Optional[str] = None,
+    ) -> str:
         config = get_config()
         if not config.available:
             raise TerminalAIError("终端 AI 尚未配置或未启用")
+        selected_model = validate_model_name(model) if model else config.model
         headers = {"Content-Type": "application/json"}
         if config.api_key:
             headers["Authorization"] = f"Bearer {config.api_key}"
@@ -415,7 +450,7 @@ class TerminalAIClient:
                 response = await client.post(
                     f"{config.base_url}/chat/completions",
                     headers=headers,
-                    json={"model": config.model, "messages": messages, "temperature": 0.2},
+                    json={"model": selected_model, "messages": messages, "temperature": 0.2},
                 )
                 response.raise_for_status()
                 if len(response.content) > 2 * 1024 * 1024:
