@@ -53,6 +53,10 @@
     let minimized = false;
     let pendingNavigation = null;
     let allowPageUnload = false;
+    let aiAvailable = false;
+    let pendingAICommand = false;
+    let currentLine = "";
+    let lineTrackingReliable = true;
 
     function setStatus(state, text) {
         status.className = `terminal-status${state ? ` is-${state}` : ""}`;
@@ -62,7 +66,8 @@
     }
 
     function writeNotice(message, color) {
-        terminal.writeln(`\r\n\x1b[${color || "33"}m${message}\x1b[0m`);
+        const safe = String(message || "").replace(/\x1b/g, "").replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+        terminal.writeln(`\r\n\x1b[${color || "33"}m${safe.replace(/\n/g, "\r\n")}\x1b[0m`);
     }
 
     function send(payload) {
@@ -101,10 +106,28 @@
             }
             if (message.type === "ready") {
                 ready = true;
+                aiAvailable = Boolean(message.ai && message.ai.available);
                 setStatus("connected", "已连接");
                 fitAddon.fit();
                 sendSize();
                 terminal.focus();
+                writeNotice(aiAvailable ? `AI 已启用：${message.ai.provider} / ${message.ai.model}` : "AI 未启用，所有输入均按 Shell 命令执行", aiAvailable ? "36" : "90");
+            } else if (message.type === "ai_thinking") {
+                pendingAICommand = false;
+                writeNotice("AI 正在思考…", "36");
+            } else if (message.type === "ai_reply") {
+                pendingAICommand = Boolean(message.command);
+                writeNotice(`AI：${message.answer || ""}`, "36");
+                if (message.command) {
+                    writeNotice(`建议命令：${message.command}\n按 Ctrl+Enter 确认执行`, "33");
+                }
+            } else if (message.type === "ai_executing") {
+                pendingAICommand = false;
+                writeNotice(`正在执行 AI 建议：${message.command}`, "35");
+            } else if (message.type === "ai_summary") {
+                writeNotice(`AI 分析（退出码 ${message.exit_code}）：${message.summary}`, message.exit_code === 0 ? "32" : "33");
+            } else if (message.type === "ai_error") {
+                writeNotice(`AI：${message.message || "请求失败"}`, "31");
             } else if (message.type === "error") {
                 setStatus("error", "连接异常");
                 writeNotice(message.message || "终端连接异常", "31");
@@ -175,10 +198,34 @@
     }
 
     terminal.onData((data) => {
-        if (ready) send({type: "input", data});
+        if (!ready) return;
+        if (aiAvailable && data === "\r") {
+            if (lineTrackingReliable) send({type: "submit", line: currentLine});
+            else send({type: "input", data});
+            if (currentLine.trim()) pendingAICommand = false;
+            currentLine = "";
+            lineTrackingReliable = true;
+            return;
+        }
+        send({type: "input", data});
+        if (!aiAvailable) return;
+        if (data === "\x7f") {
+            currentLine = currentLine.slice(0, -1);
+        } else if (data === "\x15" || data === "\x03") {
+            currentLine = "";
+        } else if (/^[^\x00-\x1f\x7f]+$/.test(data)) {
+            currentLine += data;
+        } else {
+            lineTrackingReliable = false;
+        }
     });
     terminal.onResize(sendSize);
     terminal.attachCustomKeyEventHandler((event) => {
+        if (event.type === "keydown" && event.ctrlKey && !event.shiftKey && event.key === "Enter") {
+            if (ready && pendingAICommand) send({type: "execute_ai"});
+            else if (ready) writeNotice("当前没有待确认的 AI 命令", "33");
+            return false;
+        }
         const modifier = event.ctrlKey || event.metaKey;
         if (!modifier || !event.shiftKey || event.type !== "keydown") return true;
         if (event.key.toLowerCase() === "c" && terminal.hasSelection()) {
@@ -187,7 +234,11 @@
         }
         if (event.key.toLowerCase() === "v") {
             navigator.clipboard.readText().then((text) => {
-                if (ready && text) send({type: "input", data: text});
+                if (ready && text) {
+                    send({type: "input", data: text});
+                    if (aiAvailable && lineTrackingReliable && !/[\r\n\x00-\x1f\x7f]/.test(text)) currentLine += text;
+                    else if (aiAvailable) lineTrackingReliable = false;
+                }
             }).catch(() => {});
             return false;
         }

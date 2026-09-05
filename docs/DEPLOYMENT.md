@@ -189,6 +189,25 @@ Web 终端要求登录用户已经通过 SSSD/NSS 同步为本机 Linux 账户�
 
 终端页面支持悬浮收缩，但该模式仍属于当前浏览器页面，不会跨页面迁移 WebSocket。用户需要同时操作其他门户页面时，应使用侧边栏的新标签入口，或在离开确认框中选择“新标签打开目标”。浏览器刷新、关闭页签或确认离开时会关闭当前 Shell，因此不要把 Web 终端作为脱离会话的长期任务托管工具；长任务应使用 Slurm、`tmux` 或 `screen`。
 
+### 终端 AI 模型
+
+终端 AI 通过 OpenAI 兼容的 `POST /chat/completions` 接口访问 DeepSeek、vLLM、SGLang 或其他兼容服务。可直接编辑 `.env`，也可由管理员在“账户设置”页面在线保存：
+
+```dotenv
+TERMINAL_AI_ENABLED=True
+TERMINAL_AI_PROVIDER=deepseek
+TERMINAL_AI_BASE_URL=https://api.deepseek.com/v1
+TERMINAL_AI_MODEL=deepseek-chat
+TERMINAL_AI_API_KEY=replace-with-a-real-key
+TERMINAL_AI_TIMEOUT_SECONDS=60
+```
+
+vLLM 常用 Base URL 为 `http://127.0.0.1:8000/v1`，SGLang 常用值为 `http://127.0.0.1:30000/v1`，但应以实际启动参数为准。若模型服务运行在容器中，`127.0.0.1` 指向 WebUI 容器自身；应改用同一 Docker 网络中的服务名或可路由地址，并用防火墙限制访问范围。
+
+设置页写入配置后当前 WebUI 进程立即生效，新建终端连接会获得最新状态；直接编辑 `.env` 后仍需重启应用。`.env` 必须允许 WebUI 进程写入且权限应限制为 `0600`。API Key 只保存在服务端，接口仅返回“是否已配置”，审计日志会对 `api_key` 字段脱敏。
+
+启用后，自然语言问题会发送给所配置的模型服务。用户确认 AI 建议命令后，最多约 128 KiB 的命令输出也会发送用于总结，因此只应接入符合本单位数据安全要求的模型服务。建议优先部署内网 vLLM/SGLang，并限制模型 API 仅由 WebUI 后端访问。
+
 ## 7. 上线验证
 
 ```bash
@@ -249,7 +268,7 @@ sudo stat /opt/openhpc_webui/.env
 
 - 确认 `AUTHORIZED=True`，`SECRET_KEY` 长度不少于 32 个字符。
 - HTTPS 部署确认 `SESSION_HTTPS_ONLY=True`，且 Nginx 传递了 `X-Forwarded-Proto`。
-- 修改 `.env` 后重启应用；通过权限管理页面修改 `ADMIN_USERS` 不需要重启。
+- 修改 `.env` 后重启应用；通过权限管理页面修改 `ADMIN_USERS`，或通过账户设置页面修改终端 AI 配置，不需要重启。
 
 ### LDAP 连接失败
 

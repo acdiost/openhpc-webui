@@ -4,11 +4,13 @@ import logging
 import os
 import pwd
 import re
+import secrets
 import subprocess
 import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
+from dataclasses import dataclass, field
 from typing import NoReturn, Optional
 from urllib.parse import urlsplit
 
@@ -63,6 +65,7 @@ from .schemas import (
     PartitionCreate,
     PartitionUpdate,
     PasswordChangeRequest,
+    TerminalAISettingsUpdate,
     UserCreate,
     UserCreditRequest,
     UserQuotaUpdate,
@@ -76,6 +79,15 @@ from .services.login_limiter import LoginAttemptLimiter
 from .services.nfs_quota_manager import NFSQuotaManager
 from .services.slurm_manager import SlurmManager
 from .services.terminal_manager import TerminalError, TerminalManager, TerminalSession
+from .services.terminal_ai import (
+    TerminalAIClient,
+    TerminalAIError,
+    clean_terminal_output,
+    get_config as get_terminal_ai_config,
+    is_probable_command,
+    public_config as public_terminal_ai_config,
+    save_config as save_terminal_ai_config,
+)
 
 AUTH_ENABLED = settings.auth_enabled
 
@@ -144,6 +156,7 @@ login_limiter = LoginAttemptLimiter(
     lockout_seconds=settings.login_lockout_minutes * 60,
 )
 terminal_mgr = TerminalManager(max_sessions_per_user=settings.terminal_max_sessions)
+terminal_ai_client = TerminalAIClient()
 logger = logging.getLogger(__name__)
 
 
@@ -617,6 +630,34 @@ async def account_page(request: Request, user: dict = Depends(get_current_user))
     return templates.TemplateResponse("account.html", {"request": request, "user": user})
 
 
+@router.get("/api/terminal/ai/settings")
+async def get_terminal_ai_settings(user: dict = Depends(get_current_user)):
+    """Return public AI status, with endpoint details only for administrators."""
+    return public_terminal_ai_config(include_endpoint=bool(user.get("is_admin")))
+
+
+@router.put("/api/terminal/ai/settings")
+async def update_terminal_ai_settings(
+    payload: TerminalAISettingsUpdate, user: dict = Depends(get_current_user)
+):
+    """Persist the global OpenAI-compatible terminal model configuration."""
+    _require_admin(user)
+    try:
+        result = await run_in_threadpool(
+            save_terminal_ai_config,
+            enabled=payload.enabled,
+            provider=payload.provider,
+            base_url=payload.base_url,
+            model=payload.model,
+            api_key=payload.api_key,
+            clear_api_key=payload.clear_api_key,
+            timeout_seconds=payload.timeout_seconds,
+        )
+    except TerminalAIError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"message": "终端 AI 配置已保存并立即生效", **result}
+
+
 @router.get("/files", response_class=HTMLResponse)
 async def files_page(request: Request, user: dict = Depends(get_current_user)):
     """文件管理：普通用户以 Home 为根，管理员以系统根目录为根。"""
@@ -671,23 +712,103 @@ def _websocket_origin_is_valid(websocket: WebSocket) -> bool:
     return parsed.scheme in {"http", "https"} and parsed.netloc.lower() == host
 
 
+@dataclass
+class _TerminalAIState:
+    history: list[dict[str, str]] = field(default_factory=list)
+    pending_command: Optional[str] = None
+    active_command: Optional[str] = None
+    marker: Optional[bytes] = None
+    capture: bytearray = field(default_factory=bytearray)
+    display_pending: bytearray = field(default_factory=bytearray)
+
+
+async def _send_ws_json(
+    websocket: WebSocket, send_lock: asyncio.Lock, payload: dict
+) -> None:
+    async with send_lock:
+        await websocket.send_json(payload)
+
+
+async def _send_ws_bytes(
+    websocket: WebSocket, send_lock: asyncio.Lock, payload: bytes
+) -> None:
+    if not payload:
+        return
+    async with send_lock:
+        await websocket.send_bytes(payload)
+
+
 async def _send_terminal_output(
     websocket: WebSocket,
     session: TerminalSession,
     last_activity: list[float],
+    ai_state: _TerminalAIState,
+    send_lock: asyncio.Lock,
 ) -> None:
     while True:
         data = await asyncio.to_thread(session.read)
         if not data:
             return
         last_activity[0] = time.monotonic()
-        await websocket.send_bytes(data)
+        marker = ai_state.marker
+        if not marker:
+            await _send_ws_bytes(websocket, send_lock, data)
+            continue
+
+        ai_state.capture.extend(data)
+        if len(ai_state.capture) > 131_072:
+            del ai_state.capture[:-131_072]
+        ai_state.display_pending.extend(data)
+        marker_index = ai_state.display_pending.find(marker)
+        if marker_index < 0:
+            keep = len(marker) + 32
+            if len(ai_state.display_pending) > keep:
+                ready_bytes = bytes(ai_state.display_pending[:-keep])
+                del ai_state.display_pending[:-keep]
+                await _send_ws_bytes(websocket, send_lock, ready_bytes)
+            continue
+
+        suffix = ai_state.display_pending[marker_index + len(marker):]
+        match = re.match(rb":(-?\d+)\r?\n", suffix)
+        if not match:
+            # The status line may be split across PTY reads.
+            continue
+        before_marker = bytes(ai_state.display_pending[:marker_index])
+        remainder = bytes(suffix[match.end():])
+        await _send_ws_bytes(websocket, send_lock, before_marker)
+        command = ai_state.active_command or ""
+        capture_marker_index = ai_state.capture.find(marker)
+        captured = (
+            bytes(ai_state.capture[:capture_marker_index])
+            if capture_marker_index >= 0
+            else bytes(ai_state.capture)
+        )
+        output = clean_terminal_output(captured)
+        exit_code = int(match.group(1))
+        ai_state.marker = None
+        ai_state.active_command = None
+        ai_state.capture.clear()
+        ai_state.display_pending.clear()
+        try:
+            summary = await terminal_ai_client.summarize(command, output, exit_code)
+            await _send_ws_json(
+                websocket,
+                send_lock,
+                {"type": "ai_summary", "summary": summary, "exit_code": exit_code},
+            )
+        except TerminalAIError as exc:
+            await _send_ws_json(
+                websocket, send_lock, {"type": "ai_error", "message": str(exc)}
+            )
+        await _send_ws_bytes(websocket, send_lock, remainder)
 
 
 async def _receive_terminal_input(
     websocket: WebSocket,
     session: TerminalSession,
     last_activity: list[float],
+    ai_state: _TerminalAIState,
+    send_lock: asyncio.Lock,
 ) -> None:
     while True:
         message = await websocket.receive()
@@ -695,12 +816,12 @@ async def _receive_terminal_input(
             return
         text = message.get("text")
         if text is None or len(text) > 70_000:
-            await websocket.send_json({"type": "error", "message": "终端消息无效"})
+            await _send_ws_json(websocket, send_lock, {"type": "error", "message": "终端消息无效"})
             continue
         try:
             payload = json.loads(text)
         except json.JSONDecodeError:
-            await websocket.send_json({"type": "error", "message": "终端消息格式无效"})
+            await _send_ws_json(websocket, send_lock, {"type": "error", "message": "终端消息格式无效"})
             continue
         if not isinstance(payload, dict):
             continue
@@ -709,7 +830,7 @@ async def _receive_terminal_input(
         if message_type == "input":
             data = str(payload.get("data", "")).encode("utf-8")
             if len(data) > 65_536:
-                await websocket.send_json({"type": "error", "message": "单次输入过长"})
+                await _send_ws_json(websocket, send_lock, {"type": "error", "message": "单次输入过长"})
                 continue
             session.write(data)
             last_activity[0] = time.monotonic()
@@ -721,19 +842,72 @@ async def _receive_terminal_input(
                 continue
             session.resize(cols, rows)
             last_activity[0] = time.monotonic()
+        elif message_type == "submit":
+            line = str(payload.get("line", ""))
+            if len(line.encode("utf-8")) > 4096:
+                await _send_ws_json(websocket, send_lock, {"type": "ai_error", "message": "输入过长"})
+                continue
+            if line.strip():
+                ai_state.pending_command = None
+            config = get_terminal_ai_config()
+            if not config.available or is_probable_command(line):
+                if line.lstrip().startswith("!"):
+                    forced = line.lstrip()[1:].lstrip()
+                    session.write(b"\x15" + forced.encode("utf-8") + b"\r")
+                else:
+                    session.write(b"\r")
+                last_activity[0] = time.monotonic()
+                continue
+            session.write(b"\x15\r")
+            await _send_ws_json(websocket, send_lock, {"type": "ai_thinking"})
+            try:
+                reply = await terminal_ai_client.ask(line.strip(), ai_state.history)
+            except TerminalAIError as exc:
+                await _send_ws_json(websocket, send_lock, {"type": "ai_error", "message": str(exc)})
+                continue
+            ai_state.pending_command = reply.command
+            await _send_ws_json(
+                websocket,
+                send_lock,
+                {"type": "ai_reply", "answer": reply.answer, "command": reply.command},
+            )
+        elif message_type == "execute_ai":
+            command = ai_state.pending_command
+            if not command:
+                await _send_ws_json(websocket, send_lock, {"type": "ai_error", "message": "没有待确认的 AI 命令"})
+                continue
+            if ai_state.active_command:
+                await _send_ws_json(websocket, send_lock, {"type": "ai_error", "message": "上一条 AI 命令仍在执行"})
+                continue
+            token = secrets.token_hex(16)
+            marker = f"__OPENHPC_AI_DONE_{token}__".encode("ascii")
+            ai_state.pending_command = None
+            ai_state.active_command = command
+            ai_state.marker = marker
+            ai_state.capture.clear()
+            ai_state.display_pending.clear()
+            wrapper = (
+                f"{command}; __oh_status=$?; __oh_a=__OPENHPC_AI_; "
+                f"__oh_b=DONE_{token}__; printf '\\n%s%s:%s\\n' "
+                '"$__oh_a" "$__oh_b" "$__oh_status"\r'
+            )
+            session.write(b"\x15" + wrapper.encode("utf-8"))
+            last_activity[0] = time.monotonic()
+            await _send_ws_json(websocket, send_lock, {"type": "ai_executing", "command": command})
         elif message_type == "ping":
-            await websocket.send_json({"type": "pong"})
+            await _send_ws_json(websocket, send_lock, {"type": "pong"})
 
 
 async def _watch_terminal_idle(
     websocket: WebSocket,
     last_activity: list[float],
+    send_lock: asyncio.Lock,
 ) -> None:
     idle_seconds = settings.terminal_idle_minutes * 60
     while True:
         await asyncio.sleep(min(30, idle_seconds))
         if time.monotonic() - last_activity[0] >= idle_seconds:
-            await websocket.send_json(
+            await _send_ws_json(websocket, send_lock,
                 {"type": "error", "message": "终端因长时间无操作已断开"}
             )
             return
@@ -775,18 +949,21 @@ async def terminal_websocket(websocket: WebSocket):
             actor=username,
             pid=session.pid,
         )
-        await websocket.send_json(
+        send_lock = asyncio.Lock()
+        ai_state = _TerminalAIState()
+        await _send_ws_json(websocket, send_lock,
             {
                 "type": "ready",
                 "username": username,
                 "idle_minutes": settings.terminal_idle_minutes,
+                "ai": public_terminal_ai_config(),
             }
         )
         last_activity = [time.monotonic()]
         tasks = [
-            asyncio.create_task(_send_terminal_output(websocket, session, last_activity)),
-            asyncio.create_task(_receive_terminal_input(websocket, session, last_activity)),
-            asyncio.create_task(_watch_terminal_idle(websocket, last_activity)),
+            asyncio.create_task(_send_terminal_output(websocket, session, last_activity, ai_state, send_lock)),
+            asyncio.create_task(_receive_terminal_input(websocket, session, last_activity, ai_state, send_lock)),
+            asyncio.create_task(_watch_terminal_idle(websocket, last_activity, send_lock)),
         ]
         done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         for task in done:

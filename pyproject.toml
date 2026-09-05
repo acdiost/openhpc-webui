@@ -8,6 +8,7 @@ dependencies = [
     "fastapi[standard]>=0.128.0,<0.129",
     "itsdangerous>=2.2.0",
     "jinja2>=3.1.6",
+    "httpx>=0.28.1,<0.29",
     "ldap3>=2.9.1",
     "python-dotenv>=1.2.1",
 ]

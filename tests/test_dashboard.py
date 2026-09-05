@@ -39,7 +39,7 @@ class DashboardTemplateTests(unittest.TestCase):
         self.assertEqual(sidebar.count('href="/jobs"'), 1)
         self.assertLess(sidebar.index("节点管理"), sidebar.index("分区管理"))
         self.assertLess(sidebar.index("用户管理"), sidebar.index("组管理"))
-        self.assertLess(sidebar.index("组管理"), sidebar.index("账户管理"))
+        self.assertLess(sidebar.index("组管理"), sidebar.index("集群账户"))
 
     def test_partition_status_uses_api_field_names(self):
         dashboard = (PROJECT_ROOT / "templates/index.html").read_text(

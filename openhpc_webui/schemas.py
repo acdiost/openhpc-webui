@@ -214,6 +214,16 @@ class PasswordChangeRequest(BaseModel):
     new_password: str
 
 
+class TerminalAISettingsUpdate(BaseModel):
+    enabled: bool = False
+    provider: str = Field("deepseek", max_length=32)
+    base_url: str = Field("", max_length=2048)
+    model: str = Field("", max_length=256)
+    api_key: Optional[str] = Field(None, max_length=4096)
+    clear_api_key: bool = False
+    timeout_seconds: int = Field(60, ge=5, le=300)
+
+
 class FileDirectoryCreate(BaseModel):
     path: str = Field("/", max_length=4096)
     name: str = Field(..., min_length=1, max_length=255)

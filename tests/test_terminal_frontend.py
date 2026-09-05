@@ -39,6 +39,20 @@ class TerminalFrontendTests(unittest.TestCase):
         self.assertIn('window.addEventListener("beforeunload"', script)
         self.assertIn("openLeaveDialog(link.href)", script)
 
+    def test_terminal_ai_requires_control_enter_confirmation(self):
+        template = (PROJECT_ROOT / "templates/terminal.html").read_text(
+            encoding="utf-8"
+        )
+        script = (PROJECT_ROOT / "static/terminal.js").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("Ctrl+Enter", template)
+        self.assertIn('send({type: "submit", line: currentLine})', script)
+        self.assertIn('send({type: "execute_ai"})', script)
+        self.assertIn('event.ctrlKey', script)
+        self.assertNotIn('send({type: "input", data: message.command', script)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -138,6 +138,12 @@ uv run openhpc_webui
 | `TERMINAL_ENABLED` | 是否启用 xterm.js Web 终端，默认启用；认证关闭时始终不可用 |
 | `TERMINAL_IDLE_MINUTES` | 终端无输入输出的自动断开时间，默认 30 分钟 |
 | `TERMINAL_MAX_SESSIONS` | 每个用户最多同时打开的终端数，默认 2 |
+| `TERMINAL_AI_ENABLED` | 是否启用终端 AI 对话，默认关闭 |
+| `TERMINAL_AI_PROVIDER` | 模型服务类型：`deepseek`、`vllm`、`sglang` 或 `openai-compatible` |
+| `TERMINAL_AI_BASE_URL` | OpenAI 兼容 API 根地址，通常以 `/v1` 结尾 |
+| `TERMINAL_AI_MODEL` | 服务端可用的模型名称 |
+| `TERMINAL_AI_API_KEY` | 模型服务密钥；本地服务可按实际鉴权配置留空 |
+| `TERMINAL_AI_TIMEOUT_SECONDS` | 单次模型请求超时，范围 5–300 秒，默认 60 秒 |
 | `SLURM_DEFAULT_ACCOUNT` | 创建 LDAP 用户时使用的默认 Slurm 账户 |
 | `SLURM_CONFIG_DIR` | 节点与分区配置文件目录，默认 `/etc/slurm` |
 

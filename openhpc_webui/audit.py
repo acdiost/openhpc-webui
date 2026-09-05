@@ -23,6 +23,7 @@ request_id_var: ContextVar[str] = ContextVar("request_id", default="-")
 
 _SENSITIVE_KEYS = {
     "authorization",
+    "api_key",
     "bind_password",
     "cookie",
     "current_password",
@@ -37,7 +38,7 @@ _SENSITIVE_KEYS = {
     "ssh_private_key",
     "token",
 }
-_SENSITIVE_KEY_PARTS = ("password", "passwd", "secret", "token", "private_key")
+_SENSITIVE_KEY_PARTS = ("password", "passwd", "secret", "token", "private_key", "api_key")
 _INLINE_SECRET = re.compile(
     r"(?i)(password|passwd|secret|token|authorization|cookie)[\"']?\s*[:=]\s*"
     r"(?:[\"'][^\"']*[\"']|[^\s,;}\]]+)"

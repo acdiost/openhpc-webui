@@ -737,6 +737,7 @@ name = "openhpc-webui"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi", extra = ["standard"] },
+    { name = "httpx" },
     { name = "itsdangerous" },
     { name = "jinja2" },
     { name = "ldap3" },
@@ -747,6 +748,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", extras = ["standard"], specifier = ">=0.128.0,<0.129" },
+    { name = "httpx", specifier = ">=0.28.1,<0.29" },
     { name = "itsdangerous", specifier = ">=2.2.0" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "ldap3", specifier = ">=2.9.1" },

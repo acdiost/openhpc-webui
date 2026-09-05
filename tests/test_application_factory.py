@@ -21,6 +21,7 @@ class ApplicationFactoryTests(unittest.TestCase):
         self.assertIn("/api/files/download", route_paths)
         self.assertIn("/terminal", route_paths)
         self.assertIn("/ws/terminal", route_paths)
+        self.assertIn("/api/terminal/ai/settings", route_paths)
         self.assertIn("/static", route_paths)
 
     def test_runtime_resource_directories_exist(self):
