@@ -73,31 +73,91 @@
     let maxSteps = 10;
     let placeholderTimer = null;
     let placeholderVisible = false;
+    let bracketedPasteBuffer = null;
 
     const placeholderText = "输入命令，或输入问题与 AI 对话…";
+    const pasteStart = "\x1b[200~";
+    const pasteEnd = "\x1b[201~";
 
     function displayWidth(value) {
         return Array.from(value).reduce((width, character) => width + (character.codePointAt(0) > 255 ? 2 : 1), 0);
     }
 
     function trackTerminalInput(data) {
-        // bash/zsh wrap pasted text when bracketed-paste mode is enabled. These
-        // markers are terminal protocol, not part of the user's command line.
-        const pasteStart = "\x1b[200~";
-        const pasteEnd = "\x1b[201~";
-        const hadPasteMarker = data.includes(pasteStart) || data.includes(pasteEnd);
-        const value = data.split(pasteStart).join("").split(pasteEnd).join("");
-        if (!value && hadPasteMarker) return;
-
-        if (value === "\x7f") {
+        if (data === "\x7f") {
             currentLine = currentLine.slice(0, -1);
-        } else if (value === "\x15" || value === "\x03") {
+        } else if (data === "\x15" || data === "\x03") {
             currentLine = "";
-        } else if (/^[^\x00-\x1f\x7f]+$/.test(value)) {
-            currentLine += value;
+        } else if (/^[^\x00-\x1f\x7f]+$/.test(data)) {
+            currentLine += data;
         } else {
             lineTrackingReliable = false;
         }
+    }
+
+    function submitTrackedLine() {
+        send({type: "submit", line: currentLine});
+        if (currentLine.trim()) pendingAICommand = false;
+        currentLine = "";
+        lineTrackingReliable = true;
+    }
+
+    function handleSingleLineInput(data) {
+        if (!aiAvailable || !lineTrackingReliable) return false;
+        const match = data.match(/^([^\r\n\x00-\x1f\x7f]*)(\r\n?|\n)?$/);
+        if (!match) return false;
+        const text = match[1];
+        const submitted = Boolean(match[2]);
+        if (!text && !submitted) return false;
+        if (text) {
+            send({type: "input", data: text});
+            currentLine += text;
+        }
+        if (submitted) submitTrackedLine();
+        return true;
+    }
+
+    function handleBracketedPaste(data) {
+        if (bracketedPasteBuffer === null) {
+            const startIndex = data.indexOf(pasteStart);
+            if (startIndex < 0) return false;
+            const prefix = data.slice(0, startIndex);
+            if (prefix) {
+                send({type: "input", data: prefix});
+                trackTerminalInput(prefix);
+            }
+            bracketedPasteBuffer = data.slice(startIndex + pasteStart.length);
+        } else {
+            bracketedPasteBuffer += data;
+        }
+
+        const endIndex = bracketedPasteBuffer.indexOf(pasteEnd);
+        if (endIndex < 0) return true;
+        const pastedText = bracketedPasteBuffer.slice(0, endIndex);
+        const suffix = bracketedPasteBuffer.slice(endIndex + pasteEnd.length);
+        bracketedPasteBuffer = null;
+        if (!handleSingleLineInput(pastedText)) {
+            // Preserve native bracketed-paste semantics for genuine multiline
+            // shell input, which cannot be classified as one AI question.
+            send({type: "input", data: pasteStart + pastedText + pasteEnd});
+            lineTrackingReliable = false;
+        }
+        if (suffix) handleTerminalData(suffix);
+        return true;
+    }
+
+    function handleTerminalData(data) {
+        if (!ready) return;
+        clearPlaceholder();
+        if (aiAvailable && (bracketedPasteBuffer !== null || data.includes(pasteStart))) {
+            handleBracketedPaste(data);
+            return;
+        }
+        // IMEs and paste operations may deliver "text + Enter" in one event.
+        // Classify it as one line instead of forwarding the Enter to the shell.
+        if (handleSingleLineInput(data)) return;
+        send({type: "input", data});
+        if (aiAvailable) trackTerminalInput(data);
     }
 
     function clearPlaceholder() {
@@ -181,6 +241,7 @@
                 riskMaxSteps.textContent = String(maxSteps);
                 autoApprove = false;
                 autoApproveCheckbox.checked = false;
+                bracketedPasteBuffer = null;
                 newAIChatButton.title = "开始新的 AI 对话";
                 setStatus("connected", "已连接");
                 fitAddon.fit();
@@ -262,6 +323,7 @@
             aiBusy = false;
             autoApprove = false;
             autoApproveCheckbox.checked = false;
+            bracketedPasteBuffer = null;
             clearPlaceholder();
             socket = null;
             if (!manuallyClosed) {
@@ -330,21 +392,7 @@
         return target.href !== window.location.href;
     }
 
-    terminal.onData((data) => {
-        if (!ready) return;
-        clearPlaceholder();
-        if (aiAvailable && data === "\r") {
-            if (lineTrackingReliable) send({type: "submit", line: currentLine});
-            else send({type: "input", data});
-            if (currentLine.trim()) pendingAICommand = false;
-            currentLine = "";
-            lineTrackingReliable = true;
-            return;
-        }
-        send({type: "input", data});
-        if (!aiAvailable) return;
-        trackTerminalInput(data);
-    });
+    terminal.onData(handleTerminalData);
     terminal.onResize(sendSize);
     terminal.attachCustomKeyEventHandler((event) => {
         if (event.type === "keydown" && event.ctrlKey && !event.shiftKey && event.key === "Enter") {
@@ -361,9 +409,9 @@
         if (event.key.toLowerCase() === "v") {
             navigator.clipboard.readText().then((text) => {
                 if (ready && text) {
-                    send({type: "input", data: text});
-                    if (aiAvailable && lineTrackingReliable && !/[\r\n\x00-\x1f\x7f]/.test(text)) currentLine += text;
-                    else if (aiAvailable) lineTrackingReliable = false;
+                    // Let xterm add bracketed-paste markers when the shell has
+                    // enabled that mode; onData then classifies safe single lines.
+                    terminal.paste(text);
                 }
             }).catch(() => {});
             return false;

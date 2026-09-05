@@ -32,6 +32,7 @@
 - 断开终端或关闭页面时主动回收 PTY 文件描述符和 Shell 进程，避免残留会话。
 - 隐藏 AI 命令执行使用的内部包装与完成标记，并避免模型总结复述这些实现细节。
 - 修复 bash/zsh bracketed paste 包装导致粘贴的自然语言被误交给 Shell 并报 `command not found`。
+- 修复中文输入法或粘贴将文本与回车合并为一个终端事件时，自然语言未经过 AI 分类而被 Shell 执行的问题；同时兼容分段到达的 bracketed-paste 内容。
 
 ### Security
 

@@ -98,6 +98,19 @@ class TerminalFrontendTests(unittest.TestCase):
         self.assertIn('const pasteStart = "\\x1b[200~"', script)
         self.assertIn('const pasteEnd = "\\x1b[201~"', script)
         self.assertIn("trackTerminalInput(data)", script)
+        self.assertIn("handleBracketedPaste(data)", script)
+        self.assertIn("handleSingleLineInput(pastedText)", script)
+        self.assertIn("terminal.paste(text)", script)
+
+    def test_terminal_ai_classifies_text_and_enter_from_one_input_event(self):
+        script = (PROJECT_ROOT / "static/terminal.js").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("function handleSingleLineInput(data)", script)
+        self.assertIn('const submitted = Boolean(match[2])', script)
+        self.assertIn("if (submitted) submitTrackedLine()", script)
+        self.assertIn("terminal.onData(handleTerminalData)", script)
 
 
 if __name__ == "__main__":

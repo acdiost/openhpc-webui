@@ -65,6 +65,9 @@ class TerminalAICommandTests(unittest.TestCase):
         self.assertTrue(is_probable_command("!my-cluster-alias"))
         self.assertFalse(is_probable_command("帮我查看当前 GPU 使用情况"))
         self.assertFalse(is_probable_command("how can I inspect a slurm job"))
+        self.assertFalse(is_probable_command(
+            "帮我检查集群状态并写一个空闲节点的测试脚本后提交作业,再检查输出结果进行分析."
+        ))
 
     def test_unknown_command_can_be_forced_with_bang(self):
         with patch.object(terminal_ai.shutil, "which", return_value=None):
