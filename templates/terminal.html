@@ -27,11 +27,11 @@
     .terminal-minimize { display:flex; align-items:center; gap:5px; padding:5px 8px; color:#aab4c3; border:1px solid #364152; border-radius:5px; background:#202733; cursor:pointer; font:inherit; }
     .terminal-minimize:hover { color:#fff; border-color:#526174; background:#293241; }
     .terminal-minimize svg { width:13px; height:13px; }
-    .terminal-ai-model-bar { display:none; align-items:center; gap:8px; padding:7px 14px; border-bottom:1px solid #29313c; background:#121923; color:#aab4c3; font:12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    .terminal-ai-model-bar label { white-space:nowrap; }
-    .terminal-ai-model-input { flex:1; min-width:140px; max-width:420px; padding:5px 8px; color:#e5e7eb; border:1px solid #364152; border-radius:5px; background:#202733; font:inherit; }
+    .terminal-ai-model-control { display:none; align-items:center; gap:5px; color:#aab4c3; white-space:nowrap; }
+    .terminal-ai-model-input { width:180px; min-width:110px; padding:4px 7px; color:#e5e7eb; border:1px solid #364152; border-radius:5px; background:#202733; font:inherit; }
     .terminal-ai-model-input:focus { outline:1px solid #60a5fa; border-color:#60a5fa; }
-    .terminal-ai-provider { color:#6b7280; white-space:nowrap; }
+    .terminal-ai-model-apply { padding:4px 7px; }
+    .terminal-ai-provider { display:none; }
     .terminal-dots { display:flex; gap:6px; }
     .terminal-dots span { width:9px; height:9px; border-radius:50%; background:#4b5563; }
     .terminal-dots span:first-child { background:#ef4444; }
@@ -43,7 +43,7 @@
     .terminal-help { margin-top:12px; color:#6b7280; font-size:12px; line-height:1.6; }
     .terminal-card.is-minimized { position:fixed; right:20px; bottom:20px; z-index:1050; width:min(380px, calc(100vw - 40px)); border-color:#364152; box-shadow:0 18px 45px rgba(15,20,27,.32); }
     .terminal-card.is-minimized .terminal-bar { border-bottom:0; }
-    .terminal-card.is-minimized .terminal-dots, .terminal-card.is-minimized .terminal-ai-model-bar, .terminal-card.is-minimized #terminal { display:none !important; }
+    .terminal-card.is-minimized .terminal-dots, .terminal-card.is-minimized .terminal-ai-model-control, .terminal-card.is-minimized #terminal { display:none !important; }
     .terminal-leave-body { padding:20px; color:#4b5563; font-size:14px; line-height:1.7; }
     .terminal-leave-body strong { color:#111827; }
     .terminal-risk-list { margin:10px 0 0 20px; padding:0; }
@@ -53,6 +53,11 @@
         .terminal-heading { align-items:stretch; flex-direction:column; }
         .terminal-actions { justify-content:space-between; }
         .terminal-ai-provider { display:none; }
+        .terminal-bar { align-items:flex-start; flex-wrap:wrap; padding:6px 10px; }
+        .terminal-bar-actions { flex-wrap:wrap; justify-content:flex-end; }
+        .terminal-bar-title { display:none; }
+        .terminal-ai-model-input { width:125px; }
+        .terminal-ai-model-control > span { display:none; }
         #terminal { height:calc(100vh - 330px); min-height:360px; }
     }
 </style>
@@ -76,6 +81,13 @@
         <div class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></div>
         <span class="terminal-bar-title">{{ user.get('username') }}@{{ request.url.hostname or 'cluster' }}</span>
         <div class="terminal-bar-actions">
+            <div id="terminalAIModelBar" class="terminal-ai-model-control">
+                <span>模型</span>
+                <input id="terminalAIModelInput" class="terminal-ai-model-input" type="text" list="terminalAIModelOptions" maxlength="256" autocomplete="off" spellcheck="false" placeholder="选择或输入模型 ID" aria-label="当前 AI 模型">
+                <datalist id="terminalAIModelOptions"></datalist>
+                <button id="terminalAIModelApply" class="terminal-minimize terminal-ai-model-apply" type="button">应用</button>
+                <span id="terminalAIProvider" class="terminal-ai-provider"></span>
+            </div>
             <label id="terminalStepLimitControl" class="terminal-step-limit" title="单个 AI 目标允许执行的最大步骤数（1–50）">
                 <span>上限</span>
                 <input id="terminalStepLimit" type="number" value="10" min="1" max="50" step="1" inputmode="numeric" aria-label="AI 循环最大步骤数">
@@ -95,16 +107,9 @@
             </button>
         </div>
     </div>
-    <div id="terminalAIModelBar" class="terminal-ai-model-bar">
-        <label for="terminalAIModelInput">当前 AI 模型</label>
-        <input id="terminalAIModelInput" class="terminal-ai-model-input" type="text" list="terminalAIModelOptions" maxlength="256" autocomplete="off" spellcheck="false" placeholder="选择或输入模型 ID">
-        <datalist id="terminalAIModelOptions"></datalist>
-        <button id="terminalAIModelApply" class="terminal-minimize" type="button">应用</button>
-        <span id="terminalAIProvider" class="terminal-ai-provider"></span>
-    </div>
     <div id="terminal" aria-label="交互式终端"></div>
 </div>
-<p class="terminal-help">当前 AI 模型显示在终端上方，可从建议项选择或手动输入兼容服务支持的模型 ID；切换模型会开始新对话并关闭自动批准。AI 会按“执行一步 → 分析结果 → 建议下一步”循环完成目标，默认上限 10 步，可在标题栏调整为 1–50 步。默认每一步按 Ctrl+Enter 确认；“自动批准”仅在当前连接生效，高危操作仍强制人工确认。“新对话”会清除 AI 上下文并关闭自动批准，不影响 Shell。输入 <code>!</code> 加命令可强制按 Shell 命令执行。复制/粘贴：Ctrl/⌘+Shift+C / V。</p>
+<p class="terminal-help">当前 AI 模型显示在标题栏步数旁，可从建议项选择或手动输入兼容服务支持的模型 ID；切换模型会开始新对话并关闭自动批准。AI 会按“执行一步 → 分析结果 → 建议下一步”循环完成目标，默认上限 10 步，可在标题栏调整为 1–50 步。默认每一步按 Ctrl+Enter 确认；“自动批准”仅在当前连接生效，高危操作仍强制人工确认。“新对话”会清除 AI 上下文并关闭自动批准，不影响 Shell。输入 <code>!</code> 加命令可强制按 Shell 命令执行。复制/粘贴：Ctrl/⌘+Shift+C / V。</p>
 {% endblock %}
 
 {% block modals %}

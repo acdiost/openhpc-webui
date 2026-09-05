@@ -282,6 +282,7 @@
                 aiModelBar.style.display = aiAvailable ? "flex" : "none";
                 aiModelInput.value = aiAvailable ? String(message.ai.model || "") : "";
                 aiProvider.textContent = aiAvailable ? `${message.ai.provider} / OpenAI 兼容接口` : "";
+                aiModelBar.title = aiAvailable ? `模型服务：${message.ai.provider} / OpenAI 兼容接口` : "";
                 setModelChoices(aiAvailable ? message.ai.model_options : []);
                 autoApproveControl.style.display = aiAvailable ? "flex" : "none";
                 stepLimitControl.style.display = aiAvailable ? "flex" : "none";
