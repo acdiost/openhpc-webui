@@ -171,6 +171,9 @@
                         <label for="terminal_user_ai_provider">Provider</label>
                         <select id="terminal_user_ai_provider">
                             <option value="deepseek">DeepSeek</option>
+                            <option value="openai">OpenAI</option>
+                            <option value="claude">Claude</option>
+                            <option value="glm">GLM（智谱）</option>
                             <option value="vllm">vLLM</option>
                             <option value="sglang">SGLang</option>
                             <option value="openai-compatible">其他 OpenAI 兼容服务</option>
@@ -186,7 +189,7 @@
                     <input id="terminal_user_ai_model" maxlength="256" autocomplete="off" placeholder="例如 deepseek-chat 或已部署模型 ID">
                 </div>
                 <div class="form-group">
-                    <label for="terminal_user_ai_base_url">OpenAI 兼容 Base URL</label>
+                    <label for="terminal_user_ai_base_url">API Base URL</label>
                     <input id="terminal_user_ai_base_url" type="url" maxlength="2048" placeholder="https://api.deepseek.com">
                 </div>
                 <div class="form-group">

@@ -150,6 +150,9 @@ class TerminalFrontendTests(unittest.TestCase):
         template = (PROJECT_ROOT / "templates/terminal.html").read_text(
             encoding="utf-8"
         )
+        settings_template = (PROJECT_ROOT / "templates/settings.html").read_text(
+            encoding="utf-8"
+        )
         script = (PROJECT_ROOT / "static/terminal.js").read_text(
             encoding="utf-8"
         )
@@ -187,6 +190,13 @@ class TerminalFrontendTests(unittest.TestCase):
         )
         self.assertIn("grid-template-columns:minmax(0,1fr)", template)
         self.assertIn("#terminalAIConfigForm { display:flex", template)
+        for provider in ("openai", "claude", "glm"):
+            self.assertIn(f'<option value="{provider}">', template)
+            self.assertIn(f'<option value="{provider}">', settings_template)
+        self.assertIn("https://api.openai.com/v1", script)
+        self.assertIn("https://api.anthropic.com/v1", script)
+        self.assertIn("https://open.bigmodel.cn/api/paas/v4", script)
+        self.assertIn("Anthropic Messages API", script)
 
     def test_terminal_ai_tracks_bracketed_paste_as_user_text(self):
         script = (PROJECT_ROOT / "static/terminal.js").read_text(

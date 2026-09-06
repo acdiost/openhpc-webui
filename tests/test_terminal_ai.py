@@ -158,6 +158,41 @@ class TerminalAIConfigTests(unittest.TestCase):
         self.assertEqual(options[0], "deepseek-v4-flash")
         self.assertEqual(len(options), len(set(options)))
 
+    def test_hosted_providers_use_their_default_endpoints(self):
+        openai_config = build_config(
+            enabled=True,
+            provider="openai",
+            base_url="",
+            model="gpt-5.1",
+            api_key="openai-secret",
+            timeout_seconds=60,
+        )
+        claude_config = build_config(
+            enabled=True,
+            provider="claude",
+            base_url="",
+            model="claude-sonnet-4-5-20250929",
+            api_key="claude-secret",
+            timeout_seconds=60,
+        )
+        glm_config = build_config(
+            enabled=True,
+            provider="glm",
+            base_url="",
+            model="glm-5.2",
+            api_key="glm-secret",
+            timeout_seconds=60,
+        )
+
+        self.assertEqual(openai_config.base_url, "https://api.openai.com/v1")
+        self.assertEqual(claude_config.base_url, "https://api.anthropic.com/v1")
+        self.assertEqual(
+            glm_config.base_url, "https://open.bigmodel.cn/api/paas/v4"
+        )
+        self.assertIn("gpt-5.1", model_options(openai_config))
+        self.assertIn("claude-sonnet-4-5-20250929", model_options(claude_config))
+        self.assertIn("glm-5.2", model_options(glm_config))
+
     def test_terminal_model_name_validation(self):
         self.assertEqual(validate_model_name("  Qwen/Qwen3-32B  "), "Qwen/Qwen3-32B")
         for value in ("", "bad\nmodel", "x" * 257):
@@ -384,6 +419,90 @@ class TerminalAIReplyTests(unittest.TestCase):
         self.assertEqual(http_client.post.await_count, 2)
         retry_messages = http_client.post.await_args_list[1].kwargs["json"]["messages"]
         self.assertIn("响应正文为空", retry_messages[-1]["content"])
+
+    def test_claude_uses_native_messages_protocol(self):
+        client = TerminalAIClient()
+        response = MagicMock()
+        response.content = b"{}"
+        response.json.return_value = {
+            "content": [{"type": "text", "text": '{"answer":"完成","done":true}'}]
+        }
+        http_client = AsyncMock()
+        http_client.post.return_value = response
+        client_context = MagicMock()
+        client_context.__aenter__ = AsyncMock(return_value=http_client)
+        client_context.__aexit__ = AsyncMock(return_value=False)
+        config = TerminalAIConfig(
+            enabled=True,
+            provider="claude",
+            base_url="https://api.anthropic.com/v1",
+            model="claude-sonnet-4-5-20250929",
+            api_key="claude-secret",
+            timeout_seconds=10,
+        )
+        messages = [
+            {"role": "system", "content": "只返回 JSON。"},
+            {"role": "user", "content": "检查集群"},
+        ]
+
+        with patch.object(
+            terminal_ai.httpx, "AsyncClient", return_value=client_context
+        ):
+            content = asyncio.run(client._complete(messages, config=config))
+
+        self.assertEqual(content, '{"answer":"完成","done":true}')
+        request = http_client.post.await_args
+        self.assertEqual(request.args[0], "https://api.anthropic.com/v1/messages")
+        self.assertEqual(request.kwargs["headers"]["x-api-key"], "claude-secret")
+        self.assertEqual(
+            request.kwargs["headers"]["anthropic-version"], "2023-06-01"
+        )
+        self.assertNotIn("Authorization", request.kwargs["headers"])
+        self.assertEqual(request.kwargs["json"]["system"], "只返回 JSON。")
+        self.assertEqual(
+            request.kwargs["json"]["messages"],
+            [{"role": "user", "content": "检查集群"}],
+        )
+        self.assertEqual(request.kwargs["json"]["max_tokens"], 4096)
+
+    def test_glm_uses_openai_compatible_chat_completions(self):
+        client = TerminalAIClient()
+        response = MagicMock()
+        response.content = b"{}"
+        response.json.return_value = {
+            "choices": [{"message": {"content": '{"answer":"完成","done":true}'}}]
+        }
+        http_client = AsyncMock()
+        http_client.post.return_value = response
+        client_context = MagicMock()
+        client_context.__aenter__ = AsyncMock(return_value=http_client)
+        client_context.__aexit__ = AsyncMock(return_value=False)
+        config = TerminalAIConfig(
+            enabled=True,
+            provider="glm",
+            base_url="https://open.bigmodel.cn/api/paas/v4",
+            model="glm-5.2",
+            api_key="glm-secret",
+            timeout_seconds=10,
+        )
+        messages = [{"role": "user", "content": "检查集群"}]
+
+        with patch.object(
+            terminal_ai.httpx, "AsyncClient", return_value=client_context
+        ):
+            content = asyncio.run(client._complete(messages, config=config))
+
+        self.assertEqual(content, '{"answer":"完成","done":true}')
+        request = http_client.post.await_args
+        self.assertEqual(
+            request.args[0],
+            "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+        )
+        self.assertEqual(
+            request.kwargs["headers"]["Authorization"], "Bearer glm-secret"
+        )
+        self.assertEqual(request.kwargs["json"]["model"], "glm-5.2")
+        self.assertEqual(request.kwargs["json"]["messages"], messages)
 
     def test_gpu_goal_script_without_gpu_resource_request_needs_repair(self):
         reply = TerminalAIReply(

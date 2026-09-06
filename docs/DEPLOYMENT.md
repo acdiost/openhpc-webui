@@ -203,7 +203,7 @@ TERMINAL_ANNOUNCEMENT_BOLD=True
 
 ### 终端 AI 模型
 
-终端 AI 通过 OpenAI 兼容的 `POST /chat/completions` 接口访问 DeepSeek、vLLM、SGLang 或其他兼容服务。可直接编辑 `.env`，也可由管理员在“系统设置”页面在线保存：
+终端 AI 支持 OpenAI、GLM、DeepSeek、vLLM、SGLang 及其他 `POST /chat/completions` 兼容服务，也支持 Claude 原生 `POST /messages` 接口。可直接编辑 `.env`，也可由管理员在“系统设置”页面在线保存：
 
 ```dotenv
 TERMINAL_AI_ENABLED=True
@@ -214,7 +214,7 @@ TERMINAL_AI_API_KEY=replace-with-a-real-key
 TERMINAL_AI_TIMEOUT_SECONDS=60
 ```
 
-vLLM 常用 Base URL 为 `http://127.0.0.1:8000/v1`，SGLang 常用值为 `http://127.0.0.1:30000/v1`，但应以实际启动参数为准。若模型服务运行在容器中，`127.0.0.1` 指向 WebUI 容器自身；应改用同一 Docker 网络中的服务名或可路由地址，并用防火墙限制访问范围。
+OpenAI 默认 Base URL 为 `https://api.openai.com/v1`，Claude 默认为 `https://api.anthropic.com/v1`，GLM 默认为 `https://open.bigmodel.cn/api/paas/v4`。vLLM 常用值为 `http://127.0.0.1:8000/v1`，SGLang 常用值为 `http://127.0.0.1:30000/v1`，但应以实际启动参数为准。若模型服务运行在容器中，`127.0.0.1` 指向 WebUI 容器自身；应改用同一 Docker 网络中的服务名或可路由地址，并用防火墙限制访问范围。
 
 设置页写入配置后当前 WebUI 进程立即生效，新建终端连接会获得最新状态；直接编辑 `.env` 后仍需重启应用。`.env` 必须允许 WebUI 进程写入且权限应限制为 `0600`。API Key 只保存在服务端，接口仅返回“是否已配置”，审计日志会对 `api_key` 字段脱敏。
 

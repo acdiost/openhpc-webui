@@ -11,7 +11,7 @@
 - 新增基于 xterm.js 的 Web 终端，通过 WebSocket 连接后端 PTY，并将 xterm.js、FitAddon 和样式资源随应用离线打包。
 - 新增 `TERMINAL_ENABLED`、`TERMINAL_IDLE_MINUTES` 和 `TERMINAL_MAX_SESSIONS` 配置，用于控制终端入口、空闲超时及单用户并发会话数。
 - 新增 Nginx HTTPS/WebSocket 示例配置，以及终端使用、部署和故障排查文档。
-- 新增终端 AI 对话，支持 DeepSeek、vLLM、SGLang 及其他 OpenAI 兼容接口，并可由管理员在账户设置中维护模型、地址、密钥和超时。
+- 新增终端 AI 对话，支持 OpenAI、Claude、GLM、DeepSeek、vLLM、SGLang 及其他 OpenAI 兼容接口，并可由管理员在系统设置中维护模型、地址、密钥和超时。
 - 新增 Shell 命令与自然语言分流；AI 建议命令必须按 Ctrl+Enter 确认，执行完成后自动分析退出码与输出。
 - 新增终端命令行 AI 输入提示、多轮上下文和“新对话”操作；重置 AI 对话不会影响当前 Shell。
 - 新增 AI 文件动作，可预览并确认写入脚本或文本文件；兼容从未按 JSON 协议返回的 Markdown fenced 脚本中恢复文件动作。

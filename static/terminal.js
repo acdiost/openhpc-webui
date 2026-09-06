@@ -106,8 +106,20 @@
     const pasteEnd = "\x1b[201~";
     const providerDefaults = {
         deepseek: "https://api.deepseek.com",
+        openai: "https://api.openai.com/v1",
+        claude: "https://api.anthropic.com/v1",
+        glm: "https://open.bigmodel.cn/api/paas/v4",
         vllm: "http://127.0.0.1:8000/v1",
         sglang: "http://127.0.0.1:30000/v1",
+        "openai-compatible": ""
+    };
+    const providerModelDefaults = {
+        deepseek: "deepseek-v4-flash",
+        openai: "gpt-5.1",
+        claude: "claude-sonnet-4-5-20250929",
+        glm: "glm-5.2",
+        vllm: "",
+        sglang: "",
         "openai-compatible": ""
     };
     const aiConfigDatabaseName = "openhpc-terminal-ai";
@@ -259,8 +271,11 @@
         newAIChatButton.style.display = aiAvailable ? "flex" : "none";
         aiModelBar.style.display = aiAvailable ? "flex" : "none";
         aiModelInput.value = aiAvailable ? String(currentAIConfig.model || "") : "";
-        aiProvider.textContent = aiAvailable ? `${currentAIConfig.provider} / OpenAI 兼容接口` : "";
-        aiModelBar.title = aiAvailable ? `模型服务：${currentAIConfig.provider} / OpenAI 兼容接口` : "";
+        const protocol = currentAIConfig.provider === "claude"
+            ? "Anthropic Messages API"
+            : "OpenAI 兼容接口";
+        aiProvider.textContent = aiAvailable ? `${currentAIConfig.provider} / ${protocol}` : "";
+        aiModelBar.title = aiAvailable ? `模型服务：${currentAIConfig.provider} / ${protocol}` : "";
         setModelChoices(aiAvailable ? currentAIConfig.model_options : []);
         autoApproveControl.style.display = aiAvailable ? "flex" : "none";
         stepLimitControl.style.display = aiAvailable ? "flex" : "none";
@@ -763,6 +778,10 @@
         const oldDefaults = Object.values(providerDefaults);
         if (!aiBaseURLInput.value || oldDefaults.includes(aiBaseURLInput.value)) {
             aiBaseURLInput.value = providerDefaults[aiProviderInput.value] || "";
+        }
+        const oldModelDefaults = Object.values(providerModelDefaults);
+        if (!aiConfigModelInput.value || oldModelDefaults.includes(aiConfigModelInput.value)) {
+            aiConfigModelInput.value = providerModelDefaults[aiProviderInput.value] || "";
         }
         if (currentAIConfig.api_key_configured) {
             aiKeyStatus.textContent = "切换 Provider 或端点时必须重新输入 API Key；旧密钥不会发送到新端点。";

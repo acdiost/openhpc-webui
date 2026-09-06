@@ -1,4 +1,4 @@
-"""OpenAI-compatible AI assistance for interactive terminal sessions."""
+"""AI model integrations for interactive terminal sessions."""
 
 from __future__ import annotations
 
@@ -18,11 +18,30 @@ import httpx
 from ..config import PROJECT_ROOT
 
 
-_PROVIDERS = {"deepseek", "vllm", "sglang", "openai-compatible"}
-_DEFAULT_BASE_URLS = {"deepseek": "https://api.deepseek.com"}
+_PROVIDERS = {
+    "deepseek",
+    "openai",
+    "claude",
+    "glm",
+    "vllm",
+    "sglang",
+    "openai-compatible",
+}
+_DEFAULT_BASE_URLS = {
+    "deepseek": "https://api.deepseek.com",
+    "openai": "https://api.openai.com/v1",
+    "claude": "https://api.anthropic.com/v1",
+    "glm": "https://open.bigmodel.cn/api/paas/v4",
+}
 _PROVIDER_MODEL_OPTIONS = {
-    "deepseek": ("deepseek-v4-flash", "deepseek-v4-pro",
-    "deepseek-v4-flash-vision-exp"),
+    "deepseek": (
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
+        "deepseek-v4-flash-vision-exp",
+    ),
+    "openai": ("gpt-5.1", "gpt-5-mini", "gpt-4.1"),
+    "claude": ("claude-opus-5", "claude-sonnet-4-5-20250929"),
+    "glm": ("glm-5.2", "glm-4.7", "glm-4.5-air"),
 }
 _ENV_KEYS = {
     "enabled": "TERMINAL_AI_ENABLED",
@@ -529,26 +548,54 @@ class TerminalAIClient:
             raise TerminalAIError("终端 AI 尚未配置或未启用")
         selected_model = validate_model_name(model) if model else config.model
         headers = {"Content-Type": "application/json"}
-        if config.api_key:
+        if config.provider == "claude":
+            headers["anthropic-version"] = "2023-06-01"
+            if config.api_key:
+                headers["x-api-key"] = config.api_key
+        elif config.api_key:
             headers["Authorization"] = f"Bearer {config.api_key}"
         try:
             async with httpx.AsyncClient(timeout=config.timeout_seconds) as client:
                 request_messages = list(messages)
                 for attempt in range(2):
-                    response = await client.post(
-                        f"{config.base_url}/chat/completions",
-                        headers=headers,
-                        json={
+                    if config.provider == "claude":
+                        system = "\n\n".join(
+                            item["content"] for item in request_messages
+                            if item.get("role") == "system"
+                        )
+                        request_body: Dict[str, Any] = {
+                            "model": selected_model,
+                            "messages": [
+                                item for item in request_messages
+                                if item.get("role") in {"user", "assistant"}
+                            ],
+                            "max_tokens": 4096,
+                            "temperature": 0.2 if attempt == 0 else 0.0,
+                        }
+                        if system:
+                            request_body["system"] = system
+                        endpoint = f"{config.base_url}/messages"
+                    else:
+                        request_body = {
                             "model": selected_model,
                             "messages": request_messages,
                             "temperature": 0.2 if attempt == 0 else 0.0,
-                        },
+                        }
+                        endpoint = f"{config.base_url}/chat/completions"
+                    response = await client.post(
+                        endpoint,
+                        headers=headers,
+                        json=request_body,
                     )
                     response.raise_for_status()
                     if len(response.content) > 2 * 1024 * 1024:
                         raise TerminalAIError("模型服务返回内容过大")
                     payload = response.json()
-                    message = payload["choices"][0]["message"]
+                    message = (
+                        {"content": payload["content"]}
+                        if config.provider == "claude"
+                        else payload["choices"][0]["message"]
+                    )
                     content = self._extract_message_content(
                         message, allow_reasoning=attempt > 0
                     )

@@ -139,8 +139,8 @@ uv run openhpc_webui
 | `TERMINAL_IDLE_MINUTES` | 终端无输入输出的自动断开时间，默认 30 分钟 |
 | `TERMINAL_MAX_SESSIONS` | 每个用户最多同时打开的终端数，默认 2 |
 | `TERMINAL_AI_ENABLED` | 新终端连接是否默认启用 AI 对话，默认关闭；用户可在当前连接中覆盖 |
-| `TERMINAL_AI_PROVIDER` | 模型服务类型：`deepseek`、`vllm`、`sglang` 或 `openai-compatible` |
-| `TERMINAL_AI_BASE_URL` | OpenAI 兼容 API 根地址，通常以 `/v1` 结尾 |
+| `TERMINAL_AI_PROVIDER` | 模型服务类型：`deepseek`、`openai`、`claude`、`glm`、`vllm`、`sglang` 或 `openai-compatible` |
+| `TERMINAL_AI_BASE_URL` | API 根地址；OpenAI、Claude、GLM 均有内置官方默认地址 |
 | `TERMINAL_AI_MODEL` | 服务端可用的模型名称 |
 | `TERMINAL_AI_API_KEY` | 模型服务密钥；本地服务可按实际鉴权配置留空 |
 | `TERMINAL_AI_TIMEOUT_SECONDS` | 单次模型请求超时，范围 5–300 秒，默认 60 秒 |
