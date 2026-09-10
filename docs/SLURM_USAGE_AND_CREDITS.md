@@ -83,11 +83,12 @@ GET /api/slurm/users/<username>/report.csv?range=month
 
 ```bash
 sacctmgr show assoc where \
-  user=<用户名> account=<账户> partition=<分区> \
+  cluster=<集群> user=<用户名> account=<账户> partition=<分区> \
   format=User,Account,Partition,GrpTRESMins -n -P
 ```
 
-全局 Association 不传 `partition`。示例输出：
+全局 Association 使用 `partition=\"\"` 显式匹配空分区。集群名来自
+`SLURM_CLUSTER_NAME`，必须与 `scontrol show config` 的 `ClusterName` 一致。示例输出：
 
 ```text
 dawn|research|GPU|cpu=600,gres/gpu=60
@@ -158,21 +159,21 @@ Content-Type: application/json
 
 ```bash
 sacctmgr -i modify user <用户名> \
-  where account=<账户> partition=<分区> \
+  where cluster=<集群> account=<账户> partition=<分区> \
   set GrpTRESMins=cpu=<CPU分钟>,gres/gpu=<GPU分钟> \
   Comment="[2026-08-15 14:30:00] <拨付说明>"
 
 sacctmgr -i modify user dawn \
-where account=dawn \
+where cluster=cluster account=dawn partition=\"\" \
 set GrpTRESMins=cpu=3000,gres/gpu=700 \
 Comment="[2026-08-15 14:30:00] 项目A 2026年度GPU额度"
 
 sacctmgr show assoc \
-  where user=dawn account=dawn \
+  where cluster=cluster user=dawn account=dawn partition=\"\" \
   format=User,Account,Partition,GrpTRESMins,Comment
 ```
 
-无分区关联时省略 `partition=<分区>`。拨付代码使用进程内线程锁保护
+无分区关联时使用 `partition=\"\"`，不能省略分区筛选。拨付代码使用进程内线程锁保护
 “读取、计算、写入、验证”，可避免同一 Web 进程内的并发覆盖，但不能替代多个
 Web 进程之间的分布式锁。
 

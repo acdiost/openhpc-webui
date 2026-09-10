@@ -2597,19 +2597,37 @@ async def allocate_user_credits(
         }},
     )
 
+    remaining_cpu_minutes = grant["remaining_cpu_minutes"]
+    remaining_gpu_minutes = grant["remaining_gpu_minutes"]
+    remaining_cpu_hours = (
+        None
+        if remaining_cpu_minutes is None
+        else round(remaining_cpu_minutes / 60, 2)
+    )
+    remaining_gpu_hours = (
+        None
+        if remaining_gpu_minutes is None
+        else round(remaining_gpu_minutes / 60, 2)
+    )
+    remaining_cpu_text = (
+        "无限" if remaining_cpu_hours is None else f"{remaining_cpu_hours} h"
+    )
+    remaining_gpu_text = (
+        "无限" if remaining_gpu_hours is None else f"{remaining_gpu_hours} h"
+    )
+
     return {
         "message": (
-            f"已为 {username} 调整额度，剩余核时 "
-            f"{round(grant['remaining_cpu_minutes'] / 60, 2)} h，剩余卡时 "
-            f"{round(grant['remaining_gpu_minutes'] / 60, 2)} h"
+            f"已为 {username} 调整额度，剩余核时 {remaining_cpu_text}，"
+            f"剩余卡时 {remaining_gpu_text}"
         ),
         "username": username,
         "account": grant["account"],
         "partition": grant.get("partition"),
         "cpu_granted_hours": round(grant["cpu_granted_minutes"] / 60, 2),
         "gpu_granted_hours": round(grant["gpu_granted_minutes"] / 60, 2),
-        "remaining_cpu_hours": round(grant["remaining_cpu_minutes"] / 60, 2),
-        "remaining_gpu_hours": round(grant["remaining_gpu_minutes"] / 60, 2),
+        "remaining_cpu_hours": remaining_cpu_hours,
+        "remaining_gpu_hours": remaining_gpu_hours,
         "reason": payload.reason,
         "comment": stamped_comment,
         "note": stamped_comment,

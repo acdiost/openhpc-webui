@@ -19,6 +19,72 @@ PROJECT_ROOT = Path(__file__).parents[1]
 
 class SlurmAssociationUpdateTests(unittest.TestCase):
     @patch("openhpc_webui.services.slurm_manager.subprocess.run")
+    def test_account_crud_is_scoped_to_configured_cluster(self, run):
+        run.return_value = Mock(stdout="updated")
+        manager = SlurmManager()
+
+        self.assertTrue(manager.create_account("research"))
+        self.assertIn("cluster=cluster", run.call_args.args[0])
+
+        self.assertTrue(manager.update_account("research", description="Research"))
+        self.assertIn("cluster=cluster", run.call_args.args[0])
+
+        self.assertTrue(manager.delete_account("research"))
+        self.assertIn("cluster=cluster", run.call_args.args[0])
+
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
+    def test_ldap_user_sync_is_scoped_to_configured_cluster(self, run):
+        run.return_value = Mock(stdout="updated")
+        manager = SlurmManager()
+
+        self.assertTrue(manager.add_user_account("alice", "research"))
+        self.assertEqual(
+            run.call_args.args[0],
+            [
+                "sacctmgr",
+                "-i",
+                "add",
+                "user",
+                "name=alice",
+                "cluster=cluster",
+                "account=research",
+            ],
+        )
+
+        self.assertTrue(manager.remove_user_account("alice"))
+        self.assertEqual(
+            run.call_args.args[0],
+            [
+                "sacctmgr",
+                "-i",
+                "delete",
+                "user",
+                "name=alice",
+                "cluster=cluster",
+            ],
+        )
+
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
+    def test_list_associations_is_scoped_to_configured_cluster(self, run):
+        run.return_value = Mock(stdout='{"associations": []}')
+
+        with patch.dict(os.environ, {"SLURM_CLUSTER_NAME": "production"}):
+            associations = SlurmManager().list_associations("research")
+
+        self.assertEqual(associations, [])
+        self.assertIn("cluster=production", run.call_args.args[0])
+
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
+    def test_invalid_cluster_name_blocks_association_mutation(self, run):
+        with patch.dict(os.environ, {"SLURM_CLUSTER_NAME": "bad cluster"}):
+            success = SlurmManager().delete_association(
+                username="dawn", account="dawn", partition=""
+            )
+
+        self.assertFalse(success)
+        run.assert_not_called()
+
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
     def test_global_association_partition_is_a_selector_not_a_change(self, run):
         run.return_value = Mock(stdout="updated")
 
@@ -38,6 +104,7 @@ class SlurmAssociationUpdateTests(unittest.TestCase):
                 "modify",
                 "user",
                 "name=dawn",
+                "cluster=cluster",
                 "account=dawn",
                 'partition=""',
                 "set",
@@ -65,6 +132,7 @@ class SlurmAssociationUpdateTests(unittest.TestCase):
                 "modify",
                 "user",
                 "name=alice",
+                "cluster=cluster",
                 "account=research",
                 "partition=gpu",
                 "set",
@@ -85,6 +153,29 @@ class SlurmAssociationUpdateTests(unittest.TestCase):
 
         self.assertTrue(success)
         self.assertEqual(run.call_args.args[0][-1], "Qos=''")
+
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
+    def test_delete_global_association_has_cluster_and_empty_partition_scope(self, run):
+        run.return_value = Mock(stdout="deleted")
+
+        success = SlurmManager().delete_association(
+            username="dawn", account="dawn", partition=""
+        )
+
+        self.assertTrue(success)
+        self.assertEqual(
+            run.call_args.args[0],
+            [
+                "sacctmgr",
+                "-i",
+                "delete",
+                "user",
+                "name=dawn",
+                "cluster=cluster",
+                "account=dawn",
+                'partition=""',
+            ],
+        )
 
     def test_update_payload_requires_partition_selector(self):
         with self.assertRaises(ValidationError):

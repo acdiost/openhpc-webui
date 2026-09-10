@@ -49,14 +49,45 @@ class SlurmCreditManagerTests(unittest.TestCase):
             self.manager.get_account_tres_minutes("Account"),
             {"cpu": 60000000, "gres/gpu": 120},
         )
+        self.assertEqual(
+            run.call_args.args[0],
+            [
+                "sacctmgr",
+                "show",
+                "assoc",
+                "where",
+                "cluster=cluster",
+                "account=Account",
+                "user=",
+                'partition=""',
+                "format=Account,Partition,GrpTRESMins",
+                "-n",
+                "-P",
+            ],
+        )
 
     @patch("openhpc_webui.services.slurm_manager.subprocess.run")
     def test_account_tres_limit_writes_account_association(self, run):
-        self.assertTrue(self.manager.set_account_tres_minutes("Account", 600, 120, "annual grant"))
-        self.assertEqual(run.call_args.args[0], [
-            "sacctmgr", "-i", "modify", "account", "name=Account", "set",
-            "GrpTRESMins=cpu=600,gres/gpu=120", "Comment=annual grant",
-        ])
+        self.assertTrue(
+            self.manager.set_account_tres_minutes(
+                "Account", 600, 120, "annual grant"
+            )
+        )
+        self.assertEqual(
+            run.call_args.args[0],
+            [
+                "sacctmgr",
+                "-i",
+                "modify",
+                "account",
+                "name=Account",
+                "cluster=cluster",
+                'partition=""',
+                "set",
+                "GrpTRESMins=cpu=600,gres/gpu=120",
+                "Comment=annual grant",
+            ],
+        )
 
     def test_grant_repairs_an_already_exceeded_limit(self):
         self.manager.get_user_default_account = Mock(return_value="phadcloud")
@@ -99,6 +130,24 @@ class SlurmCreditManagerTests(unittest.TestCase):
         self.assertEqual(result["cpu_granted_minutes"], -120)
         self.assertEqual(result["remaining_cpu_minutes"], 0)
 
+    def test_grant_preserves_unlimited_remaining_value_for_untouched_tres(self):
+        self.manager.get_user_default_account = Mock(return_value="dawn")
+        self.manager.get_association_tres_minutes = Mock(
+            side_effect=[
+                {"cpu": 600, "gres/gpu": None},
+                {"cpu": 660, "gres/gpu": None},
+            ]
+        )
+        self.manager.get_user_tres_usage_minutes = Mock(
+            return_value={"cpu": 500, "gres/gpu": 25}
+        )
+        self.manager.set_association_tres_minutes = Mock(return_value=True)
+
+        result = self.manager.grant_user_tres_hours("dawn", cpu_hours=1)
+
+        self.assertEqual(result["remaining_cpu_minutes"], 160)
+        self.assertIsNone(result["remaining_gpu_minutes"])
+
     def test_grant_rejects_invalid_slurm_names_before_commands(self):
         with patch("openhpc_webui.services.slurm_manager.subprocess.run") as run:
             result = self.manager.grant_user_tres_hours(
@@ -117,6 +166,8 @@ class SlurmCreditManagerTests(unittest.TestCase):
         limits = self.manager.get_association_tres_minutes("dawn", "dawn")
 
         self.assertEqual(limits, {"cpu": 120, "gres/gpu": 0})
+        self.assertIn("cluster=cluster", run.call_args.args[0])
+        self.assertIn('partition=""', run.call_args.args[0])
 
     @patch("openhpc_webui.services.slurm_manager.subprocess.run")
     def test_partition_grant_targets_only_the_selected_association(self, run):
@@ -155,8 +206,26 @@ class SlurmCreditManagerTests(unittest.TestCase):
 
         self.assertTrue(success)
         modify_args = run.call_args.args[0]
+        self.assertIn("name=alice", modify_args)
+        self.assertIn("cluster=cluster", modify_args)
+        self.assertIn('partition=""', modify_args)
         self.assertIn("GrpTRESMins=cpu=600", modify_args)
         self.assertIn("Comment=project P-2026-08 allocation", modify_args)
+
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
+    def test_usage_minutes_ignores_other_cluster_records(self, run):
+        run.return_value = Mock(
+            stdout="""
+ClusterName=archive Account=dawn UserName=dawn(1000) Partition= Priority=0 ID=10
+    GrpTRESMins=cpu=600(590),gres/gpu=60(59)
+ClusterName=cluster Account=dawn UserName=dawn(1000) Partition= Priority=0 ID=17
+    GrpTRESMins=cpu=600(120),gres/gpu=60(12)
+"""
+        )
+
+        usage = self.manager.get_user_tres_usage_minutes("dawn", "dawn")
+
+        self.assertEqual(usage, {"cpu": 120, "gres/gpu": 12})
 
     @patch("openhpc_webui.services.slurm_manager.subprocess.run")
     def test_usage_minutes_uses_controller_enforcement_values(self, run):
@@ -376,7 +445,7 @@ class SlurmCreditApiTests(unittest.TestCase):
             "cpu_limit_minutes": 540,
             "gpu_limit_minutes": None,
             "remaining_cpu_minutes": 0,
-            "remaining_gpu_minutes": 0,
+            "remaining_gpu_minutes": None,
         }
         with patch.object(
             main.slurm_mgr, "grant_user_tres_hours", return_value=grant_result
@@ -391,6 +460,8 @@ class SlurmCreditApiTests(unittest.TestCase):
             username="dawn", account="dawn", cpu_hours=-1, gpu_hours=None
         )
         self.assertEqual(result["cpu_granted_hours"], -1.0)
+        self.assertIsNone(result["remaining_gpu_hours"])
+        self.assertIn("剩余卡时 无限", result["message"])
 
 
 class SlurmCreditTemplateTests(unittest.TestCase):

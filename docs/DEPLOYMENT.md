@@ -56,6 +56,7 @@ LDAP_DEFAULT_AUTHTOK=<LDAP 管理密码>
 
 ADMIN_USERS=admin
 SLURM_DEFAULT_ACCOUNT=dawn
+SLURM_CLUSTER_NAME=cluster
 SLURM_CONFIG_DIR=/etc/slurm
 NFS_QUOTA_FS=
 JOB_OUTPUT_ALLOWED_ROOTS=
@@ -72,6 +73,10 @@ openssl rand -hex 32
 使用 HTTPS 反向代理时必须设置 `SESSION_HTTPS_ONLY=True`。只有在受控网络中直接使用 HTTP 访问 Uvicorn 时才设置为 `False`。生产环境必须保持 `AUTHORIZED=True`。
 
 `.env` 需要由运行用户读取和写入，因为权限管理页面会持久化 `ADMIN_USERS`。不要在日志、工单或 Shell 历史中输出整个 `.env`。
+
+`SLURM_CLUSTER_NAME` 必须与 `scontrol show config` 输出的 `ClusterName` 一致。
+账户和 Association 的读取、创建、修改及删除都会使用该值限定集群；配置错误时相关操作会失败，
+不会退化为跨集群修改。
 
 文件管理中，普通用户的页面根目录固定映射到 LDAP `homeDirectory`；管理员首次进入自己的 NSS/SSSD Home，但访问范围仍映射到系统 `/`。要让管理员真正以 root 权限访问所有路径，Supervisor 必须按仓库默认配置使用 `user=root`；如果改为专用运行账户，管理员页面会提示权限受限。上传、新建目录会在 root 运行模式下恢复为普通用户的 LDAP UID/GID。在线编辑仅接受大小不超过 `FILE_EDIT_MAX_KB` 的 UTF-8 普通文本。由于管理员可修改和删除系统路径，只应向受信任的运维人员授予管理员权限，并确保审计日志被集中留存。
 

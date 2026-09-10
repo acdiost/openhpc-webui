@@ -24,6 +24,26 @@ class SlurmManager:
         self.config_mgr = PartitionConfigManager()
         self.node_config_mgr = NodeConfigManager()
 
+    @classmethod
+    def _configured_cluster_name(cls) -> Optional[str]:
+        """Return the Slurm cluster used to scope association operations."""
+        cluster_name = os.getenv("SLURM_CLUSTER_NAME", "cluster").strip()
+        return cluster_name if cls._is_valid_slurm_name(cluster_name) else None
+
+    @staticmethod
+    def _partition_selector(partition: Optional[str]) -> str:
+        """Render an exact partition selector, including the global association."""
+        return f"partition={partition}" if partition else 'partition=""'
+
+    @staticmethod
+    def _remaining_tres_minutes(
+        limit_minutes: Optional[int], used_minutes: int
+    ) -> Optional[int]:
+        """Preserve ``None`` as unlimited instead of reporting zero remaining."""
+        if limit_minutes is None:
+            return None
+        return max(limit_minutes - used_minutes, 0)
+
     def list_partitions(self) -> List[Dict]:
         """列出所有分区 - 从配置文件读取并结合运行时状态"""
         try:
@@ -1089,43 +1109,78 @@ class SlurmManager:
             print(f"获取 Slurm 账户失败: {e}")
             return []
 
-    def get_account_tres_minutes(self, account: str) -> Optional[Dict[str, Optional[int]]]:
+    def get_account_tres_minutes(
+        self, account: str
+    ) -> Optional[Dict[str, Optional[int]]]:
         """读取账户级 GrpTRESMins 上限（不包含用户关联）。"""
-        if not self._is_valid_slurm_name(account):
+        cluster_name = self._configured_cluster_name()
+        if not self._is_valid_slurm_name(account) or cluster_name is None:
             return None
         try:
             # GrpTRESMins is stored on the account association, not on the
             # account metadata row returned by `show account`.
             result = subprocess.run(
-                ["sacctmgr", "show", "assoc", "where", f"account={account}",
-                 "user=", "format=Account,Partition,GrpTRESMins", "-n", "-P"],
-                capture_output=True, text=True, check=True,
+                [
+                    "sacctmgr",
+                    "show",
+                    "assoc",
+                    "where",
+                    f"cluster={cluster_name}",
+                    f"account={account}",
+                    "user=",
+                    self._partition_selector(None),
+                    "format=Account,Partition,GrpTRESMins",
+                    "-n",
+                    "-P",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
             )
             for line in result.stdout.splitlines():
                 parts = line.strip().split("|", 2)
-                if len(parts) == 3 and parts[0].strip() == account and not parts[1].strip():
+                if (
+                    len(parts) == 3
+                    and parts[0].strip() == account
+                    and not parts[1].strip()
+                ):
                     return self._parse_tres_minutes(parts[2].strip())
         except Exception as e:
             print(f"获取账户 TRES 限额失败: {e}")
         return None
 
     def set_account_tres_minutes(
-        self, account: str, cpu_minutes: Optional[int] = None,
-        gpu_minutes: Optional[int] = None, comment: Optional[str] = None,
+        self,
+        account: str,
+        cpu_minutes: Optional[int] = None,
+        gpu_minutes: Optional[int] = None,
+        comment: Optional[str] = None,
     ) -> bool:
         """设置账户级 GrpTRESMins。"""
-        if not self._is_valid_slurm_name(account):
+        cluster_name = self._configured_cluster_name()
+        if not self._is_valid_slurm_name(account) or cluster_name is None:
             return False
         parts = []
         if cpu_minutes is not None:
             parts.append(f"cpu={int(cpu_minutes)}")
         if gpu_minutes is not None:
             parts.append(f"gres/gpu={int(gpu_minutes)}")
-        if not parts or (comment is not None and ("\n" in comment or "\r" in comment)):
+        if not parts or (
+            comment is not None and ("\n" in comment or "\r" in comment)
+        ):
             return False
         try:
-            args = ["sacctmgr", "-i", "modify", "account", f"name={account}",
-                    "set", f"GrpTRESMins={','.join(parts)}"]
+            args = [
+                "sacctmgr",
+                "-i",
+                "modify",
+                "account",
+                f"name={account}",
+                f"cluster={cluster_name}",
+                self._partition_selector(None),
+                "set",
+                f"GrpTRESMins={','.join(parts)}",
+            ]
             if comment is not None:
                 args.append(f"Comment={comment}")
             subprocess.run(args, capture_output=True, text=True, check=True)
@@ -1135,11 +1190,24 @@ class SlurmManager:
             return False
 
     def create_account(
-        self, name: str, description: Optional[str] = None, organization: Optional[str] = None
+        self,
+        name: str,
+        description: Optional[str] = None,
+        organization: Optional[str] = None,
     ) -> bool:
         """创建 Slurm 账户。"""
+        cluster_name = self._configured_cluster_name()
+        if cluster_name is None or not self._is_valid_slurm_name(name):
+            return False
         try:
-            args = ["sacctmgr", "-i", "add", "account", f"name={name}"]
+            args = [
+                "sacctmgr",
+                "-i",
+                "add",
+                "account",
+                f"name={name}",
+                f"cluster={cluster_name}",
+            ]
             if description:
                 args.append(f"Description={description}")
             if organization:
@@ -1153,9 +1221,15 @@ class SlurmManager:
             return False
 
     def update_account(
-        self, name: str, description: Optional[str] = None, organization: Optional[str] = None
+        self,
+        name: str,
+        description: Optional[str] = None,
+        organization: Optional[str] = None,
     ) -> bool:
         """更新 Slurm 账户。"""
+        cluster_name = self._configured_cluster_name()
+        if cluster_name is None or not self._is_valid_slurm_name(name):
+            return False
         try:
             changes = []
             if description is not None:
@@ -1166,7 +1240,15 @@ class SlurmManager:
             if not changes:
                 return True
 
-            args = ["sacctmgr", "-i", "modify", "account", f"name={name}", "set"]
+            args = [
+                "sacctmgr",
+                "-i",
+                "modify",
+                "account",
+                f"name={name}",
+                f"cluster={cluster_name}",
+                "set",
+            ]
             args.extend(changes)
             result = subprocess.run(args, capture_output=True, text=True, check=True)
             print(f"Slurm 更新账户 {name} 成功: {result.stdout}")
@@ -1177,9 +1259,19 @@ class SlurmManager:
 
     def delete_account(self, name: str) -> bool:
         """删除 Slurm 账户。"""
+        cluster_name = self._configured_cluster_name()
+        if cluster_name is None or not self._is_valid_slurm_name(name):
+            return False
         try:
             result = subprocess.run(
-                ["sacctmgr", "-i", "delete", "account", f"name={name}"],
+                [
+                    "sacctmgr",
+                    "-i",
+                    "delete",
+                    "account",
+                    f"name={name}",
+                    f"cluster={cluster_name}",
+                ],
                 capture_output=True,
                 text=True,
                 check=True,
@@ -1298,14 +1390,20 @@ class SlurmManager:
 
     def list_associations(self, account: Optional[str] = None) -> List[Dict]:
         """列出 Slurm 账户关联（association）。"""
+        cluster_name = self._configured_cluster_name()
+        if cluster_name is None:
+            return []
         try:
             if not account:
                 account = os.getenv("SLURM_DEFAULT_ACCOUNT", "acdiost")
+            if not self._is_valid_slurm_name(account):
+                return []
             result = subprocess.run(
                 [
                     "sacctmgr",
                     "show",
                     "assoc",
+                    f"cluster={cluster_name}",
                     f"account={account}",
                     "format=Cluster,Account,User%20,Partition,Qos,Comment",
                     "--json",
@@ -1441,16 +1539,18 @@ class SlurmManager:
         records: List[Dict] = []
         blocks = re.split(r"(?=^ClusterName=)", output, flags=re.MULTILINE)
         header_pattern = re.compile(
-            r"^ClusterName=\S+\s+Account=(\S*)\s+"
+            r"^ClusterName=(\S+)\s+Account=(\S*)\s+"
             r"UserName=([^\s(]*)(?:\([^)]*\))?\s+Partition=(\S*)\s+"
         )
         for block in blocks:
             header = header_pattern.search(block)
             if not header:
                 continue
-            account, username, partition = header.groups()
-            if not cls._is_valid_slurm_name(account) or (
-                username and not cls._is_valid_slurm_name(username)
+            cluster, account, username, partition = header.groups()
+            if (
+                not cls._is_valid_slurm_name(cluster)
+                or not cls._is_valid_slurm_name(account)
+                or (username and not cls._is_valid_slurm_name(username))
             ):
                 continue
             tres_line = re.search(
@@ -1460,6 +1560,7 @@ class SlurmManager:
                 continue
 
             record = {
+                "cluster": cluster,
                 "account": account,
                 "username": username,
                 "partition": partition,
@@ -1486,8 +1587,24 @@ class SlurmManager:
         default_qos: Optional[str] = None,
     ) -> bool:
         """创建 Slurm 用户关联。"""
+        cluster_name = self._configured_cluster_name()
+        if (
+            cluster_name is None
+            or not self._is_valid_slurm_name(username)
+            or not self._is_valid_slurm_name(account)
+            or (partition is not None and not self._is_valid_slurm_name(partition))
+        ):
+            return False
         try:
-            args = ["sacctmgr", "-i", "add", "user", username, f"account={account}"]
+            args = [
+                "sacctmgr",
+                "-i",
+                "add",
+                "user",
+                f"name={username}",
+                f"cluster={cluster_name}",
+                f"account={account}",
+            ]
             if partition:
                 args.append(f"partition={partition}")
             if qos:
@@ -1510,6 +1627,14 @@ class SlurmManager:
         default_qos: Optional[str] = None,
     ) -> bool:
         """更新 Slurm 用户关联的 QoS 属性；partition 仅用于定位关联。"""
+        cluster_name = self._configured_cluster_name()
+        if (
+            cluster_name is None
+            or not self._is_valid_slurm_name(username)
+            or not self._is_valid_slurm_name(account)
+            or (partition and not self._is_valid_slurm_name(partition))
+        ):
+            return False
         try:
             changes = []
             if qos is not None:
@@ -1527,10 +1652,10 @@ class SlurmManager:
                 "modify",
                 "user",
                 f"name={username}",
+                f"cluster={cluster_name}",
                 f"account={account}",
+                self._partition_selector(partition),
             ]
-            if partition is not None:
-                args.append(f"partition={partition}" if partition else 'partition=""')
             args.append("set")
             args.extend(changes)
             result = subprocess.run(args, capture_output=True, text=True, check=True)
@@ -1544,10 +1669,25 @@ class SlurmManager:
         self, username: str, account: str, partition: Optional[str] = None
     ) -> bool:
         """删除 Slurm 用户关联。"""
+        cluster_name = self._configured_cluster_name()
+        if (
+            cluster_name is None
+            or not self._is_valid_slurm_name(username)
+            or not self._is_valid_slurm_name(account)
+            or (partition and not self._is_valid_slurm_name(partition))
+        ):
+            return False
         try:
-            args = ["sacctmgr", "-i", "delete", "user", f"name={username}", f"account={account}"]
-            if partition:
-                args.append(f"partition={partition}")
+            args = [
+                "sacctmgr",
+                "-i",
+                "delete",
+                "user",
+                f"name={username}",
+                f"cluster={cluster_name}",
+                f"account={account}",
+                self._partition_selector(partition),
+            ]
             result = subprocess.run(args, capture_output=True, text=True, check=True)
             print(f"Slurm 删除关联 {username}/{account} 成功: {result.stdout}")
             return True
@@ -1565,9 +1705,13 @@ class SlurmManager:
         comment: Optional[str] = None,
     ) -> bool:
         """设置关联的 GrpTRESMins（核时/卡时）。"""
-        if not self._is_valid_slurm_name(username) or not self._is_valid_slurm_name(
-            account
-        ) or (partition is not None and not self._is_valid_slurm_name(partition)):
+        cluster_name = self._configured_cluster_name()
+        if (
+            cluster_name is None
+            or not self._is_valid_slurm_name(username)
+            or not self._is_valid_slurm_name(account)
+            or (partition is not None and not self._is_valid_slurm_name(partition))
+        ):
             return False
         try:
             parts = []
@@ -1584,12 +1728,12 @@ class SlurmManager:
                 "-i",
                 "modify",
                 "user",
-                username,
+                f"name={username}",
                 "where",
+                f"cluster={cluster_name}",
                 f"account={account}",
+                self._partition_selector(partition),
             ]
-            if partition is not None:
-                args.append(f"partition={partition}")
             set_values = [f"GrpTRESMins={value}"]
             if comment is not None:
                 if "\n" in comment or "\r" in comment:
@@ -1656,9 +1800,13 @@ class SlurmManager:
     def get_association_tres_minutes(
         self, username: str, account: str, partition: Optional[str] = None
     ) -> Optional[Dict[str, Optional[int]]]:
-        if not self._is_valid_slurm_name(username) or not self._is_valid_slurm_name(
-            account
-        ) or (partition is not None and not self._is_valid_slurm_name(partition)):
+        cluster_name = self._configured_cluster_name()
+        if (
+            cluster_name is None
+            or not self._is_valid_slurm_name(username)
+            or not self._is_valid_slurm_name(account)
+            or (partition is not None and not self._is_valid_slurm_name(partition))
+        ):
             return None
         try:
             args = [
@@ -1666,11 +1814,11 @@ class SlurmManager:
                 "show",
                 "assoc",
                 "where",
+                f"cluster={cluster_name}",
                 f"user={username}",
                 f"account={account}",
+                self._partition_selector(partition),
             ]
-            if partition is not None:
-                args.append(f"partition={partition}")
             args.extend(
                 ["format=User,Account,Partition,GrpTRESMins", "-n", "-P"]
             )
@@ -1699,9 +1847,13 @@ class SlurmManager:
         account: str,
         partition: Optional[str] = None,
     ) -> Optional[Dict[str, int]]:
-        if not self._is_valid_slurm_name(username) or not self._is_valid_slurm_name(
-            account
-        ) or (partition is not None and not self._is_valid_slurm_name(partition)):
+        cluster_name = self._configured_cluster_name()
+        if (
+            cluster_name is None
+            or not self._is_valid_slurm_name(username)
+            or not self._is_valid_slurm_name(account)
+            or (partition is not None and not self._is_valid_slurm_name(partition))
+        ):
             return None
         try:
             result = subprocess.run(
@@ -1723,7 +1875,8 @@ class SlurmManager:
         expected_partition = partition or ""
         for record in self._parse_assoc_mgr_tres_records(result.stdout):
             if (
-                record["account"] != account
+                record["cluster"] != cluster_name
+                or record["account"] != account
                 or record["username"] != username
                 or record["partition"] != expected_partition
             ):
@@ -1834,11 +1987,11 @@ class SlurmManager:
                 "cpu_limit_minutes": verified.get("cpu"),
                 "gpu_limit_minutes": verified.get("gres/gpu"),
                 "comment": comment,
-                "remaining_cpu_minutes": max(
-                    (verified.get("cpu") or 0) - usage["cpu"], 0
+                "remaining_cpu_minutes": self._remaining_tres_minutes(
+                    verified.get("cpu"), usage["cpu"]
                 ),
-                "remaining_gpu_minutes": max(
-                    (verified.get("gres/gpu") or 0) - usage["gres/gpu"], 0
+                "remaining_gpu_minutes": self._remaining_tres_minutes(
+                    verified.get("gres/gpu"), usage["gres/gpu"]
                 ),
             }
 
@@ -1849,19 +2002,33 @@ class SlurmManager:
             username: 用户名
             account: Slurm 账户名,默认从环境变量 SLURM_DEFAULT_ACCOUNT 读取,或使用 "dawn"
         """
-        try:
-            # 获取默认账户
-            if not account:
-                account = os.getenv('SLURM_DEFAULT_ACCOUNT', 'dawn')
+        cluster_name = self._configured_cluster_name()
+        if not account:
+            account = os.getenv('SLURM_DEFAULT_ACCOUNT', 'dawn')
+        if (
+            cluster_name is None
+            or not self._is_valid_slurm_name(username)
+            or not self._is_valid_slurm_name(account)
+        ):
+            return False
 
+        try:
             # 使用 sacctmgr 添加用户账户
             # -i: 立即执行,不需要确认
             # account=账户名: 指定用户所属账户
             result = subprocess.run(
-                ['sacctmgr', '-i', 'add', 'user', username, f'account={account}'],
+                [
+                    "sacctmgr",
+                    "-i",
+                    "add",
+                    "user",
+                    f"name={username}",
+                    f"cluster={cluster_name}",
+                    f"account={account}",
+                ],
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
             )
             print(f"Slurm 添加用户 {username} 到账户 {account} 成功: {result.stdout}")
             return True
@@ -1875,14 +2042,25 @@ class SlurmManager:
         Args:
             username: 用户名
         """
+        cluster_name = self._configured_cluster_name()
+        if cluster_name is None or not self._is_valid_slurm_name(username):
+            return False
+
         try:
             # 使用 sacctmgr 删除用户账户
             # -i: 立即执行,不需要确认
             result = subprocess.run(
-                ['sacctmgr', '-i', 'delete', 'user', username],
+                [
+                    "sacctmgr",
+                    "-i",
+                    "delete",
+                    "user",
+                    f"name={username}",
+                    f"cluster={cluster_name}",
+                ],
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
             )
             print(f"Slurm 删除用户 {username} 成功: {result.stdout}")
             return True
