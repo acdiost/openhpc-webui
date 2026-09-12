@@ -46,6 +46,8 @@ class NodeConfigManager:
         """解析一行节点配置"""
         try:
             node = {}
+            raw_line = line
+            line = line.split("#", 1)[0]
 
             # 提取 NodeName
             name_match = re.search(r'NodeName=(\S+)', line)
@@ -89,8 +91,17 @@ class NodeConfigManager:
             if gres_match:
                 node['gres'] = gres_match.group(1)
 
+            for key, field in (
+                ("NodeAddr", "node_addr"),
+                ("Parameters", "parameters"),
+                ("State", "state"),
+            ):
+                match = re.search(rf"(?<!\S){key}=(\S+)", line)
+                if match:
+                    node[field] = match.group(1)
+
             # 保存原始配置行
-            node['raw_line'] = line
+            node['raw_line'] = raw_line
 
             return node
         except Exception as e:
@@ -144,6 +155,9 @@ class NodeConfigManager:
                 "ThreadsPerCore": kwargs.get("threads_per_core"),
                 "RealMemory": kwargs.get("real_memory"),
                 "Gres": kwargs.get("gres"),
+                "NodeAddr": kwargs.get("node_addr"),
+                "Parameters": kwargs.get("parameters"),
+                "State": kwargs.get("state"),
             }
             lines[target_index] = self._update_config_line(
                 lines[target_index], updates
@@ -171,6 +185,8 @@ class NodeConfigManager:
     def _build_config_line(self, name: str, cpus: int, **kwargs) -> str:
         """构建节点配置行"""
         parts = [f"NodeName={name}"]
+        if kwargs.get("node_addr"):
+            parts.append(f"NodeAddr={kwargs['node_addr']}")
         parts.append(f"CPUs={cpus}")
 
         # 添加可选参数
@@ -192,6 +208,11 @@ class NodeConfigManager:
         if 'gres' in kwargs and kwargs['gres']:
             parts.append(f"Gres={kwargs['gres']}")
 
+        if kwargs.get("parameters"):
+            parts.append(f"Parameters={kwargs['parameters']}")
+        if kwargs.get("state"):
+            parts.append(f"State={kwargs['state']}")
+
         return ' '.join(parts)
 
     def _read_config_lines(self) -> List[str]:
@@ -212,6 +233,7 @@ class NodeConfigManager:
     def _update_config_line(line: str, updates: Dict[str, object]) -> str:
         ending = "\n" if line.endswith("\n") else ""
         body = line[:-1] if ending else line
+        body, marker, comment = body.partition("#")
         for key, value in updates.items():
             if value is None:
                 continue
@@ -224,6 +246,8 @@ class NodeConfigManager:
             elif replacement:
                 body = f"{body.rstrip()} {replacement}"
             body = re.sub(r"[ \t]{2,}", " ", body).rstrip()
+        if marker:
+            body = body.rstrip() + " #" + comment
         return body + ending
 
     def _write_config_lines(self, lines: List[str]) -> bool:

@@ -166,7 +166,23 @@ class PartitionUpdate(BaseModel):
     default: Optional[bool] = None
 
 
-class NodeCreate(BaseModel):
+class NodeConfigFields(BaseModel):
+    node_addr: Optional[str] = None
+    parameters: Optional[str] = None
+    state: Optional[str] = None
+
+    @field_validator("node_addr", "parameters", "state")
+    @classmethod
+    def validate_config_token(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and any(
+            char.isspace() or ord(char) < 32 or ord(char) == 127
+            or char in "#\"'\\" for char in value
+        ):
+            raise ValueError("节点配置字段不能包含空白、控制字符、注释或引号")
+        return value
+
+
+class NodeCreate(NodeConfigFields):
     name: str
     cpus: int
     boards: Optional[int] = 1
@@ -177,7 +193,7 @@ class NodeCreate(BaseModel):
     gres: Optional[str] = None
 
 
-class NodeUpdate(BaseModel):
+class NodeUpdate(NodeConfigFields):
     cpus: Optional[int] = None
     boards: Optional[int] = None
     sockets_per_board: Optional[int] = None

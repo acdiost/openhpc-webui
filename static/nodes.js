@@ -128,6 +128,26 @@ function getStateBadge(state) {
     }
 }
 
+// 添加和编辑使用相同的节点配置字段。
+function nodeConfigFields() {
+    return `
+        <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">NodeAddr (可选)</label>
+            <input type="text" name="node_addr" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="172.90.50.6">
+        </div>
+        <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Parameters (可选)</label>
+            <input type="text" name="parameters" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="numa_node_as_socket">
+            <p class="text-sm text-gray-500">多个参数用逗号分隔，需与节点 Slurm 版本及 CPU 拓扑匹配。</p>
+        </div>
+        <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">State (配置状态，可选)</label>
+            <input type="text" name="state" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="UNKNOWN">
+            <p class="text-sm text-gray-500">设置配置文件中的状态；节点上线或下线请使用列表操作。</p>
+        </div>
+    `;
+}
+
 // 显示添加节点模态框
 function showAddNodeModal() {
     const backdrop = document.createElement('div');
@@ -186,6 +206,8 @@ function showAddNodeModal() {
                 <input type="text" name="gres" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="gpu:nvidia_geforce_rtx_4090:1">
             </div>
 
+            ${nodeConfigFields()}
+
             <div class="flex gap-3 justify-end mt-6 pt-4 border-t">
                 <button type="button" onclick="closeAddNodeModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition">
                     取消
@@ -223,7 +245,10 @@ async function handleAddNode(form) {
         cores_per_socket: parseInt(formData.get('cores_per_socket')) || null,
         threads_per_core: parseInt(formData.get('threads_per_core')) || null,
         real_memory: parseInt(formData.get('real_memory')) || null,
-        gres: formData.get('gres') || null
+        gres: formData.get('gres') || null,
+        node_addr: formData.get('node_addr').trim(),
+        parameters: formData.get('parameters').trim(),
+        state: formData.get('state').trim()
     };
 
     const success = await createNode(nodeData);
@@ -300,6 +325,8 @@ function editNode(nodeName) {
                 <input type="text" name="gres" value="${nodeConfig.gres || ''}" class="w-full px-3 py-2 border border-gray-300 rounded-md">
             </div>
 
+            ${nodeConfigFields()}
+
             <div class="flex gap-3 justify-end mt-6 pt-4 border-t">
                 <button type="button" onclick="closeEditNodeModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition">
                     取消
@@ -313,6 +340,11 @@ function editNode(nodeName) {
 
     backdrop.appendChild(modal);
     document.body.appendChild(backdrop);
+
+    const editForm = document.getElementById('editNodeForm');
+    for (const field of ['node_addr', 'parameters', 'state']) {
+        editForm.elements[field].value = nodeConfig[field] || '';
+    }
 
     document.getElementById('editNodeForm').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -335,7 +367,10 @@ async function handleEditNode(nodeName, form) {
         cores_per_socket: parseInt(formData.get('cores_per_socket')) || null,
         threads_per_core: parseInt(formData.get('threads_per_core')) || null,
         real_memory: parseInt(formData.get('real_memory')) || null,
-        gres: formData.get('gres') || null
+        gres: formData.get('gres') || null,
+        node_addr: formData.get('node_addr').trim(),
+        parameters: formData.get('parameters').trim(),
+        state: formData.get('state').trim()
     };
 
     const success = await updateNodeConfig(nodeName, nodeData);

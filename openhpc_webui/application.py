@@ -2680,6 +2680,9 @@ async def create_node(node: NodeCreate, user: dict = Depends(get_current_user)):
         threads_per_core=node.threads_per_core,
         real_memory=node.real_memory,
         gres=node.gres,
+        node_addr=node.node_addr,
+        parameters=node.parameters,
+        state=node.state,
     )
     if not success:
         raise HTTPException(status_code=500, detail="添加节点失败")
@@ -2705,6 +2708,9 @@ async def update_node_config(
         threads_per_core=node.threads_per_core,
         real_memory=node.real_memory,
         gres=node.gres,
+        node_addr=node.node_addr,
+        parameters=node.parameters,
+        state=node.state,
     )
     if not success:
         raise HTTPException(status_code=500, detail="更新节点配置失败")

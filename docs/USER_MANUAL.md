@@ -235,6 +235,16 @@ Slurm 账户不同于 LDAP 用户，也不同于门户管理员身份。
 
 添加、编辑或删除后系统会重新加载 Slurm 配置。配置操作不等同于物理部署节点；`slurmd`、网络、DNS、Munge 和硬件资源仍需由集群运维人员配置。
 
+添加和编辑表单支持 `NodeAddr`（节点地址）、`Parameters`（节点级参数，多个值用逗号分隔）和 `State`（配置文件中的状态）。这些字段可留空；编辑时清空会移除对应配置项。配置状态与列表中的运行状态不同，上线、下线仍使用 Resume / Drain 操作。
+
+例如，添加 `g50r061` 时填写 NodeAddr 为 `172.90.50.6`、CPUs 为 `128`、Boards 为 `1`、SocketsPerBoard 为 `4`、CoresPerSocket 为 `16`、ThreadsPerCore 为 `2`、RealMemory 为 `500000`、Gres 为 `gpu:rtx_5090:8`、Parameters 为 `numa_node_as_socket`、State 为 `UNKNOWN`。保存后生成：
+
+```ini
+NodeName=g50r061 NodeAddr=172.90.50.6 CPUs=128 Boards=1 SocketsPerBoard=4 CoresPerSocket=16 ThreadsPerCore=2 RealMemory=500000 Gres=gpu:rtx_5090:8 Parameters=numa_node_as_socket State=UNKNOWN
+```
+
+使用 `numa_node_as_socket` 前，应确认计算节点的 Slurm 版本支持该参数，并以 `slurmd -C --parameters=numa_node_as_socket` 输出核对 CPU 拓扑。GPU 类型和数量需要与节点的 GRES 配置匹配。
+
 ## 作业管理
 
 作业管理是所有登录用户都可以访问的页面。
