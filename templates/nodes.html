@@ -93,17 +93,31 @@ content %}
         </div>
     </div>
 
+    <div id="nodeSelectionToolbar" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:16px">
+        <span id="nodeSelectionCount" role="status" aria-live="polite">已选 0 个节点</span>
+        <button id="nodeDrainSelected" class="btn btn-secondary" onclick="runSelectedNodeAction('drain')" disabled>下线</button>
+        <button id="nodeResumeSelected" class="btn btn-secondary" onclick="runSelectedNodeAction('resume')" disabled>上线</button>
+        <button id="nodeEditSelected" class="btn btn-secondary" onclick="editSelectedNode()" disabled>编辑</button>
+        <button id="nodeDeleteSelected" class="btn btn-secondary" onclick="runSelectedNodeAction('delete')" disabled>删除</button>
+        <button id="nodeClearSelected" class="btn btn-secondary" onclick="selectAllNodes(false)" disabled>取消选择</button>
+        <span style="font-size:13px; color:#6b7280">编辑需单选；编辑和删除需有对应节点配置。</span>
+    </div>
+    <style>
+        #nodeSelectionToolbar button:disabled { opacity: .45; cursor: not-allowed; }
+        #nodesTableBody tr.node-selected { background-color: #eff6ff; }
+    </style>
+
     <div class="data-table-scroll" role="region" aria-label="节点列表" tabindex="0">
-        <table class="table data-table data-table--wide has-actions">
+        <table class="table data-table data-table--wide">
             <thead>
                 <tr>
+                    <th style="width:44px"><input id="selectAllNodes" type="checkbox" aria-label="选择全部节点" onchange="selectAllNodes(this.checked)"></th>
                     <th>节点名称</th>
                     <th class="col-status">状态</th>
                     <th class="col-number">CPUs</th>
                     <th class="col-number">内存 (MB)</th>
                     <th>分区</th>
                     <th>Gres</th>
-                    <th class="col-actions" style="width: 286px; min-width: 286px">操作</th>
                 </tr>
             </thead>
             <tbody id="nodesTableBody">
@@ -198,5 +212,5 @@ content %}
 {% endblock %} {# ══════════════════════════════════════════════════════════
 页面专属外部脚本 ══════════════════════════════════════════════════════════ #}
 {% block extra_scripts %}
-<script src="/static/nodes.js?v=4"></script>
+<script src="/static/nodes.js?v=5"></script>
 {% endblock %}

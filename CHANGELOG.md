@@ -8,6 +8,7 @@
 
 ### Added
 
+- 节点添加和编辑新增 `NodeAddr`、`Parameters`、`State` 配置字段，支持保存、回读、更新及清空，可完整录入包含 GPU 和 NUMA 参数的节点配置。
 - 新增基于 xterm.js 的 Web 终端，通过 WebSocket 连接后端 PTY，并将 xterm.js、FitAddon 和样式资源随应用离线打包。
 - 新增 `TERMINAL_ENABLED`、`TERMINAL_IDLE_MINUTES` 和 `TERMINAL_MAX_SESSIONS` 配置，用于控制终端入口、空闲超时及单用户并发会话数。
 - 新增 Nginx HTTPS/WebSocket 示例配置，以及终端使用、部署和故障排查文档。
@@ -23,6 +24,8 @@
 
 ### Changed
 
+- 节点列表改为勾选后统一操作，支持全选、取消选择和已选数量显示；上线、下线、删除支持批量确认并逐个执行，显示成功与失败数量，失败节点保留勾选以便重试。编辑仅在单选且存在对应配置时可用，删除要求所选节点均有对应配置。
+- Supervisor 示例及安装文档统一使用 `/srv/openhpc-webui` 和 `.venv`，Python 包名、命令行入口及 Supervisor 程序名沿用 `openhpc_webui`，并补充现有部署的路径修复与重载步骤。
 - Web 终端侧边栏改为当前页与新标签页双入口。
 - 门户管理员的终端初始目录固定为其同名 Linux 系统用户的 Home，不沿用管理员文件管理的 `/` 或 `/root` 范围。
 - 门户管理员进入文件管理时默认打开自己的 NSS/SSSD Home，“家目录”按钮也返回该目录，同时保留系统根目录访问能力。
@@ -33,6 +36,7 @@
 
 ### Fixed
 
+- 修复节点配置解析和更新时对行尾注释的处理，避免将注释中的字段识别为有效配置，或将新增字段写到注释后导致配置不生效。
 - 补充 Nginx WebSocket `Upgrade` 和 `Connection` 转发配置，避免 `/ws/terminal` 被代理为普通 HTTP GET 并返回 404。
 - 断开终端或关闭页面时主动回收 PTY 文件描述符和 Shell 进程，避免残留会话。
 - 隐藏 AI 命令执行使用的内部包装与完成标记，并避免模型总结复述这些实现细节。
@@ -45,6 +49,7 @@
 
 ### Security
 
+- 为节点配置的 `NodeAddr`、`Parameters`、`State` 字段增加输入校验，拒绝空白、控制字符、注释标记、引号和反斜杠，避免输入改变配置行结构。
 - WebSocket 复用门户登录会话并校验请求来源，拒绝未认证、跨站来源及已禁用账户。
 - Shell 始终降权到当前同名 Linux 系统用户，不继承门户的 LDAP 凭据、Session 密钥等敏感环境变量。
 - 增加系统账户、Home、登录 Shell、UID 唯一性和进程切换权限检查，拒绝 UID 与其他用户名冲突的终端会话。

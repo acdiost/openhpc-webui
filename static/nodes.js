@@ -4,6 +4,98 @@
 
 let allNodes = [];
 let allNodesConfig = [];
+let visibleNodes = [];
+const selectedNodes = new Set();
+let nodeActionRunning = false;
+
+function escapeNodeText(value) {
+    return String(value).replace(/[&<>"']/g, char => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[char]);
+}
+
+function updateNodeSelection() {
+    const count = selectedNodes.size;
+    const hasConfigs = count > 0 && [...selectedNodes].every(name =>
+        allNodesConfig.some(node => node.name === name));
+    const selectAll = document.getElementById('selectAllNodes');
+    selectAll.checked = visibleNodes.length > 0 && count === visibleNodes.length;
+    selectAll.indeterminate = count > 0 && count < visibleNodes.length;
+    selectAll.disabled = nodeActionRunning || visibleNodes.length === 0;
+    document.getElementById('nodeSelectionCount').textContent =
+        `${nodeActionRunning ? '正在处理，' : ''}已选 ${count} 个节点`;
+    for (const action of ['Drain', 'Resume', 'Clear']) {
+        document.getElementById(`node${action}Selected`).disabled = nodeActionRunning || count === 0;
+    }
+    document.getElementById('nodeEditSelected').disabled = nodeActionRunning || count !== 1 || !hasConfigs;
+    document.getElementById('nodeDeleteSelected').disabled = nodeActionRunning || !hasConfigs;
+    document.querySelectorAll('.node-selector').forEach(input => {
+        input.checked = selectedNodes.has(input.value);
+        input.disabled = nodeActionRunning;
+        input.closest('tr').classList.toggle('node-selected', input.checked);
+    });
+}
+
+function selectNode(name, checked) {
+    if (nodeActionRunning) return;
+    if (checked && visibleNodes.some(node => node.name === name)) selectedNodes.add(name);
+    else selectedNodes.delete(name);
+    updateNodeSelection();
+}
+
+function selectAllNodes(checked) {
+    if (nodeActionRunning) return;
+    selectedNodes.clear();
+    if (checked) visibleNodes.forEach(node => selectedNodes.add(node.name));
+    updateNodeSelection();
+}
+
+function editSelectedNode() {
+    if (!nodeActionRunning && selectedNodes.size === 1) editNode([...selectedNodes][0]);
+}
+
+function runSelectedNodeAction(action) {
+    if (nodeActionRunning || selectedNodes.size === 0) return;
+    const actions = {
+        drain: {label: '下线', api: drainNodeAPI, detail: '节点将停止接受新作业。'},
+        resume: {label: '上线', api: resumeNodeAPI, detail: '节点将恢复接受新作业。'},
+        delete: {label: '删除', api: deleteNodeConfigAPI, detail: '将从配置文件中移除所选节点。'}
+    };
+    const operation = actions[action];
+    if (!operation) return;
+    const names = [...selectedNodes];
+    if (action === 'delete' && names.some(name => !allNodesConfig.some(node => node.name === name))) {
+        showToast('所选节点中有节点缺少对应配置，无法删除', 'error');
+        return;
+    }
+    showConfirmModal(
+        `${operation.label}所选节点`,
+        `确定要${operation.label}以下 ${names.length} 个节点吗？${operation.detail}<br>${names.map(escapeNodeText).join('、')}`,
+        async () => {
+            if (nodeActionRunning) return;
+            nodeActionRunning = true;
+            updateNodeSelection();
+            const failures = [];
+            try {
+                // 配置写入必须串行，避免并发覆盖同一文件。
+                for (const name of names) {
+                    try {
+                        if (await operation.api(name)) selectedNodes.delete(name);
+                        else failures.push(name);
+                    } catch (error) {
+                        failures.push(name);
+                    }
+                }
+                showToast(`${operation.label}完成：成功 ${names.length - failures.length} 个，失败 ${failures.length} 个` +
+                    (failures.length ? `（${failures.join('、')}）` : ''), failures.length ? 'error' : 'success');
+                await loadNodes();
+            } finally {
+                nodeActionRunning = false;
+                updateNodeSelection();
+            }
+        }
+    );
+}
 
 // 页面加载时初始化
 document.addEventListener('DOMContentLoaded', async () => {
@@ -82,8 +174,15 @@ function renderNodesTable(nodes) {
     const tbody = document.getElementById('nodesTableBody');
     if (!tbody) return;
 
+    visibleNodes = nodes;
+    const availableNames = new Set(nodes.map(node => node.name));
+    for (const name of selectedNodes) {
+        if (!availableNames.has(name)) selectedNodes.delete(name);
+    }
+
     if (nodes.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" class="text-center text-gray-500 py-8">暂无节点数据</td></tr>';
+        updateNodeSelection();
         return;
     }
 
@@ -93,21 +192,20 @@ function renderNodesTable(nodes) {
 
         return `
             <tr>
-                <td><strong>${node.name}</strong></td>
+                <td><input class="node-selector" type="checkbox" value="${escapeNodeText(node.name)}" aria-label="选择节点 ${escapeNodeText(node.name)}"></td>
+                <td><strong>${escapeNodeText(node.name)}</strong></td>
                 <td class="col-status">${stateBadge}</td>
                 <td class="col-number">${node.cpus || node.config?.cpus || '-'}</td>
                 <td class="col-number">${node.memory || node.config?.real_memory || '-'}</td>
                 <td>${node.partition || '-'}</td>
                 <td><code style="font-size: 11px;">${gres}</code></td>
-                <td class="col-actions" style="width:286px;min-width:286px"><div class="data-table-actions">
-                    <button onclick="drainNode('${node.name}')" class="btn" style="padding: 4px 12px; font-size: 12px; background-color: #f59e0b; color: white; margin-right: 4px;">下线</button>
-                    <button onclick="resumeNode('${node.name}')" class="btn btn-secondary" style="padding: 4px 12px; font-size: 12px; margin-right: 4px;">上线</button>
-                    <button onclick="editNode('${node.name}')" class="btn btn-secondary" style="padding: 4px 12px; font-size: 12px; margin-right: 4px;">编辑</button>
-                    <button onclick="deleteNode('${node.name}')" class="btn" style="padding: 4px 12px; font-size: 12px; background-color: #ef4444; color: white;">删除</button>
-                </div></td>
             </tr>
         `;
     }).join('');
+    tbody.querySelectorAll('.node-selector').forEach(input => {
+        input.addEventListener('change', () => selectNode(input.value, input.checked));
+    });
+    updateNodeSelection();
 }
 
 // 获取状态徽章
@@ -388,54 +486,12 @@ function closeEditNodeModal() {
     }
 }
 
-// 下线节点
-function drainNode(nodeName) {
-    showConfirmModal(
-        '下线节点',
-        `确定要下线节点 "${nodeName}" 吗？节点将停止接受新作业。`,
-        async () => {
-            const success = await drainNodeAPI(nodeName);
-            if (success) {
-                await loadNodes();
-            }
-        }
-    );
-}
-
-// 上线节点
-function resumeNode(nodeName) {
-    showConfirmModal(
-        '上线节点',
-        `确定要恢复节点 "${nodeName}" 上线吗？节点将恢复接受新作业。`,
-        async () => {
-            const success = await resumeNodeAPI(nodeName);
-            if (success) {
-                await loadNodes();
-            }
-        }
-    );
-}
-
-// 删除节点
-function deleteNode(nodeName) {
-    showConfirmModal(
-        '删除节点',
-        `确定要删除节点 "${nodeName}" 的配置吗？此操作将从配置文件中移除该节点。`,
-        async () => {
-            const success = await deleteNodeConfigAPI(nodeName);
-            if (success) {
-                await loadNodes();
-            }
-        }
-    );
-}
-
 // 导出函数供全局使用
 window.showAddNodeModal = showAddNodeModal;
 window.closeAddNodeModal = closeAddNodeModal;
 window.editNode = editNode;
 window.closeEditNodeModal = closeEditNodeModal;
-window.drainNode = drainNode;
-window.resumeNode = resumeNode;
-window.deleteNode = deleteNode;
+window.selectAllNodes = selectAllNodes;
+window.editSelectedNode = editSelectedNode;
+window.runSelectedNodeAction = runSelectedNodeAction;
 window.loadNodes = loadNodes;
