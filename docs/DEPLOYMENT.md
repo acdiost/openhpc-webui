@@ -1,6 +1,8 @@
 # openhpc_webui 生产部署
 
-本文档适用于 `openhpc_webui 0.3.0`，使用 Supervisor 托管单个 Uvicorn 进程，并通过 Nginx 提供 HTTPS。示例安装目录为 `/opt/openhpc_webui`，应用仅监听 `127.0.0.1:6827`。
+本文档适用于 `openhpc_webui 0.3.0`，使用 Supervisor 托管单个 Uvicorn 进程，并通过 Nginx 提供 HTTPS。示例安装目录为 `/srv/openhpc-webui`，应用仅监听 `127.0.0.1:6827`。
+
+命名约定：仓库和安装目录使用连字符 `openhpc-webui`，虚拟环境目录为 `.venv`；Python 包、命令行入口、Supervisor 程序名和配置文件名沿用下划线 `openhpc_webui`。如使用其他安装目录，必须同步修改 Supervisor 配置中的 `command`、`directory` 和 `environment` 的 `PATH`。
 
 ## 1. 部署前提
 
@@ -28,8 +30,8 @@ command -v ssh-keygen sinfo squeue sacct scontrol sacctmgr scancel
 
 ```bash
 sudo -i
-git clone https://github.com/acdiost/openhpc-webui.git /opt/openhpc_webui
-cd /opt/openhpc_webui
+git clone https://github.com/acdiost/openhpc-webui.git /srv/openhpc-webui
+cd /srv/openhpc-webui
 uv sync --locked --no-dev
 cp env.example .env
 chmod 600 .env
@@ -40,7 +42,7 @@ exit
 
 ## 3. 配置环境变量
 
-编辑 `/opt/openhpc_webui/.env`，至少确认以下配置：
+编辑 `/srv/openhpc-webui/.env`，至少确认以下配置：
 
 ```dotenv
 AUTHORIZED=True
@@ -118,11 +120,11 @@ sudo install -d -o root -g root -m 0750 /var/log/openhpc_webui
 
 ```bash
 # Rocky Linux / RHEL
-sudo cp /opt/openhpc_webui/openhpc_webui.ini \
+sudo cp /srv/openhpc-webui/openhpc_webui.ini \
   /etc/supervisord.d/openhpc_webui.ini
 
 # Ubuntu / Debian（必须使用 .conf 后缀）
-sudo cp /opt/openhpc_webui/openhpc_webui.ini \
+sudo cp /srv/openhpc-webui/openhpc_webui.ini \
   /etc/supervisor/conf.d/openhpc_webui.conf
 ```
 
@@ -271,7 +273,7 @@ sudo tail -f /var/log/openhpc_webui/error.log
 
 ```bash
 sudo -i
-cd /opt/openhpc_webui
+cd /srv/openhpc-webui
 install -d -m 0700 /var/backups/openhpc_webui
 cp -a .env /var/backups/openhpc_webui/.env
 git pull --ff-only
@@ -291,11 +293,23 @@ exit
 ```bash
 sudo supervisorctl status openhpc_webui
 sudo tail -n 100 /var/log/openhpc_webui/error.log
-sudo test -x /opt/openhpc_webui/.venv/bin/uvicorn
-sudo stat /opt/openhpc_webui/.env
+sudo test -x /srv/openhpc-webui/.venv/bin/uvicorn
+sudo stat /srv/openhpc-webui/.env
 ```
 
-确认 Supervisor 配置中的 `directory`、`command` 和实际安装目录完全一致。
+确认 Supervisor 配置中的 `directory`、`command` 和 `environment` 的 `PATH` 与实际安装目录完全一致。安装目录名使用连字符 `openhpc-webui`；不要将 Python 包名中的下划线套用到安装路径。
+
+如果提示 `can't find command`，但 `/srv/openhpc-webui/.venv/bin/uvicorn` 确实存在，应先修正 Supervisor 已加载的配置。仅修改仓库文件不会更新 `/etc` 中的配置。对于 Rocky Linux / RHEL，更新仓库后执行：
+
+```bash
+sudo cp /srv/openhpc-webui/openhpc_webui.ini /etc/supervisord.d/openhpc_webui.ini
+sudo supervisorctl reread
+sudo supervisorctl update
+sudo supervisorctl restart openhpc_webui
+sudo supervisorctl status openhpc_webui
+```
+
+如果已自定义 Supervisor 配置，请直接编辑 `/etc/supervisord.d/openhpc_webui.ini` 中的上述三个路径，保留其他自定义设置，然后执行同样的重载命令。Ubuntu / Debian 的配置文件为 `/etc/supervisor/conf.d/openhpc_webui.conf`。`reread` 输出 `No config updates to processes` 表示它没有检测到已加载配置的变化。
 
 ### 登录或 Session 异常
 

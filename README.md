@@ -66,8 +66,10 @@
 
 ## 项目结构
 
+仓库目录使用 `openhpc-webui`，生产安装目录统一为 `/srv/openhpc-webui`；Python 包和命令行入口使用 `openhpc_webui`。Supervisor 配置与完整步骤见[生产部署指南](./docs/DEPLOYMENT.md)。
+
 ```text
-openhpc_webui/
+openhpc-webui/
 ├── openhpc_webui/
 │   ├── application.py      # FastAPI 路由与接口
 │   ├── cli.py              # 命令行入口

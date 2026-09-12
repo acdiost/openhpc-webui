@@ -29,8 +29,8 @@
 ## 安装
 
 ```bash
-git clone https://github.com/acdiost/openhpc-webui.git /opt/openhpc_webui
-cd /opt/openhpc_webui
+git clone https://github.com/acdiost/openhpc-webui.git /srv/openhpc-webui
+cd /srv/openhpc-webui
 uv sync
 cp env.example .env
 ```
@@ -141,7 +141,7 @@ sacctmgr show account
 ## 项目结构
 
 ```text
-openhpc_webui/
+openhpc-webui/
 ├── openhpc_webui/           # Python 应用包
 │   ├── __main__.py          # python -m openhpc_webui 入口
 │   ├── application.py       # FastAPI 工厂、页面与 API 路由

@@ -267,7 +267,7 @@ dn:uid=admin,ou=People,dc=acdiost,dc=com
 在项目目录复制并编辑环境变量文件：
 
 ```bash
-cd /opt/openhpc_webui
+cd /srv/openhpc-webui
 cp env.example .env
 chmod 600 .env
 vi .env
