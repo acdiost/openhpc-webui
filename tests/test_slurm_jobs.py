@@ -76,3 +76,13 @@ class SlurmJobListTests(unittest.TestCase):
     def test_job_resource_usage_rejects_invalid_job_id(self, run):
         self.assertIsNone(self.manager.get_job_resource_usage("--help"))
         run.assert_not_called()
+
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
+    def test_job_detail_rejects_option_shaped_job_id(self, run):
+        self.assertIsNone(self.manager.get_job_detail("--user=alice"))
+        run.assert_not_called()
+
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
+    def test_cancel_job_rejects_option_shaped_job_id(self, run):
+        self.assertFalse(self.manager.cancel_job("--user=alice"))
+        run.assert_not_called()

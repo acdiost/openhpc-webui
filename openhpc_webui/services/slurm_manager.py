@@ -27,8 +27,13 @@ class SlurmManager:
     @classmethod
     def _configured_cluster_name(cls) -> Optional[str]:
         """Return the Slurm cluster used to scope association operations."""
-        cluster_name = os.getenv("SLURM_CLUSTER_NAME", "cluster").strip()
+        cluster_name = os.getenv("SLURM_CLUSTER_NAME", "").strip()
         return cluster_name if cls._is_valid_slurm_name(cluster_name) else None
+
+    @classmethod
+    def is_valid_job_id(cls, job_id: str) -> bool:
+        """Return whether a value is a single supported Slurm job identifier."""
+        return bool(cls._slurm_job_id_pattern.fullmatch(job_id))
 
     @staticmethod
     def _partition_selector(partition: Optional[str]) -> str:
@@ -374,6 +379,8 @@ class SlurmManager:
         Args:
             job_id: 作业ID
         """
+        if not self.is_valid_job_id(job_id):
+            return None
         try:
             result = subprocess.run(
                 ['scontrol', 'show', 'job', job_id],
@@ -484,7 +491,7 @@ class SlurmManager:
         GPU metrics are populated when the cluster exposes ``gres/gpuutil``
         and ``gres/gpumem`` through its job accounting configuration.
         """
-        if not self._slurm_job_id_pattern.fullmatch(job_id):
+        if not self.is_valid_job_id(job_id):
             return None
 
         detail = self.get_job_detail(job_id)
@@ -620,6 +627,8 @@ class SlurmManager:
         Args:
             job_id: 作业ID
         """
+        if not self.is_valid_job_id(job_id):
+            return False
         try:
             result = subprocess.run(
                 ['scancel', job_id],
@@ -1082,8 +1091,34 @@ class SlurmManager:
             return None
 
     def list_accounts(self) -> List[Dict]:
-        """列出所有 Slurm 账户（sacctmgr show account --json）。"""
+        """列出配置集群中存在 Association 的 Slurm 账户。"""
+        cluster_name = self._configured_cluster_name()
+        if cluster_name is None:
+            return []
         try:
+            association_result = subprocess.run(
+                [
+                    "sacctmgr",
+                    "show",
+                    "assoc",
+                    "where",
+                    f"cluster={cluster_name}",
+                    "format=Account",
+                    "-n",
+                    "-P",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            local_accounts = set()
+            for line in association_result.stdout.splitlines():
+                account_name = line.split("|", 1)[0].strip()
+                if account_name:
+                    local_accounts.add(account_name)
+            if not local_accounts:
+                return []
+
             result = subprocess.run(
                 ["sacctmgr", "show", "account", "--json"],
                 capture_output=True,
@@ -1095,6 +1130,8 @@ class SlurmManager:
             items: List[Dict] = []
             for account in accounts:
                 name = account.get("name") or ""
+                if name not in local_accounts:
+                    continue
                 items.append(
                     {
                         "name": name,

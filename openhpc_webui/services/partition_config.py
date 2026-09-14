@@ -101,15 +101,37 @@ class PartitionConfigManager:
                 print(f"分区 {name} 已存在")
                 return False
 
-            # 构建配置行
-            config_line = self._build_config_line(name, nodes, **kwargs)
+            config_path = Path(self.config_file)
+            config_existed = config_path.exists()
+            original_lines = self._read_config_lines() if config_existed else []
 
-            # 追加到配置文件
-            with open(self.config_file, 'a') as f:
-                f.write(config_line + '\n')
+            # 构建配置行并原子写入
+            config_line = self._build_config_line(name, nodes, **kwargs)
+            updated_lines = list(original_lines)
+            if updated_lines and not updated_lines[-1].endswith("\n"):
+                updated_lines[-1] += "\n"
+            updated_lines.append(config_line + "\n")
+            if not self._replace_config_lines(updated_lines):
+                return False
 
             # 重新加载 Slurm 配置
-            return self._reconfigure_slurm()
+            if self._reconfigure_slurm():
+                return True
+
+            rollback_succeeded = False
+            if config_existed:
+                rollback_succeeded = self._replace_config_lines(original_lines)
+            else:
+                try:
+                    config_path.unlink(missing_ok=True)
+                    rollback_succeeded = True
+                except OSError as exc:
+                    print(f"删除新增分区配置文件失败: {exc}")
+            if rollback_succeeded:
+                print(f"添加分区 {name} 后重载失败，已回滚配置文件")
+            else:
+                print(f"严重警告: 添加分区 {name} 后重载和配置回滚均失败")
+            return False
         except Exception as e:
             print(f"添加分区失败: {e}")
             return False
@@ -206,12 +228,12 @@ class PartitionConfigManager:
             body = re.sub(r"[ \t]{2,}", " ", body).rstrip()
         return body + ending
 
-    def _write_config_lines(self, lines: List[str]) -> bool:
-        """原子写回配置文件，并保留未修改的原始行。"""
+    def _replace_config_lines(self, lines: List[str]) -> bool:
+        """原子替换配置文件内容。"""
         temp_path = None
         try:
             config_path = Path(self.config_file)
-            mode = config_path.stat().st_mode
+            mode = config_path.stat().st_mode if config_path.exists() else 0o644
             with tempfile.NamedTemporaryFile(
                 "w",
                 encoding="utf-8",
@@ -225,16 +247,6 @@ class PartitionConfigManager:
                 os.fsync(temp_file.fileno())
             os.chmod(temp_path, mode)
             os.replace(temp_path, config_path)
-
-            print(f"分区配置文件已更新: {self.config_file}")
-
-            # 尝试重新加载 Slurm 配置（失败不影响操作结果）
-            reconfigure_success = self._reconfigure_slurm()
-            if not reconfigure_success:
-                print("警告: 配置文件已更新，但 Slurm 未能自动重新加载配置")
-                print("提示: 可以手动运行 'scontrol reconfigure' 或重启 slurmctld 服务")
-
-            # 配置文件更新成功就返回 True
             return True
         except Exception as e:
             print(f"写入配置文件失败: {e}")
@@ -242,6 +254,17 @@ class PartitionConfigManager:
         finally:
             if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)
+
+    def _write_config_lines(self, lines: List[str]) -> bool:
+        """原子写回配置文件，并保留未修改的原始行。"""
+        if not self._replace_config_lines(lines):
+            return False
+
+        print(f"分区配置文件已更新: {self.config_file}")
+        if not self._reconfigure_slurm():
+            print("警告: 配置文件已更新，但 Slurm 未能自动重新加载配置")
+            print("提示: 可以手动运行 'scontrol reconfigure' 或重启 slurmctld 服务")
+        return True
 
     def _reconfigure_slurm(self) -> bool:
         """重新加载 Slurm 配置"""

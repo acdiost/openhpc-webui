@@ -69,6 +69,9 @@ LOGIN_MAX_FAILED_ATTEMPTS=5
 LOGIN_LOCKOUT_MINUTES=30
 ```
 
+`SLURM_CLUSTER_NAME` 为必填项，必须与 `scontrol show config` 输出的
+`ClusterName` 一致；缺失或格式无效时，账户和 Association 操作将被拒绝。
+
 保护配置文件：
 
 ```bash

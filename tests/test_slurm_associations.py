@@ -17,6 +17,7 @@ from openhpc_webui.services.slurm_manager import SlurmManager
 PROJECT_ROOT = Path(__file__).parents[1]
 
 
+@patch.dict(os.environ, {"SLURM_CLUSTER_NAME": "cluster"})
 class SlurmAssociationUpdateTests(unittest.TestCase):
     @patch("openhpc_webui.services.slurm_manager.subprocess.run")
     def test_account_crud_is_scoped_to_configured_cluster(self, run):
@@ -83,6 +84,47 @@ class SlurmAssociationUpdateTests(unittest.TestCase):
 
         self.assertFalse(success)
         run.assert_not_called()
+
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
+    def test_missing_cluster_name_blocks_account_mutation(self, run):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("SLURM_CLUSTER_NAME", None)
+            success = SlurmManager().delete_account("research")
+
+        self.assertFalse(success)
+        run.assert_not_called()
+
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
+    def test_list_accounts_only_returns_accounts_associated_with_cluster(self, run):
+        run.side_effect = [
+            Mock(stdout="research\nroot\n"),
+            Mock(
+                stdout=(
+                    '{"accounts": ['
+                    '{"name": "research", "description": "local"},'
+                    '{"name": "other", "description": "remote"},'
+                    '{"name": "root", "description": "root"}'
+                    "]}"
+                )
+            ),
+        ]
+
+        accounts = SlurmManager().list_accounts()
+
+        self.assertEqual([item["name"] for item in accounts], ["research", "root"])
+        self.assertEqual(
+            run.call_args_list[0].args[0],
+            [
+                "sacctmgr",
+                "show",
+                "assoc",
+                "where",
+                "cluster=cluster",
+                "format=Account",
+                "-n",
+                "-P",
+            ],
+        )
 
     @patch("openhpc_webui.services.slurm_manager.subprocess.run")
     def test_global_association_partition_is_a_selector_not_a_change(self, run):

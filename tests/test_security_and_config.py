@@ -282,6 +282,73 @@ class ConfigPreservationTests(unittest.TestCase):
         self.assertIn("Feature=avx512 Weight=5", updated)
         self.assertIn("NodeName=n02 CPUs=32 RealMemory=64000\n", updated)
 
+    def test_partition_add_rolls_back_when_reconfigure_fails(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "partition.conf"
+            original = "PartitionName=cpu Nodes=n01 Default=YES State=UP\n"
+            config_path.write_text(original, encoding="utf-8")
+            manager = PartitionConfigManager(str(config_path))
+            manager._reconfigure_slurm = Mock(return_value=False)
+
+            success = manager.add_partition("gpu", "g01")
+
+            self.assertFalse(success)
+            self.assertEqual(config_path.read_text(encoding="utf-8"), original)
+
+    def test_node_add_rolls_back_when_reconfigure_fails(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "node.conf"
+            original = "NodeName=n01 CPUs=32\n"
+            config_path.write_text(original, encoding="utf-8")
+            manager = NodeConfigManager(str(config_path))
+            manager._reconfigure_slurm = Mock(return_value=False)
+
+            success = manager.add_node("n02", 64)
+
+            self.assertFalse(success)
+            self.assertEqual(config_path.read_text(encoding="utf-8"), original)
+
+    def test_node_add_preserves_line_boundary_when_original_has_no_newline(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "node.conf"
+            config_path.write_text("NodeName=n01 CPUs=32", encoding="utf-8")
+            manager = NodeConfigManager(str(config_path))
+            manager._reconfigure_slurm = Mock(return_value=True)
+
+            success = manager.add_node("n02", 64)
+
+            self.assertTrue(success)
+            self.assertEqual(
+                config_path.read_text(encoding="utf-8"),
+                "NodeName=n01 CPUs=32\nNodeName=n02 CPUs=64\n",
+            )
+
+    def test_partition_add_removes_new_file_when_reconfigure_fails(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "partition.conf"
+            manager = PartitionConfigManager(str(config_path))
+            manager._reconfigure_slurm = Mock(return_value=False)
+
+            success = manager.add_partition("cpu", "n01")
+
+            self.assertFalse(success)
+            self.assertFalse(config_path.exists())
+
+
+class SlurmJobRouteValidationTests(unittest.TestCase):
+    def test_admin_cancel_rejects_option_shaped_job_id(self):
+        with patch.object(main.slurm_mgr, "cancel_job") as cancel:
+            with self.assertRaises(HTTPException) as context:
+                asyncio.run(
+                    main.cancel_job(
+                        "--user=alice",
+                        {"username": "admin", "is_admin": True},
+                    )
+                )
+
+        self.assertEqual(context.exception.status_code, 400)
+        cancel.assert_not_called()
+
 
 class UserUpdateValidationTests(unittest.TestCase):
     def test_self_admin_revocation_is_rejected_before_ldap_write(self):

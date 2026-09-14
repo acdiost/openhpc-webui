@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from openhpc_webui.services.slurm_manager import SlurmManager
 
 
+@patch.dict(os.environ, {"SLURM_CLUSTER_NAME": "cluster"})
 class SlurmCreditManagerTests(unittest.TestCase):
     def setUp(self):
         self.manager = SlurmManager.__new__(SlurmManager)

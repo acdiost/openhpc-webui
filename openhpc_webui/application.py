@@ -432,6 +432,11 @@ def _job_owner(job: dict) -> str:
     return job.get("UserId", "").split("(", 1)[0].strip()
 
 
+def _require_valid_job_id(job_id: str) -> None:
+    if not slurm_mgr.is_valid_job_id(job_id):
+        raise HTTPException(status_code=400, detail="作业 ID 格式无效")
+
+
 def _job_output_allowed_roots(owner: str) -> list[str]:
     roots = [
         item.strip()
@@ -2361,6 +2366,7 @@ async def get_jobs(
 @router.get("/api/slurm/jobs/{job_id}")
 async def get_job_detail(job_id: str, user: dict = Depends(get_current_user)):
     """获取作业详细信息。"""
+    _require_valid_job_id(job_id)
     job = slurm_mgr.get_job_detail(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="作业不存在")
@@ -2370,6 +2376,7 @@ async def get_job_detail(job_id: str, user: dict = Depends(get_current_user)):
 @router.get("/api/slurm/jobs/{job_id}/monitor")
 async def get_job_resource_usage(job_id: str, user: dict = Depends(get_current_user)):
     """获取活动作业的实时 CPU、内存、磁盘和 GPU 占用。"""
+    _require_valid_job_id(job_id)
     usage = slurm_mgr.get_job_resource_usage(job_id)
     if not usage:
         raise HTTPException(status_code=404, detail="作业不存在")
@@ -2385,6 +2392,7 @@ async def cancel_job(job_id: str, user: dict = Depends(get_current_user)):
     - 管理员：可取消任意作业
     - 普通用户：只能取消属于自己的作业
     """
+    _require_valid_job_id(job_id)
     if not user.get("is_admin"):
         # 获取作业详情以验证所有权
         job = slurm_mgr.get_job_detail(job_id)
@@ -2416,6 +2424,7 @@ async def get_job_output(
         job_id:    作业 ID
         file_type: 'stdout' 或 'stderr'
     """
+    _require_valid_job_id(job_id)
     if file_type not in ["stdout", "stderr"]:
         raise HTTPException(
             status_code=400, detail="file_type 必须是 'stdout' 或 'stderr'"

@@ -147,7 +147,7 @@ uv run openhpc_webui
 | `TERMINAL_AI_API_KEY` | 模型服务密钥；本地服务可按实际鉴权配置留空 |
 | `TERMINAL_AI_TIMEOUT_SECONDS` | 单次模型请求超时，范围 5–300 秒，默认 60 秒 |
 | `SLURM_DEFAULT_ACCOUNT` | 创建 LDAP 用户时使用的默认 Slurm 账户 |
-| `SLURM_CLUSTER_NAME` | WebUI 管理的 Slurm `ClusterName`，默认 `cluster` |
+| `SLURM_CLUSTER_NAME` | WebUI 管理的 Slurm `ClusterName`，必须显式配置且与本机配置一致 |
 | `SLURM_CONFIG_DIR` | 节点与分区配置文件目录，默认 `/etc/slurm` |
 
 完整配置说明见[技术指南](./docs/TECHNICAL_GUIDE.md)。
