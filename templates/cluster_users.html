@@ -46,6 +46,7 @@
                     <th>账户</th>
                     <th>集群</th>
                     <th>分区</th>
+                    <th>分区限制</th>
                     <th>QOS</th>
                     <th>默认 QOS</th>
                     <th class="col-number">核时限额 (h)</th>
@@ -57,7 +58,7 @@
             </thead>
             <tbody id="associationsTableBody">
                 <tr>
-                    <td colspan="11" class="text-center py-8 text-gray-500">
+                    <td colspan="12" class="text-center py-8 text-gray-500">
                         加载中…
                     </td>
                 </tr>
@@ -73,8 +74,10 @@
     </h3>
     <ul style="list-style: disc; margin-left: 24px; color: #1e40af; font-size: 14px; line-height: 1.8">
         <li>选择账户后点击“添加关联”，为用户分配可使用的 Slurm 账户和集群</li>
-        <li>默认账户用于用户未指定账户时提交作业，可按需设置默认 QOS 和分区</li>
+        <li>全局关联允许用户使用该账户提交到所有分区；只要全局关联仍存在，分区限制就不会生效</li>
+        <li>限制分区时，先创建一个或多个分区关联，确认后再删除同一用户/账户的全局关联</li>
         <li>分区属于关联标识，创建后不可编辑；更换分区需新建关联并删除旧关联</li>
+        <li>删除全局关联可能取消该关联下正在运行或排队的作业，请先检查作业队列</li>
         <li>核时/卡时限额会参与调度校验，修改后对后续作业生效</li>
     </ul>
 </div>
@@ -107,12 +110,12 @@
             </div>
             <div class="form-group">
                 <label for="create_assoc_partition">分区</label>
-                <input
-                    type="text"
-                    id="create_assoc_partition"
-                    name="partition"
-                    placeholder="留空表示全局"
-                />
+                <select id="create_assoc_partition" name="partition">
+                    <option value="">全局（不限制分区）</option>
+                </select>
+                <div style="font-size:12px;color:#9ca3af;margin-top:5px">
+                    限制多个分区时，请为每个允许的分区分别添加一条关联；最后删除全局关联。
+                </div>
             </div>
             <div class="form-group">
                 <label for="create_assoc_qos">QOS 列表</label>
@@ -304,6 +307,27 @@
         });
     }
 
+    async function loadPartitionOptions() {
+        const partitions = await fetchPartitions();
+        const select = document.getElementById("create_assoc_partition");
+        const options = partitions
+            .map((item) => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)}</option>`)
+            .join("");
+        if (select) {
+            select.innerHTML = '<option value="">全局（不限制分区）</option>' + options;
+        }
+    }
+
+    function renderPartitionAccessStatus(assoc) {
+        const labels = {
+            global: '<span class="badge badge-warning">全局开放</span>',
+            overridden_by_global: '<span class="badge badge-warning">限制未生效（存在全局关联）</span>',
+            restricted: '<span class="badge badge-success">限制已生效</span>',
+            account_level: '<span style="color:#9ca3af">—</span>',
+        };
+        return labels[assoc.partition_access_status] || '<span style="color:#9ca3af">未知</span>';
+    }
+
     function setSelectedQos(selectId, values) {
         const select = document.getElementById(selectId);
         const selected = new Set(values || []);
@@ -320,7 +344,7 @@
 
         if (!assocs || assocs.length === 0) {
             tbody.innerHTML =
-                '<tr><td colspan="11" class="text-center py-8 text-gray-500">暂无关联数据</td></tr>';
+                '<tr><td colspan="12" class="text-center py-8 text-gray-500">暂无关联数据</td></tr>';
             document.getElementById("assocCount").textContent = "0";
             return;
         }
@@ -348,7 +372,8 @@
                     <td><strong>${userLabel || "—"}</strong></td>
                     <td>${assoc.account || "—"}</td>
                     <td>${assoc.cluster || "—"}</td>
-                    <td>${assoc.partition || "—"}</td>
+                    <td>${assoc.partition || "全局"}</td>
+                    <td>${renderPartitionAccessStatus(assoc)}</td>
                     <td style="font-size: 13px; color: #6b7280;">${qos}</td>
                     <td>${assoc.default_qos || "—"}</td>
                     <td class="col-number">${assoc.cpu_minutes == null ? "无限" : (assoc.cpu_minutes / 60).toFixed(2)}</td>
@@ -456,7 +481,10 @@
     /* ── 删除关联 ───────────────────────────────────────────── */
 
     async function deleteAssocConfirm(account, username, partition) {
-        if (!confirm(`确定要删除关联 "${username}/${account}" 吗？此操作无法撤销！`))
+        const warning = partition
+            ? `确定要删除分区关联 "${username}/${account}/${partition}" 吗？此操作无法撤销！`
+            : `确定要删除全局关联 "${username}/${account}" 吗？\n\n删除全局关联可能取消该关联下正在运行或排队的作业，请先检查作业队列。`;
+        if (!confirm(warning))
             return;
         const success = await deleteAssociation(account, username, partition || null);
         if (success) loadAssociations();
@@ -533,6 +561,7 @@
     document.addEventListener("DOMContentLoaded", async () => {
         await loadAccountOptions();
         await loadQosOptions();
+        await loadPartitionOptions();
         await loadAssociations();
         enableTableSorting("associationsTable");
         const filter = document.getElementById("assocAccountFilter");

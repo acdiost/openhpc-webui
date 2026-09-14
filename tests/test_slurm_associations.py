@@ -76,6 +76,38 @@ class SlurmAssociationUpdateTests(unittest.TestCase):
         self.assertIn("cluster=production", run.call_args.args[0])
 
     @patch("openhpc_webui.services.slurm_manager.subprocess.run")
+    def test_list_associations_reports_effective_partition_scope(self, run):
+        run.return_value = Mock(
+            stdout=(
+                '{"associations": ['
+                '{"cluster":"cluster","account":"root","user":"dawn",'
+                '"partition":""},'
+                '{"cluster":"cluster","account":"root","user":"dawn",'
+                '"partition":"G5"},'
+                '{"cluster":"cluster","account":"root","user":"alice",'
+                '"partition":"G4"}'
+                "]}"
+            )
+        )
+
+        associations = SlurmManager().list_associations("root")
+
+        by_identity = {
+            (item["user"], item["partition"]): item for item in associations
+        }
+        self.assertEqual(
+            by_identity[("dawn", "")]["partition_access_status"], "global"
+        )
+        self.assertEqual(
+            by_identity[("dawn", "G5")]["partition_access_status"],
+            "overridden_by_global",
+        )
+        self.assertEqual(
+            by_identity[("alice", "G4")]["partition_access_status"],
+            "restricted",
+        )
+
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
     def test_invalid_cluster_name_blocks_association_mutation(self, run):
         with patch.dict(os.environ, {"SLURM_CLUSTER_NAME": "bad cluster"}):
             success = SlurmManager().delete_association(
@@ -232,6 +264,16 @@ class SlurmAssociationUpdateTests(unittest.TestCase):
         self.assertIn('id="edit_assoc_partition_display"', template)
         self.assertIn("showEditAssocModal('${assoc.account}', '${assoc.user}', '${assoc.partition || \"\"}')", template)
         self.assertIn("a.partition || \"\"", template)
+
+    def test_create_form_explains_and_selects_partition_scope(self):
+        template = (PROJECT_ROOT / "templates/cluster_users.html").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('<select id="create_assoc_partition"', template)
+        self.assertIn("全局（不限制分区）", template)
+        self.assertIn("限制未生效（存在全局关联）", template)
+        self.assertIn("删除全局关联可能取消该关联下正在运行或排队的作业", template)
 
     def test_update_api_rejects_invalid_qos_name(self):
         payload = AssocUpdate(partition="", qos="normal,bad qos")

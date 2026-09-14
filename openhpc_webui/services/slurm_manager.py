@@ -1494,6 +1494,21 @@ class SlurmManager:
                         "gpu_minutes": grp_tres_mins.get("gres/gpu"),
                     }
                 )
+            global_associations = {
+                (item["cluster"], item["account"], item["user"])
+                for item in items
+                if item["user"] and not item["partition"]
+            }
+            for item in items:
+                identity = (item["cluster"], item["account"], item["user"])
+                if not item["user"]:
+                    item["partition_access_status"] = "account_level"
+                elif not item["partition"]:
+                    item["partition_access_status"] = "global"
+                elif identity in global_associations:
+                    item["partition_access_status"] = "overridden_by_global"
+                else:
+                    item["partition_access_status"] = "restricted"
             return items
         except Exception as e:
             print(f"获取 Slurm 关联失败: {e}")
