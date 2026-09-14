@@ -101,13 +101,21 @@
                 </svg>
                 集群账户
             </a>
+            <a href="/slurm-users" class="nav-item{% if request.url.path == '/slurm-users' %} active{% endif %}">
+                <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="8" cy="8" r="3" stroke-width="2" />
+                    <circle cx="16" cy="8" r="3" stroke-width="2" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 20v-2a4 4 0 018 0v2m0 0v-2a4 4 0 018 0v2" />
+                </svg>
+                Slurm 用户管理
+            </a>
             <a href="/cluster-users" class="nav-item{% if request.url.path == '/cluster-users' %} active{% endif %}">
                 <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                     <circle cx="8" cy="8" r="3" stroke-width="2" />
                     <circle cx="16" cy="8" r="3" stroke-width="2" />
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 20v-2a4 4 0 018 0v2m0 0v-2a4 4 0 018 0v2" />
                 </svg>
-                集群用户
+                Slurm 用户关联
             </a>
         </div>
 

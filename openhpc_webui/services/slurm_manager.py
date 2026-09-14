@@ -2047,6 +2047,92 @@ class SlurmManager:
                 ),
             }
 
+    def _user_command(self, arguments: List[str]) -> str:
+        """Run a user command without hiding an unavailable accounting service."""
+        try:
+            result = subprocess.run(
+                ["sacctmgr", *arguments], capture_output=True, text=True,
+                check=True, timeout=30,
+            )
+            return result.stdout
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise RuntimeError("Slurm 用户操作失败，请检查 slurmdbd 状态和命令权限") from exc
+
+    def _user_cluster(self) -> str:
+        cluster = self._configured_cluster_name()
+        if cluster is None:
+            raise RuntimeError("SLURM_CLUSTER_NAME 未配置或格式无效")
+        return cluster
+
+    def list_slurm_users(self) -> List[Dict]:
+        """Return one row per user across all accounts in this cluster."""
+        cluster = self._user_cluster()
+        output = self._user_command([
+            "show", "user", "WithAssoc", f"cluster={cluster}",
+            "format=User,DefaultAccount,AdminLevel,Cluster,Account,Partition",
+            "-n", "-P",
+        ])
+        users: Dict[str, Dict] = {}
+        for line in output.splitlines():
+            if not line.strip():
+                continue
+            fields = [field.strip() for field in line.split("|")]
+            if len(fields) < 6:
+                raise RuntimeError("Slurm 用户列表返回格式无效")
+            username, default_account, admin_level, row_cluster, account, partition = fields[:6]
+            if not username or row_cluster != cluster:
+                continue
+            item = users.setdefault(username, {
+                "username": username, "default_account": default_account,
+                "admin_level": admin_level, "cluster": cluster,
+                "accounts": [], "associations": [],
+            })
+            if account and account not in item["accounts"]:
+                item["accounts"].append(account)
+            association = {"account": account, "partition": partition}
+            if account and association not in item["associations"]:
+                item["associations"].append(association)
+        for item in users.values():
+            item["accounts"].sort()
+        return sorted(users.values(), key=lambda item: item["username"])
+
+    def create_slurm_user(self, username: str, account: str) -> None:
+        cluster = self._user_cluster()
+        if not all(self._is_valid_slurm_name(value) for value in (username, account)):
+            raise ValueError("用户名或账户名格式无效")
+        if any(item["username"] == username for item in self.list_slurm_users()):
+            raise FileExistsError("用户已在当前集群中存在，请使用关联管理添加账户")
+        self._user_command([
+            "-i", "add", "user", f"name={username}", f"cluster={cluster}",
+            f"account={account}", f"defaultaccount={account}",
+        ])
+
+    def update_slurm_user(self, username: str, default_account: str) -> None:
+        cluster = self._user_cluster()
+        if not all(self._is_valid_slurm_name(value) for value in (username, default_account)):
+            raise ValueError("用户名或账户名格式无效")
+        target = next((item for item in self.list_slurm_users()
+                       if item["username"] == username), None)
+        if target is None:
+            raise LookupError("当前集群中不存在此 Slurm 用户")
+        if default_account not in target["accounts"]:
+            raise ValueError("默认账户必须是用户在当前集群中已关联的账户")
+        self._user_command([
+            "-i", "modify", "user", "where", f"name={username}",
+            f"cluster={cluster}", "set", f"defaultaccount={default_account}",
+        ])
+
+    def delete_slurm_user(self, username: str) -> None:
+        cluster = self._user_cluster()
+        if not self._is_valid_slurm_name(username):
+            raise ValueError("用户名格式无效")
+        if not any(item["username"] == username for item in self.list_slurm_users()):
+            raise LookupError("当前集群中不存在此 Slurm 用户")
+        self._user_command([
+            "-i", "delete", "user", "where", f"name={username}",
+            f"cluster={cluster}",
+        ])
+
     def add_user_account(self, username: str, account: Optional[str] = None) -> bool:
         """添加用户到 Slurm 账户系统
 

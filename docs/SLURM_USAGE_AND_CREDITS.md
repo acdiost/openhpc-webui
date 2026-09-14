@@ -114,7 +114,7 @@ Association，展示该账户的 CPU/GPU 共享额度、累计已用量和剩余
 
 ## 额度拨付
 
-用户管理页和集群用户页都调用增减额度接口：
+用户管理页和 Slurm 用户关联页都调用增减额度接口：
 
 ```http
 POST /api/slurm/users/<username>/credit
@@ -181,7 +181,7 @@ Web 进程之间的分布式锁。
 64 个字符；单次调整不能超过 1,000,000 小时；用户填写的 Comment 最长 478 个
 字符且不能换行。后端会使用当前系统时间生成
 `[YYYY-MM-DD HH:MM:SS] 拨付说明`，完整 Comment 不超过 500 个字符，并写入
-Slurm Association，在集群用户列表中回读展示；拨付原因、
+Slurm Association，在 Slurm 用户关联列表中回读展示；拨付原因、
 Comment 和操作人也会输出到应用日志。Association 的 Comment 只保存最后一次
 拨付说明，如需完整历史审计，仍应长期保留应用日志或接入独立审计数据库。
 

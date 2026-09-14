@@ -51,6 +51,8 @@ from .schemas import (
     QosUpdate,
     AdminUserRequest,
     AssocCreate,
+    SlurmUserCreate,
+    SlurmUserUpdate,
     AssocTRESMinutesUpdate,
     AssocUpdate,
     GroupCreate,
@@ -610,9 +612,18 @@ async def qos_page(request: Request, user: dict = Depends(get_current_user)):
     return templates.TemplateResponse("qos.html", {"request": request, "user": user})
 
 
+@router.get("/slurm-users", response_class=HTMLResponse)
+async def slurm_users_page(request: Request, user: dict = Depends(get_current_user)):
+    if not user.get("is_admin"):
+        return RedirectResponse(url="/jobs", status_code=302)
+    return templates.TemplateResponse(
+        "slurm_users.html", {"request": request, "user": user}
+    )
+
+
 @router.get("/cluster-users", response_class=HTMLResponse)
 async def cluster_users_page(request: Request, user: dict = Depends(get_current_user)):
-    """集群用户管理：仅管理员可访问。"""
+    """Slurm 用户关联：仅管理员可访问。"""
     if not user.get("is_admin"):
         return RedirectResponse(url="/jobs", status_code=302)
     return templates.TemplateResponse(
@@ -2071,8 +2082,57 @@ async def delete_qos(qos_name: str, user: dict = Depends(get_current_user)):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Slurm 关联（集群用户）API（仅管理员）
+# Slurm 用户与关联 API（仅管理员）
 # ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def _slurm_user_operation(operation, *args):
+    try:
+        return await run_in_threadpool(operation, *args)
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/api/slurm/users")
+async def list_slurm_users(user: dict = Depends(get_current_user)):
+    _require_admin(user)
+    users = await _slurm_user_operation(slurm_mgr.list_slurm_users)
+    return {"users": users, "count": len(users)}
+
+
+@router.post("/api/slurm/users", status_code=201)
+async def create_slurm_user(
+    payload: SlurmUserCreate, user: dict = Depends(get_current_user)
+):
+    _require_admin(user)
+    await _slurm_user_operation(
+        slurm_mgr.create_slurm_user, payload.username, payload.account
+    )
+    return {"message": "Slurm 用户已创建"}
+
+
+@router.put("/api/slurm/users/{username}")
+async def update_slurm_user(
+    username: str, payload: SlurmUserUpdate, user: dict = Depends(get_current_user)
+):
+    _require_admin(user)
+    await _slurm_user_operation(
+        slurm_mgr.update_slurm_user, username, payload.default_account
+    )
+    return {"message": "默认账户已更新"}
+
+
+@router.delete("/api/slurm/users/{username}")
+async def delete_slurm_user(username: str, user: dict = Depends(get_current_user)):
+    _require_admin(user)
+    await _slurm_user_operation(slurm_mgr.delete_slurm_user, username)
+    return {"message": "已移除用户在当前集群中的全部关联"}
 
 
 @router.get("/api/slurm/associations")

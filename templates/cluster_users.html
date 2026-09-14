@@ -1,18 +1,18 @@
 {% extends "base.html" %}
 {#
 ============================================================
-集群用户管理页
+Slurm 用户关联页
 路由: GET /cluster-users
 ============================================================
 #}
-{% block title %}集群用户管理{% endblock %}
-{% block breadcrumb_title %}集群用户管理{% endblock %}
+{% block title %}Slurm 用户关联{% endblock %}
+{% block breadcrumb_title %}Slurm 用户关联{% endblock %}
 
 {% block content %}
 <!-- 页面标题行 -->
 <div class="flex justify-between items-center" style="margin-bottom: 24px">
     <div>
-        <h2 style="font-size: 28px; font-weight: 700">集群用户管理</h2>
+        <h2 style="font-size: 28px; font-weight: 700">Slurm 用户关联</h2>
         <p style="color: #6b7280; margin-top: 6px">
             使用 sacctmgr 维护账户关联（Association）
         </p>
@@ -38,7 +38,7 @@
 
 <!-- 关联列表 -->
 <div class="card">
-    <div class="data-table-scroll" role="region" aria-label="集群用户关联列表" tabindex="0">
+    <div class="data-table-scroll" role="region" aria-label="Slurm 用户关联列表" tabindex="0">
         <table class="table data-table data-table--wide has-actions" id="associationsTable">
             <thead>
                 <tr>

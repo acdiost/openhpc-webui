@@ -128,6 +128,15 @@ class QosUpdate(BaseModel):
     max_tres_pa: Optional[str] = None
 
 
+class SlurmUserCreate(BaseModel):
+    username: str = Field(..., min_length=1, max_length=64)
+    account: str = Field(..., min_length=1, max_length=64)
+
+
+class SlurmUserUpdate(BaseModel):
+    default_account: str = Field(..., min_length=1, max_length=64)
+
+
 class AssocCreate(BaseModel):
     username: str
     account: str

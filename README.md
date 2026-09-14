@@ -12,7 +12,8 @@
 | 用户管理 | LDAP 用户增删改、禁用、SSH 密钥、存储配额、核时/卡时和作业报表 |
 | 组管理 | LDAP 组创建、编辑、删除及成员信息查看 |
 | 账户管理 | Slurm 账户创建、编辑和删除 |
-| 集群用户 | Slurm Association、QOS、默认 QOS、分区和 TRES Minutes 管理 |
+| Slurm 用户管理 | 当前集群用户列表、创建、默认账户修改及移除全部关联 |
+| Slurm 用户关联 | Slurm Association、QOS、默认 QOS、分区和 TRES Minutes 管理 |
 | 分区管理 | Slurm 分区配置、节点状态统计及配置重载 |
 | 节点管理 | 节点配置维护、Drain、Resume 和状态查看 |
 | 作业管理 | 活动作业、近期完成作业、详情、取消及标准输出/错误查看 |
@@ -180,7 +181,7 @@ uv run python -m compileall -q openhpc_webui
 
 Tailwind 构建入口为 `tailwind.css`，只扫描 `templates/` 和 `static/*.js` 中实际使用的类，并将压缩后的离线样式写入 `static/all-tailwind-classes-full-min.css`。
 
-提交界面变更前，还应手动检查登录、用户、组、账户、集群用户、分区、节点、作业和权限页面，并附上桌面与窄屏截图。
+提交界面变更前，还应手动检查登录、用户、组、账户、Slurm 用户关联、分区、节点、作业和权限页面，并附上桌面与窄屏截图。
 
 ## 安全建议
 
