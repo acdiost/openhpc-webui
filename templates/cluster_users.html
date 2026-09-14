@@ -118,13 +118,18 @@
                 </div>
             </div>
             <div class="form-group">
-                <label for="create_assoc_qos">QOS 列表</label>
+                <label for="create_assoc_qos">允许使用的 QoS（可多选）</label>
                 <select id="create_assoc_qos" name="qos" multiple size="4"></select>
-                <div style="font-size:12px;color:#9ca3af;margin-top:5px">按住 Ctrl/Command 可多选</div>
+                <div style="font-size:12px;color:#9ca3af;margin-top:5px">
+                    用户通过 --qos 选择；按住 Ctrl/Command 可多选。留空表示继承账户允许的 QoS。
+                </div>
             </div>
             <div class="form-group">
-                <label for="create_assoc_default_qos">默认 QOS</label>
+                <label for="create_assoc_default_qos">默认 QoS（未指定 --qos 时）</label>
                 <select id="create_assoc_default_qos" name="default_qos"></select>
+                <div style="font-size:12px;color:#9ca3af;margin-top:5px">
+                    默认 QoS 必须属于上面的允许范围；未选择时继承账户默认 QoS。
+                </div>
             </div>
             <div class="modal-footer">
                 <button
@@ -172,13 +177,18 @@
                 />
             </div>
             <div class="form-group">
-                <label for="edit_assoc_qos">QOS 列表</label>
+                <label for="edit_assoc_qos">允许使用的 QoS（可多选）</label>
                 <select id="edit_assoc_qos" name="qos" multiple size="4"></select>
-                <div style="font-size:12px;color:#9ca3af;margin-top:5px">按住 Ctrl/Command 可多选</div>
+                <div style="font-size:12px;color:#9ca3af;margin-top:5px">
+                    用户通过 --qos 选择；按住 Ctrl/Command 可多选。
+                </div>
             </div>
             <div class="form-group">
-                <label for="edit_assoc_default_qos">默认 QOS</label>
+                <label for="edit_assoc_default_qos">默认 QoS（未指定 --qos 时）</label>
                 <select id="edit_assoc_default_qos" name="default_qos"></select>
+                <div style="font-size:12px;color:#9ca3af;margin-top:5px">
+                    默认 QoS 必须属于上面的允许范围；未选择时继承账户默认 QoS。
+                </div>
             </div>
             <div class="modal-footer">
                 <button
@@ -299,12 +309,34 @@
             .join("");
         ["create_assoc_qos", "edit_assoc_qos"].forEach((id) => {
             const select = document.getElementById(id);
-            if (select) select.innerHTML = options;
+            if (select) {
+                select.innerHTML = options;
+                if (!select.dataset.defaultQosLinked) {
+                    const defaultId = id.replace("_qos", "_default_qos");
+                    select.addEventListener("change", () => {
+                        const defaultSelect = document.getElementById(defaultId);
+                        syncDefaultQosOptions(id, defaultId, defaultSelect?.value || "");
+                    });
+                    select.dataset.defaultQosLinked = "true";
+                }
+            }
         });
-        ["create_assoc_default_qos", "edit_assoc_default_qos"].forEach((id) => {
-            const select = document.getElementById(id);
-            if (select) select.innerHTML = '<option value="">不设置默认 QoS</option>' + options;
-        });
+        syncDefaultQosOptions("create_assoc_qos", "create_assoc_default_qos");
+        syncDefaultQosOptions("edit_assoc_qos", "edit_assoc_default_qos");
+    }
+
+    function syncDefaultQosOptions(qosSelectId, defaultSelectId, preferredValue = "") {
+        const qosSelect = document.getElementById(qosSelectId);
+        const defaultSelect = document.getElementById(defaultSelectId);
+        if (!qosSelect || !defaultSelect) return;
+
+        const allowed = Array.from(qosSelect.selectedOptions).map((option) => option.value);
+        const options = allowed
+            .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
+            .join("");
+        defaultSelect.innerHTML = '<option value="">继承账户默认 QoS</option>' + options;
+        defaultSelect.disabled = allowed.length === 0;
+        defaultSelect.value = allowed.includes(preferredValue) ? preferredValue : "";
     }
 
     async function loadPartitionOptions() {
@@ -393,7 +425,7 @@
     function showCreateAssocModal() {
         document.getElementById("createAssocForm").reset();
         setSelectedQos("create_assoc_qos", []);
-        document.getElementById("create_assoc_default_qos").value = "";
+        syncDefaultQosOptions("create_assoc_qos", "create_assoc_default_qos");
         document.getElementById("createAssocModal").style.display = "flex";
     }
 
@@ -444,7 +476,11 @@
         document.getElementById("edit_assoc_partition_display").value =
             target.partition || "全局";
         setSelectedQos("edit_assoc_qos", target.qos || []);
-        document.getElementById("edit_assoc_default_qos").value = target.default_qos || "";
+        syncDefaultQosOptions(
+            "edit_assoc_qos",
+            "edit_assoc_default_qos",
+            target.default_qos || "",
+        );
         document.getElementById("editAssocModal").style.display = "flex";
     }
 

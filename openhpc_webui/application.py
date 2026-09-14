@@ -2093,6 +2093,19 @@ async def create_association(
     _require_admin(user)
     if not payload.username or not payload.account:
         raise HTTPException(status_code=400, detail="用户名和账户不能为空")
+    qos_names = [] if not payload.qos else payload.qos.split(",")
+    if any(not slurm_mgr._is_valid_slurm_name(name) for name in qos_names):
+        raise HTTPException(status_code=400, detail="QoS 名称格式无效")
+    if payload.default_qos and not slurm_mgr._is_valid_slurm_name(
+        payload.default_qos
+    ):
+        raise HTTPException(status_code=400, detail="默认 QoS 名称格式无效")
+    if payload.default_qos and payload.qos is not None:
+        if payload.default_qos not in qos_names:
+            raise HTTPException(
+                status_code=400,
+                detail="默认 QoS 必须包含在允许使用的 QoS 中",
+            )
     success = slurm_mgr.create_association(
         username=payload.username,
         account=payload.account,
@@ -2129,6 +2142,12 @@ async def update_association(
         payload.default_qos
     ):
         raise HTTPException(status_code=400, detail="默认 QoS 名称格式无效")
+    if payload.default_qos and payload.qos is not None:
+        if payload.default_qos not in qos_names:
+            raise HTTPException(
+                status_code=400,
+                detail="默认 QoS 必须包含在允许使用的 QoS 中",
+            )
     success = slurm_mgr.update_association(
         username=username,
         account=account_name,

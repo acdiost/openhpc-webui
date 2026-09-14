@@ -9,7 +9,7 @@ from fastapi import HTTPException
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key-0123456789abcdef")
 
-from openhpc_webui.schemas import AssocUpdate
+from openhpc_webui.schemas import AssocCreate, AssocUpdate
 import openhpc_webui.application as main
 from openhpc_webui.services.slurm_manager import SlurmManager
 
@@ -274,6 +274,85 @@ class SlurmAssociationUpdateTests(unittest.TestCase):
         self.assertIn("全局（不限制分区）", template)
         self.assertIn("限制未生效（存在全局关联）", template)
         self.assertIn("删除全局关联可能取消该关联下正在运行或排队的作业", template)
+
+    def test_association_form_explains_and_links_qos_fields(self):
+        template = (PROJECT_ROOT / "templates/cluster_users.html").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("允许使用的 QoS（可多选）", template)
+        self.assertIn("用户通过 --qos 选择", template)
+        self.assertIn("默认 QoS（未指定 --qos 时）", template)
+        self.assertIn("继承账户默认 QoS", template)
+        self.assertIn("syncDefaultQosOptions", template)
+        self.assertIn('addEventListener("change", () =>', template)
+
+    def test_create_api_rejects_default_qos_outside_explicit_allowlist(self):
+        payload = AssocCreate(
+            username="dawn",
+            account="root",
+            partition="G5",
+            qos="normal",
+            default_qos="qos_test",
+        )
+
+        with patch.object(main.slurm_mgr, "create_association") as create:
+            with self.assertRaises(HTTPException) as context:
+                asyncio.run(
+                    main.create_association(
+                        payload, {"username": "admin", "is_admin": True}
+                    )
+                )
+
+        self.assertEqual(context.exception.status_code, 400)
+        self.assertIn("默认 QoS 必须包含在允许使用的 QoS 中", context.exception.detail)
+        create.assert_not_called()
+
+    def test_create_api_accepts_default_qos_in_explicit_allowlist(self):
+        payload = AssocCreate(
+            username="dawn",
+            account="root",
+            partition="G5",
+            qos="normal,qos_test",
+            default_qos="qos_test",
+        )
+
+        with patch.object(
+            main.slurm_mgr, "create_association", return_value=True
+        ) as create:
+            result = asyncio.run(
+                main.create_association(
+                    payload, {"username": "admin", "is_admin": True}
+                )
+            )
+
+        self.assertIn("创建成功", result["message"])
+        create.assert_called_once_with(
+            username="dawn",
+            account="root",
+            partition="G5",
+            qos="normal,qos_test",
+            default_qos="qos_test",
+        )
+
+    def test_update_api_rejects_default_qos_outside_explicit_allowlist(self):
+        payload = AssocUpdate(
+            partition="G5", qos="normal", default_qos="qos_test"
+        )
+
+        with patch.object(main.slurm_mgr, "update_association") as update:
+            with self.assertRaises(HTTPException) as context:
+                asyncio.run(
+                    main.update_association(
+                        "root",
+                        "dawn",
+                        payload,
+                        {"username": "admin", "is_admin": True},
+                    )
+                )
+
+        self.assertEqual(context.exception.status_code, 400)
+        update.assert_not_called()
 
     def test_update_api_rejects_invalid_qos_name(self):
         payload = AssocUpdate(partition="", qos="normal,bad qos")
