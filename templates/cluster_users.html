@@ -10,16 +10,19 @@ Slurm 用户关联页
 
 {% block content %}
 <!-- 页面标题行 -->
-<div class="flex justify-between items-center" style="margin-bottom: 24px">
+<div class="flex justify-between items-center flex-wrap gap-3" style="margin-bottom: 24px">
     <div>
         <h2 style="font-size: 28px; font-weight: 700">Slurm 用户关联</h2>
         <p style="color: #6b7280; margin-top: 6px">
             使用 sacctmgr 维护账户关联（Association）
         </p>
     </div>
+    <div class="flex items-center flex-wrap gap-3">
+    <a class="btn btn-secondary" href="/slurm-users">修改用户默认账户</a>
     <button class="btn btn-primary" onclick="showCreateAssocModal()">
         + 添加关联
     </button>
+    </div>
 </div>
 
 <!-- 过滤与统计 -->
@@ -27,7 +30,7 @@ Slurm 用户关联页
     <div class="flex items-center gap-3 flex-wrap">
         <label for="assocAccountFilter" style="font-weight: 600; color: #374151">账户筛选</label>
         <select id="assocAccountFilter" style="min-width: 220px">
-            <option value="">默认账户</option>
+            <option value="">使用配置的筛选账户</option>
         </select>
         <button class="btn btn-secondary" onclick="loadAssociations()">刷新</button>
         <span style="color: #6b7280; font-size: 14px; margin-left: auto">
@@ -52,7 +55,7 @@ Slurm 用户关联页
                     <th class="col-number">核时限额 (h)</th>
                     <th class="col-number">卡时限额 (h)</th>
                     <th>Comment</th>
-                    <th class="col-status">默认</th>
+                    <th class="col-status">默认关联</th>
                     <th class="col-actions">操作</th>
                 </tr>
             </thead>
@@ -73,6 +76,8 @@ Slurm 用户关联页
         <span aria-hidden="true" style="margin-right: 8px">ⓘ</span>关联管理说明
     </h3>
     <ul style="list-style: disc; margin-left: 24px; color: #1e40af; font-size: 14px; line-height: 1.8">
+        <li>“默认关联”展示 Slurm 返回的默认标记；修改用户默认账户，请点击上方“修改用户默认账户”，在用户行中选择“修改默认账户”</li>
+        <li>“账户筛选”只改变列表显示；“使用配置的筛选账户”使用服务端配置，不会修改任何用户的默认账户。“默认 QOS”是另一项作业调度设置</li>
         <li>选择账户后点击“添加关联”，为用户分配可使用的 Slurm 账户和集群</li>
         <li>全局关联允许用户使用该账户提交到所有分区；只要全局关联仍存在，分区限制就不会生效</li>
         <li>限制分区时，先创建一个或多个分区关联，确认后再删除同一用户/账户的全局关联</li>
@@ -297,7 +302,7 @@ Slurm 用户关联页
         if (filterSelect) {
             const current = filterSelect.value;
             filterSelect.innerHTML =
-                '<option value="">默认账户</option>' + options;
+                '<option value="">使用配置的筛选账户</option>' + options;
             if (current) filterSelect.value = current;
         }
     }

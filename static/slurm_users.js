@@ -32,7 +32,7 @@
             cell.className = 'col-actions';
             const actions = document.createElement('div');
             actions.className = 'data-table-actions';
-            for (const [label, handler] of [['默认账户', () => openForm(user)], ['删除', () => removeUser(user)]]) {
+            for (const [label, handler] of [['修改默认账户', () => openForm(user)], ['删除', () => removeUser(user)]]) {
                 const button = document.createElement('button');
                 button.className = 'btn btn-secondary';
                 button.textContent = label;
