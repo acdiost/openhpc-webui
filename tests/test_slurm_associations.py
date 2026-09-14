@@ -1,5 +1,6 @@
 import asyncio
 import os
+import subprocess
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -11,7 +12,7 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-0123456789abcdef")
 
 from openhpc_webui.schemas import AssocCreate, AssocUpdate
 import openhpc_webui.application as main
-from openhpc_webui.services.slurm_manager import SlurmManager
+from openhpc_webui.services.slurm_manager import SlurmAssociationDeleteError, SlurmManager
 
 
 PROJECT_ROOT = Path(__file__).parents[1]
@@ -370,6 +371,52 @@ class SlurmAssociationUpdateTests(unittest.TestCase):
 
         self.assertEqual(context.exception.status_code, 400)
         update.assert_not_called()
+
+
+@patch.dict(os.environ, {"SLURM_CLUSTER_NAME": "cluster"})
+class SlurmAssociationDeleteErrorTests(unittest.TestCase):
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
+    def test_default_account_rejection_is_actionable_and_not_retried(self, run):
+        run.side_effect = subprocess.CalledProcessError(
+            1, "sacctmgr", stderr="Error with request: You can not remove the default account of a user\nChanges Discarded"
+        )
+        with self.assertRaises(SlurmAssociationDeleteError) as context:
+            SlurmManager().delete_association("dawn", "root", "g4")
+        self.assertEqual(context.exception.status_code, 409)
+        self.assertIn("Slurm 用户管理", str(context.exception))
+        self.assertIn("另一个已关联账户", str(context.exception))
+        run.assert_called_once()
+        self.assertIn("partition=g4", run.call_args.args[0])
+
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
+    def test_other_failures_preserve_stderr_and_stdout(self, run):
+        run.side_effect = subprocess.CalledProcessError(
+            1, "sacctmgr", output="Changes Discarded", stderr="Jobs are running"
+        )
+        with self.assertRaises(SlurmAssociationDeleteError) as context:
+            SlurmManager().delete_association("dawn", "root", "g4")
+        self.assertEqual(context.exception.status_code, 502)
+        self.assertIn("Jobs are running", str(context.exception))
+        self.assertIn("Changes Discarded", str(context.exception))
+
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
+    def test_missing_association_is_not_reported_as_server_failure(self, run):
+        run.side_effect = subprocess.CalledProcessError(
+            1, "sacctmgr", output="Nothing deleted"
+        )
+        with self.assertRaises(SlurmAssociationDeleteError) as context:
+            SlurmManager().delete_association("dawn", "root", "g4")
+        self.assertEqual(context.exception.status_code, 404)
+
+    def test_route_preserves_service_error_status_and_detail(self):
+        for code in (409, 404, 502):
+            with patch.object(main.slurm_mgr, "delete_association", side_effect=SlurmAssociationDeleteError("详细原因", code)):
+                with self.assertRaises(HTTPException) as context:
+                    asyncio.run(main.delete_association(
+                        "root", "dawn", "g4", {"username": "admin", "is_admin": True}
+                    ))
+                self.assertEqual(context.exception.status_code, code)
+                self.assertEqual(context.exception.detail, "详细原因")
 
 
 if __name__ == "__main__":

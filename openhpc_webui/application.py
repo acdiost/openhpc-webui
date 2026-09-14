@@ -81,7 +81,7 @@ from .services.file_manager import FileAccessDenied, FileManager, FileManagerErr
 from .services.ldap_manager import LDAPManager
 from .services.login_limiter import LoginAttemptLimiter
 from .services.nfs_quota_manager import NFSQuotaManager
-from .services.slurm_manager import SlurmManager
+from .services.slurm_manager import SlurmAssociationDeleteError, SlurmManager
 from .services.terminal_manager import TerminalError, TerminalManager, TerminalSession
 from .services.terminal_announcement import (
     TerminalAnnouncementError,
@@ -2229,9 +2229,13 @@ async def delete_association(
 ):
     """删除 Slurm 用户关联。"""
     _require_admin(user)
-    success = slurm_mgr.delete_association(
-        username=username, account=account_name, partition=partition
-    )
+    try:
+        success = await run_in_threadpool(
+            slurm_mgr.delete_association,
+            username=username, account=account_name, partition=partition,
+        )
+    except SlurmAssociationDeleteError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     if not success:
         raise HTTPException(status_code=500, detail="删除关联失败")
     return {"message": f"关联 {username}/{account_name} 已删除"}

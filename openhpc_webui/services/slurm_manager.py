@@ -13,6 +13,14 @@ from pathlib import Path
 from ..audit import log_current_exception, structured_print as print
 
 
+class SlurmAssociationDeleteError(RuntimeError):
+    """A failed association deletion with an actionable public error."""
+
+    def __init__(self, message: str, status_code: int = 502):
+        super().__init__(message)
+        self.status_code = status_code
+
+
 class SlurmManager:
     """Slurm 管理器 - 处理 Slurm 分区和作业操作"""
 
@@ -1743,6 +1751,26 @@ class SlurmManager:
             result = subprocess.run(args, capture_output=True, text=True, check=True)
             print(f"Slurm 删除关联 {username}/{account} 成功: {result.stdout}")
             return True
+        except subprocess.CalledProcessError as exc:
+            output = "\n".join(
+                text.strip() for text in (exc.stderr, exc.stdout)
+                if isinstance(text, str) and text.strip()
+            )
+            print(f"Slurm 删除关联失败: {exc}; Slurm 输出: {output}")
+            if "default account" in output.lower():
+                raise SlurmAssociationDeleteError(
+                    "Slurm 拒绝删除默认账户关联。请先到“Slurm 用户管理”将默认账户"
+                    "改为另一个已关联账户，再删除此关联；若要移除用户在当前集群"
+                    "的全部关联，请使用该页面的“删除”操作。",
+                    status_code=409,
+                ) from exc
+            if "nothing deleted" in output.lower():
+                raise SlurmAssociationDeleteError(
+                    "未找到可删除的关联，请刷新列表后重试。", status_code=404
+                ) from exc
+            raise SlurmAssociationDeleteError(
+                f"Slurm 删除关联失败：{output[:2000] or '命令未返回错误详情'}"
+            ) from exc
         except Exception as e:
             print(f"Slurm 删除关联失败: {e}")
             return False
