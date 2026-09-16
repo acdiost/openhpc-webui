@@ -1,6 +1,6 @@
 # openhpc_webui 生产部署
 
-本文档适用于 `openhpc_webui 0.3.0`，使用 Supervisor 托管单个 Uvicorn 进程，并通过 Nginx 提供 HTTPS。示例安装目录为 `/srv/openhpc-webui`，应用仅监听 `127.0.0.1:6827`。
+本文档适用于 `openhpc_webui 0.3.1`，使用 Supervisor 托管单个 Uvicorn 进程，并通过 Nginx 提供 HTTPS。示例安装目录为 `/srv/openhpc-webui`，应用仅监听 `127.0.0.1:6827`。
 
 命名约定：仓库和安装目录使用连字符 `openhpc-webui`，虚拟环境目录为 `.venv`；Python 包、命令行入口、Supervisor 程序名和配置文件名沿用下划线 `openhpc_webui`。如使用其他安装目录，必须同步修改 Supervisor 配置中的 `command`、`directory` 和 `environment` 的 `PATH`。
 

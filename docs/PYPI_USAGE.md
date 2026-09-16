@@ -1,6 +1,6 @@
 # 通过 PyPI 安装和运行 openhpc_webui
 
-本文档适用于从 PyPI 安装 `openhpc-webui 0.3.0`，而不是从 Git 仓库部署。
+本文档适用于从 PyPI 安装 `openhpc-webui 0.3.1`，而不是从 Git 仓库部署。
 PyPI 安装包已包含页面模板和静态资源，但不包含仓库根目录下的 `env.example`、
 Supervisor 示例及运维脚本。
 
@@ -26,7 +26,7 @@ PyPI 安装适合以下场景：
 sudo install -d -m 0755 /srv/openhpc-webui
 sudo python3 -m venv /srv/openhpc-webui/.venv
 sudo /srv/openhpc-webui/.venv/bin/python -m pip install --upgrade pip
-sudo /srv/openhpc-webui/.venv/bin/python -m pip install "openhpc-webui==0.3.0"
+sudo /srv/openhpc-webui/.venv/bin/python -m pip install "openhpc-webui==0.3.1"
 ```
 
 验证安装结果：
@@ -37,7 +37,7 @@ sudo /srv/openhpc-webui/.venv/bin/python -m pip install "openhpc-webui==0.3.0"
 /srv/openhpc-webui/.venv/bin/python -m pip show openhpc-webui
 ```
 
-版本输出应为 `0.3.0`。
+版本输出应为 `0.3.1`。
 
 ## 3. 配置环境变量
 
@@ -147,11 +147,11 @@ Nginx 反向代理及 HTTPS 配置参见[生产部署指南](./DEPLOYMENT.md)。
 ```bash
 sudo cp -a /srv/openhpc-webui/.env /srv/openhpc-webui/.env.bak
 sudo /srv/openhpc-webui/.venv/bin/python -m pip install --upgrade \
-  "openhpc-webui==0.3.0"
+  "openhpc-webui==0.3.1"
 sudo systemctl restart openhpc-webui
 ```
 
-升级到后续版本时，将命令中的 `0.3.0` 替换为目标版本号。
+升级到后续版本时，将命令中的 `0.3.1` 替换为目标版本号。
 
 验证版本和服务：
 
@@ -169,14 +169,14 @@ sudo systemctl status openhpc-webui
 在可联网、操作系统和 CPU 架构相同或兼容的主机上下载包及依赖：
 
 ```bash
-python3 -m pip download --dest wheelhouse "openhpc-webui==0.3.0"
+python3 -m pip download --dest wheelhouse "openhpc-webui==0.3.1"
 ```
 
 将整个 `wheelhouse` 目录复制到内网主机后安装：
 
 ```bash
 /srv/openhpc-webui/.venv/bin/python -m pip install \
-  --no-index --find-links ./wheelhouse "openhpc-webui==0.3.0"
+  --no-index --find-links ./wheelhouse "openhpc-webui==0.3.1"
 ```
 
 这只包含 Python 包。Slurm、LDAP 客户端、Nginx、配额工具和系统服务配置仍需通过

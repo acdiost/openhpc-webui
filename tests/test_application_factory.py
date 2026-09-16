@@ -31,7 +31,7 @@ class ApplicationFactoryTests(unittest.TestCase):
         self.assertTrue(TEMPLATES_DIR.is_dir())
 
     def test_template_version_matches_package_version(self):
-        self.assertEqual(__version__, "0.3.0")
+        self.assertEqual(__version__, "0.3.1")
         self.assertEqual(templates.env.globals["app_version"], __version__)
 
 
