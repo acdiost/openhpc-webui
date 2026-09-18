@@ -1,5 +1,7 @@
 import asyncio
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +11,7 @@ from unittest.mock import Mock, patch
 os.environ.setdefault("SECRET_KEY", "test-secret-key-0123456789abcdef")
 
 import openhpc_webui.application as main
+from openhpc_webui.config import env_bool
 from openhpc_webui.services import auth_manager
 from openhpc_webui.services.auth_manager import AuthenticationServiceError, AuthManager
 from ldap3.core.exceptions import LDAPInvalidCredentialsResult
@@ -21,6 +24,61 @@ from openhpc_webui.services.slurm_manager import SlurmManager
 
 
 PROJECT_ROOT = Path(__file__).parents[1]
+
+
+class BooleanEnvironmentTests(unittest.TestCase):
+    def test_missing_value_uses_the_configured_default(self):
+        with patch.dict(os.environ, {}, clear=False):
+            previous = os.environ.pop("TEST_BOOLEAN_SETTING", None)
+            try:
+                self.assertTrue(env_bool("TEST_BOOLEAN_SETTING", True))
+                self.assertFalse(env_bool("TEST_BOOLEAN_SETTING", False))
+            finally:
+                if previous is not None:
+                    os.environ["TEST_BOOLEAN_SETTING"] = previous
+
+    def test_explicit_true_and_false_values_are_accepted(self):
+        expected_values = {
+            "true": True,
+            "1": True,
+            "yes": True,
+            "on": True,
+            "false": False,
+            "0": False,
+            "no": False,
+            "off": False,
+        }
+
+        for value, expected in expected_values.items():
+            with self.subTest(value=value), patch.dict(
+                os.environ, {"TEST_BOOLEAN_SETTING": value.upper()}
+            ):
+                self.assertIs(env_bool("TEST_BOOLEAN_SETTING", not expected), expected)
+
+    def test_invalid_value_is_rejected_instead_of_disabling_authentication(self):
+        for value in ("treu", "enabled", "", "2"):
+            with self.subTest(value=value), patch.dict(
+                os.environ, {"AUTHORIZED": value}
+            ):
+                with self.assertRaisesRegex(ValueError, "AUTHORIZED"):
+                    env_bool("AUTHORIZED", True)
+
+    def test_application_startup_rejects_invalid_authorized_value(self):
+        environment = dict(os.environ)
+        environment["AUTHORIZED"] = "treu"
+        environment.setdefault("SECRET_KEY", "test-secret-key-0123456789abcdef")
+
+        result = subprocess.run(
+            [sys.executable, "-c", "import openhpc_webui.application"],
+            cwd=PROJECT_ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("AUTHORIZED must be one of", result.stderr)
 
 
 class SessionSecurityTests(unittest.TestCase):

@@ -162,6 +162,7 @@ class TerminalFrontendTests(unittest.TestCase):
             "terminalAIConfigDialog",
             "terminalAIConfigForm",
             "terminal_user_ai_enabled",
+            "terminal_user_ai_endpoint",
             "terminal_user_ai_provider",
             "terminal_user_ai_base_url",
             "terminal_user_ai_model",
@@ -197,6 +198,24 @@ class TerminalFrontendTests(unittest.TestCase):
         self.assertIn("https://api.anthropic.com/v1", script)
         self.assertIn("https://open.bigmodel.cn/api/paas/v4", script)
         self.assertIn("Anthropic Messages API", script)
+        self.assertIn("message.ai_endpoints", script)
+
+    def test_admin_can_manage_terminal_ai_endpoints(self):
+        settings_template = (PROJECT_ROOT / "templates/settings.html").read_text(
+            encoding="utf-8"
+        )
+
+        for element_id in (
+            "terminalAIEndpointForm",
+            "terminal_ai_endpoint_name",
+            "terminal_ai_endpoint_provider",
+            "terminal_ai_endpoint_base_url",
+            "terminalAIEndpointList",
+        ):
+            self.assertIn(f'id="{element_id}"', settings_template)
+        self.assertIn('fetch("/api/terminal/ai/endpoints")', settings_template)
+        self.assertIn('method: endpointId ? "PUT" : "POST"', settings_template)
+        self.assertIn('method: "DELETE"', settings_template)
 
     def test_terminal_ai_tracks_bracketed_paste_as_user_text(self):
         script = (PROJECT_ROOT / "static/terminal.js").read_text(

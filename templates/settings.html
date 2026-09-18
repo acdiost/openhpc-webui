@@ -45,6 +45,11 @@
     .settings-preview-label { display: block; margin: 0 0 7px; color: #374151; font-size: 12px; font-weight: 600; }
     .settings-preview { min-height: 44px; margin-bottom: 17px; padding: 11px 12px; box-sizing: border-box; border: 1px dashed #d1d5db; border-radius: 6px; color: #9ca3af; font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
     .settings-card-actions { display: flex; padding-top: 3px; justify-content: flex-end; }
+    .settings-endpoint-list { display: grid; margin-top: 18px; gap: 10px; }
+    .settings-endpoint-item { display: flex; padding: 11px 12px; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid #e5e7eb; border-radius: 7px; }
+    .settings-endpoint-item strong, .settings-endpoint-item small { display: block; overflow-wrap: anywhere; }
+    .settings-endpoint-item small { margin-top: 3px; color: #6b7280; }
+    .settings-endpoint-actions { display: flex; flex: none; gap: 7px; }
     @media (max-width: 980px) { .settings-grid { grid-template-columns: 1fr; } }
     @media (max-width: 620px) {
         .settings-header { align-items: flex-start; flex-direction: column; gap: 12px; }
@@ -132,6 +137,54 @@
                         <button class="btn btn-primary" type="submit">保存 AI 配置</button>
                     </div>
                 </form>
+            </div>
+        </section>
+
+        <section class="card settings-card" aria-labelledby="terminal-ai-endpoints-title">
+            <div class="settings-card-header">
+                <div class="settings-card-heading">
+                    <span class="settings-card-icon" aria-hidden="true">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h8m-4-4v8M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z" />
+                        </svg>
+                    </span>
+                    <div>
+                        <h3 id="terminal-ai-endpoints-title">模型服务端点</h3>
+                        <p>维护普通用户可选择的服务地址白名单</p>
+                    </div>
+                </div>
+            </div>
+            <div class="settings-card-body">
+                <form id="terminalAIEndpointForm" class="settings-form" onsubmit="saveTerminalAIEndpoint(event)">
+                    <input id="terminal_ai_endpoint_id" type="hidden">
+                    <div class="form-group">
+                        <label for="terminal_ai_endpoint_name">端点名称</label>
+                        <input id="terminal_ai_endpoint_name" maxlength="100" required placeholder="例如：内部 Qwen 集群">
+                    </div>
+                    <div class="settings-fields">
+                        <div class="form-group">
+                            <label for="terminal_ai_endpoint_provider">Provider</label>
+                            <select id="terminal_ai_endpoint_provider">
+                                <option value="deepseek">DeepSeek</option>
+                                <option value="openai">OpenAI</option>
+                                <option value="claude">Claude</option>
+                                <option value="glm">GLM（智谱）</option>
+                                <option value="vllm">vLLM</option>
+                                <option value="sglang">SGLang</option>
+                                <option value="openai-compatible">其他兼容服务</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="terminal_ai_endpoint_base_url">API Base URL</label>
+                            <input id="terminal_ai_endpoint_base_url" type="url" maxlength="2048" required placeholder="https://models.example/v1">
+                        </div>
+                    </div>
+                    <div class="settings-card-actions">
+                        <button id="terminalAIEndpointCancel" class="btn btn-secondary" type="button" style="display:none">取消编辑</button>
+                        <button class="btn btn-primary" type="submit">保存端点</button>
+                    </div>
+                </form>
+                <div id="terminalAIEndpointList" class="settings-endpoint-list" aria-live="polite"></div>
             </div>
         </section>
 
@@ -248,6 +301,117 @@
         }
     }
 
+    let terminalAIEndpoints = [];
+
+    function resetTerminalAIEndpointForm() {
+        document.getElementById("terminal_ai_endpoint_id").value = "";
+        document.getElementById("terminal_ai_endpoint_name").value = "";
+        document.getElementById("terminal_ai_endpoint_provider").value = "openai-compatible";
+        document.getElementById("terminal_ai_endpoint_base_url").value = "";
+        document.getElementById("terminalAIEndpointCancel").style.display = "none";
+    }
+
+    function renderTerminalAIEndpoints() {
+        const list = document.getElementById("terminalAIEndpointList");
+        list.replaceChildren();
+        if (!terminalAIEndpoints.length) {
+            const empty = document.createElement("small");
+            empty.className = "settings-help";
+            empty.textContent = "尚未配置可用端点。";
+            list.appendChild(empty);
+            return;
+        }
+        for (const endpoint of terminalAIEndpoints) {
+            const item = document.createElement("div");
+            item.className = "settings-endpoint-item";
+            const description = document.createElement("div");
+            const name = document.createElement("strong");
+            name.textContent = endpoint.name;
+            const target = document.createElement("small");
+            target.textContent = `${endpoint.provider} · ${endpoint.base_url}`;
+            description.append(name, target);
+            const actions = document.createElement("div");
+            actions.className = "settings-endpoint-actions";
+            const edit = document.createElement("button");
+            edit.type = "button";
+            edit.className = "btn btn-secondary";
+            edit.textContent = "编辑";
+            edit.addEventListener("click", () => editTerminalAIEndpoint(endpoint.id));
+            const remove = document.createElement("button");
+            remove.type = "button";
+            remove.className = "btn btn-secondary";
+            remove.textContent = "删除";
+            remove.addEventListener("click", () => deleteTerminalAIEndpoint(endpoint.id));
+            actions.append(edit, remove);
+            item.append(description, actions);
+            list.appendChild(item);
+        }
+    }
+
+    async function loadTerminalAIEndpoints() {
+        try {
+            const res = await fetch("/api/terminal/ai/endpoints");
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "读取模型服务端点失败");
+            terminalAIEndpoints = Array.isArray(data.endpoints) ? data.endpoints : [];
+            renderTerminalAIEndpoints();
+        } catch (error) {
+            showToast(error.message, "error");
+        }
+    }
+
+    function editTerminalAIEndpoint(endpointId) {
+        const endpoint = terminalAIEndpoints.find((item) => item.id === endpointId);
+        if (!endpoint) return;
+        document.getElementById("terminal_ai_endpoint_id").value = endpoint.id;
+        document.getElementById("terminal_ai_endpoint_name").value = endpoint.name;
+        document.getElementById("terminal_ai_endpoint_provider").value = endpoint.provider;
+        document.getElementById("terminal_ai_endpoint_base_url").value = endpoint.base_url;
+        document.getElementById("terminalAIEndpointCancel").style.display = "inline-flex";
+        document.getElementById("terminal_ai_endpoint_name").focus();
+    }
+
+    async function saveTerminalAIEndpoint(event) {
+        event.preventDefault();
+        const endpointId = document.getElementById("terminal_ai_endpoint_id").value;
+        const button = event.submitter;
+        if (button) button.disabled = true;
+        try {
+            const res = await fetch(endpointId ? `/api/terminal/ai/endpoints/${encodeURIComponent(endpointId)}` : "/api/terminal/ai/endpoints", {
+                method: endpointId ? "PUT" : "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    name: document.getElementById("terminal_ai_endpoint_name").value,
+                    provider: document.getElementById("terminal_ai_endpoint_provider").value,
+                    base_url: document.getElementById("terminal_ai_endpoint_base_url").value,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "保存模型服务端点失败");
+            showToast(data.message, "success");
+            resetTerminalAIEndpointForm();
+            await loadTerminalAIEndpoints();
+        } catch (error) {
+            showToast(error.message, "error");
+        } finally {
+            if (button) button.disabled = false;
+        }
+    }
+
+    async function deleteTerminalAIEndpoint(endpointId) {
+        if (!window.confirm("确定删除此模型服务端点？普通用户将无法再选择它。")) return;
+        try {
+            const res = await fetch(`/api/terminal/ai/endpoints/${encodeURIComponent(endpointId)}`, {method: "DELETE"});
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "删除模型服务端点失败");
+            showToast(data.message, "success");
+            resetTerminalAIEndpointForm();
+            await loadTerminalAIEndpoints();
+        } catch (error) {
+            showToast(error.message, "error");
+        }
+    }
+
     function updateTerminalAnnouncementPreview() {
         const preview = document.getElementById("terminalAnnouncementPreview");
         const message = document.getElementById("terminal_announcement_message").value.trim();
@@ -309,8 +473,10 @@
     for (const id of ["terminal_announcement_message", "terminal_announcement_text_color", "terminal_announcement_background_color", "terminal_announcement_bold"]) {
         document.getElementById(id).addEventListener("input", updateTerminalAnnouncementPreview);
     }
+    document.getElementById("terminalAIEndpointCancel").addEventListener("click", resetTerminalAIEndpointForm);
 
     loadTerminalAI();
+    loadTerminalAIEndpoints();
     loadTerminalAnnouncement();
 </script>
 {% endblock %}

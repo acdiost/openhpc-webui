@@ -22,6 +22,8 @@ class ApplicationFactoryTests(unittest.TestCase):
         self.assertIn("/terminal", route_paths)
         self.assertIn("/ws/terminal", route_paths)
         self.assertIn("/api/terminal/ai/settings", route_paths)
+        self.assertIn("/api/terminal/ai/endpoints", route_paths)
+        self.assertIn("/api/terminal/ai/endpoints/{endpoint_id}", route_paths)
         self.assertIn("/api/terminal/announcement/settings", route_paths)
         self.assertIn("/settings", route_paths)
         self.assertIn("/static", route_paths)

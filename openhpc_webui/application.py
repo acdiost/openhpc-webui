@@ -69,6 +69,7 @@ from .schemas import (
     PartitionUpdate,
     PasswordChangeRequest,
     TerminalAnnouncementSettingsUpdate,
+    TerminalAIEndpointUpdate,
     TerminalAISettingsUpdate,
     UserCreate,
     UserCreditRequest,
@@ -97,9 +98,14 @@ from .services.terminal_ai import (
     clean_terminal_output,
     command_requires_confirmation,
     get_config as get_terminal_ai_config,
+    get_managed_endpoints as get_terminal_ai_endpoints,
     is_probable_command,
     public_config as public_terminal_ai_config,
     save_config as save_terminal_ai_config,
+    create_managed_endpoint as create_terminal_ai_managed_endpoint,
+    delete_managed_endpoint as delete_terminal_ai_managed_endpoint,
+    session_endpoint_is_managed,
+    update_managed_endpoint as update_terminal_ai_managed_endpoint,
     validate_model_name,
 )
 
@@ -697,6 +703,64 @@ async def update_terminal_ai_settings(
     return {"message": "终端 AI 配置已保存并立即生效", **result}
 
 
+@router.get("/api/terminal/ai/endpoints")
+async def list_terminal_ai_endpoints(user: dict = Depends(get_current_user)):
+    """List endpoint choices available to terminal users."""
+    try:
+        return {"endpoints": await run_in_threadpool(get_terminal_ai_endpoints)}
+    except TerminalAIError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/api/terminal/ai/endpoints", status_code=201)
+async def create_terminal_ai_endpoint(
+    payload: TerminalAIEndpointUpdate, user: dict = Depends(get_current_user)
+):
+    _require_admin(user)
+    try:
+        endpoint = await run_in_threadpool(
+            create_terminal_ai_managed_endpoint,
+            name=payload.name,
+            provider=payload.provider,
+            base_url=payload.base_url,
+        )
+    except TerminalAIError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"message": "模型服务端点已添加", "endpoint": endpoint}
+
+
+@router.put("/api/terminal/ai/endpoints/{endpoint_id}")
+async def update_terminal_ai_endpoint(
+    endpoint_id: str,
+    payload: TerminalAIEndpointUpdate,
+    user: dict = Depends(get_current_user),
+):
+    _require_admin(user)
+    try:
+        endpoint = await run_in_threadpool(
+            update_terminal_ai_managed_endpoint,
+            endpoint_id,
+            name=payload.name,
+            provider=payload.provider,
+            base_url=payload.base_url,
+        )
+    except TerminalAIError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"message": "模型服务端点已更新", "endpoint": endpoint}
+
+
+@router.delete("/api/terminal/ai/endpoints/{endpoint_id}")
+async def delete_terminal_ai_endpoint(
+    endpoint_id: str, user: dict = Depends(get_current_user)
+):
+    _require_admin(user)
+    try:
+        await run_in_threadpool(delete_terminal_ai_managed_endpoint, endpoint_id)
+    except TerminalAIError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"message": "模型服务端点已删除"}
+
+
 @router.get("/api/terminal/announcement/settings")
 async def get_terminal_announcement_settings(
     user: dict = Depends(get_current_user),
@@ -1053,7 +1117,11 @@ async def _receive_terminal_input(
     last_activity: list[float],
     ai_state: _TerminalAIState,
     send_lock: asyncio.Lock,
+    *,
+    managed_ai_config: Optional[TerminalAIConfig] = None,
+    allow_custom_ai_endpoint: bool = False,
 ) -> None:
+    managed_ai_config = managed_ai_config or get_terminal_ai_config()
     while True:
         message = await websocket.receive()
         if message["type"] == "websocket.disconnect":
@@ -1278,6 +1346,23 @@ async def _receive_terminal_input(
                     {"type": "ai_config_error", "message": message},
                 )
                 continue
+            if (
+                not allow_custom_ai_endpoint
+                and not session_endpoint_is_managed(
+                    session_config, managed_ai_config
+                )
+            ):
+                await _send_ws_json(
+                    websocket,
+                    send_lock,
+                    {
+                        "type": "ai_config_error",
+                        "message": (
+                            "普通用户只能使用管理员配置并维护的模型服务端点"
+                        ),
+                    },
+                )
+                continue
             ai_state.config = session_config
             ai_state.model = session_config.model or None
             ai_state.history.clear()
@@ -1291,9 +1376,12 @@ async def _receive_terminal_input(
                 send_lock,
                 {
                     "type": "ai_config_changed",
-                    "ai": public_terminal_ai_config(
-                        include_endpoint=True, config=session_config
-                    ),
+                    "ai": {
+                        **public_terminal_ai_config(
+                            include_endpoint=True, config=session_config
+                        ),
+                        "custom_endpoint_allowed": allow_custom_ai_endpoint,
+                    },
                     "conversation_reset": True,
                 },
             )
@@ -1358,18 +1446,22 @@ async def terminal_websocket(websocket: WebSocket):
         )
         send_lock = asyncio.Lock()
         terminal_ai_config = get_terminal_ai_config()
+        is_admin = admin_mgr.is_admin(username)
         ai_state = _TerminalAIState(
             model=terminal_ai_config.model or None,
             config=terminal_ai_config,
         )
+        public_ai_config = public_terminal_ai_config(
+            include_endpoint=True, config=terminal_ai_config
+        )
+        public_ai_config["custom_endpoint_allowed"] = is_admin
         await _send_ws_json(websocket, send_lock,
             {
                 "type": "ready",
                 "username": username,
                 "idle_minutes": settings.terminal_idle_minutes,
-                "ai": public_terminal_ai_config(
-                    include_endpoint=True, config=terminal_ai_config
-                ),
+                "ai": public_ai_config,
+                "ai_endpoints": get_terminal_ai_endpoints(),
                 "ai_loop": {
                     "max_steps": ai_state.max_steps,
                     "max_allowed_steps": _TERMINAL_AI_MAX_ALLOWED_STEPS,
@@ -1379,7 +1471,17 @@ async def terminal_websocket(websocket: WebSocket):
         last_activity = [time.monotonic()]
         tasks = [
             asyncio.create_task(_send_terminal_output(websocket, session, last_activity, ai_state, send_lock)),
-            asyncio.create_task(_receive_terminal_input(websocket, session, last_activity, ai_state, send_lock)),
+            asyncio.create_task(
+                _receive_terminal_input(
+                    websocket,
+                    session,
+                    last_activity,
+                    ai_state,
+                    send_lock,
+                    managed_ai_config=terminal_ai_config,
+                    allow_custom_ai_endpoint=is_admin,
+                )
+            ),
             asyncio.create_task(_watch_terminal_idle(websocket, last_activity, send_lock)),
         ]
         done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)

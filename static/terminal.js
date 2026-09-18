@@ -52,6 +52,7 @@
     const aiConfigCancel = document.getElementById("terminalAIConfigCancel");
     const aiConfigForm = document.getElementById("terminalAIConfigForm");
     const aiEnabledInput = document.getElementById("terminal_user_ai_enabled");
+    const aiEndpointInput = document.getElementById("terminal_user_ai_endpoint");
     const aiProviderInput = document.getElementById("terminal_user_ai_provider");
     const aiBaseURLInput = document.getElementById("terminal_user_ai_base_url");
     const aiConfigModelInput = document.getElementById("terminal_user_ai_model");
@@ -100,6 +101,7 @@
     let persistedAIConfig = null;
     let pendingAIConfigPersistence = null;
     let restoringPersistedAIConfig = false;
+    let managedAIEndpoints = [];
 
     const placeholderText = "输入命令，或输入问题与 AI 对话…";
     const pasteStart = "\x1b[200~";
@@ -265,6 +267,21 @@
         }
     }
 
+    function setManagedEndpointChoices(endpoints) {
+        managedAIEndpoints = Array.isArray(endpoints) ? endpoints : [];
+        aiEndpointInput.replaceChildren();
+        for (const endpoint of managedAIEndpoints) {
+            const option = document.createElement("option");
+            option.value = endpoint.id;
+            option.textContent = endpoint.name;
+            aiEndpointInput.appendChild(option);
+        }
+        const custom = document.createElement("option");
+        custom.value = "";
+        custom.textContent = currentAIConfig.custom_endpoint_allowed ? "自定义端点" : "请选择管理员端点";
+        aiEndpointInput.appendChild(custom);
+    }
+
     function syncAIConfig(config) {
         currentAIConfig = Object.assign({}, config || {});
         aiAvailable = Boolean(currentAIConfig.available);
@@ -290,6 +307,14 @@
         aiEnabledInput.checked = Boolean(currentAIConfig.enabled);
         aiProviderInput.value = currentAIConfig.provider || "deepseek";
         aiBaseURLInput.value = currentAIConfig.base_url || providerDefaults[aiProviderInput.value] || "";
+        const selectedEndpoint = managedAIEndpoints.find((endpoint) => (
+            endpoint.provider === aiProviderInput.value
+            && endpoint.base_url === aiBaseURLInput.value.replace(/\/$/, "")
+        ));
+        aiEndpointInput.value = selectedEndpoint ? selectedEndpoint.id : "";
+        const customAllowed = Boolean(currentAIConfig.custom_endpoint_allowed);
+        aiProviderInput.disabled = !customAllowed;
+        aiBaseURLInput.readOnly = !customAllowed;
         aiConfigModelInput.value = currentAIConfig.model || "";
         aiTimeoutInput.value = String(currentAIConfig.timeout_seconds || 60);
         aiAPIKeyInput.value = "";
@@ -499,6 +524,7 @@
                 currentUsername = String(message.username || "");
                 aiConfigButton.disabled = false;
                 syncAIConfig(message.ai);
+                setManagedEndpointChoices(message.ai_endpoints);
                 maxSteps = Number(message.ai_loop && message.ai_loop.max_steps) || 10;
                 stepLimitInput.max = String(Number(message.ai_loop && message.ai_loop.max_allowed_steps) || 50);
                 stepLimitInput.value = String(maxSteps);
@@ -785,6 +811,18 @@
         }
         if (currentAIConfig.api_key_configured) {
             aiKeyStatus.textContent = "切换 Provider 或端点时必须重新输入 API Key；旧密钥不会发送到新端点。";
+        }
+    });
+    aiEndpointInput.addEventListener("change", () => {
+        const endpoint = managedAIEndpoints.find((item) => item.id === aiEndpointInput.value);
+        if (!endpoint) return;
+        aiProviderInput.value = endpoint.provider;
+        aiBaseURLInput.value = endpoint.base_url;
+        if (!aiConfigModelInput.value || Object.values(providerModelDefaults).includes(aiConfigModelInput.value)) {
+            aiConfigModelInput.value = providerModelDefaults[endpoint.provider] || "";
+        }
+        if (currentAIConfig.api_key_configured) {
+            aiKeyStatus.textContent = "切换端点时必须重新输入 API Key；旧密钥不会发送到新端点。";
         }
     });
     aiConfigForm.addEventListener("submit", (event) => {

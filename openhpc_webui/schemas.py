@@ -249,6 +249,12 @@ class TerminalAISettingsUpdate(BaseModel):
     timeout_seconds: int = Field(60, ge=5, le=300)
 
 
+class TerminalAIEndpointUpdate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    provider: str = Field(..., min_length=1, max_length=32)
+    base_url: str = Field(..., min_length=1, max_length=2048)
+
+
 class TerminalAnnouncementSettingsUpdate(BaseModel):
     enabled: bool = False
     message: str = Field("", max_length=2000)

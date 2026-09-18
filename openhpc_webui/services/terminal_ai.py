@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 import shlex
 import shutil
 import tempfile
@@ -51,6 +52,21 @@ _ENV_KEYS = {
     "api_key": "TERMINAL_AI_API_KEY",
     "timeout_seconds": "TERMINAL_AI_TIMEOUT_SECONDS",
 }
+_ENDPOINTS_ENV_KEY = "TERMINAL_AI_ENDPOINTS"
+_BUILTIN_ENDPOINTS = tuple(
+    {
+        "id": f"builtin-{provider}",
+        "name": {
+            "deepseek": "DeepSeek",
+            "openai": "OpenAI",
+            "claude": "Claude",
+            "glm": "GLM（智谱）",
+        }[provider],
+        "provider": provider,
+        "base_url": base_url,
+    }
+    for provider, base_url in _DEFAULT_BASE_URLS.items()
+)
 _SHELL_BUILTINS = {
     ".", "alias", "bg", "bind", "break", "builtin", "cd", "command",
     "compgen", "complete", "continue", "declare", "dirs", "disown",
@@ -177,6 +193,163 @@ def model_options(config: Optional[TerminalAIConfig] = None) -> List[str]:
     candidates = [current.model]
     candidates.extend(_PROVIDER_MODEL_OPTIONS.get(current.provider, ()))
     return list(dict.fromkeys(value for value in candidates if value))
+
+
+def session_endpoint_is_managed(
+    config: TerminalAIConfig,
+    managed_config: TerminalAIConfig,
+    *,
+    managed_endpoints: Optional[List[Dict[str, str]]] = None,
+) -> bool:
+    """Return whether an unprivileged session may contact this AI endpoint."""
+    if not config.base_url:
+        return not config.enabled
+    if config.base_url == managed_config.base_url:
+        return True
+    endpoints = managed_endpoints
+    if endpoints is None:
+        endpoints = get_managed_endpoints()
+    return any(
+        endpoint["provider"] == config.provider
+        and endpoint["base_url"] == config.base_url
+        for endpoint in endpoints
+    )
+
+
+def _validate_endpoint_name(value: str) -> str:
+    name = value.strip()
+    if not name or len(name) > 100 or any(ord(character) < 32 for character in name):
+        raise TerminalAIError("端点名称无效")
+    return name
+
+
+def _validated_managed_endpoint(
+    *, endpoint_id: str, name: str, provider: str, base_url: str
+) -> Dict[str, str]:
+    provider = provider.strip().lower()
+    if provider not in _PROVIDERS:
+        raise TerminalAIError("不支持的模型服务类型")
+    if len(base_url) > 2048:
+        raise TerminalAIError("Base URL 过长")
+    return {
+        "id": endpoint_id,
+        "name": _validate_endpoint_name(name),
+        "provider": provider,
+        "base_url": _validate_url(base_url),
+    }
+
+
+def get_managed_endpoints() -> List[Dict[str, str]]:
+    """Return administrator-managed endpoints without secrets."""
+    raw = os.getenv(_ENDPOINTS_ENV_KEY)
+    if raw is None:
+        endpoints = [dict(endpoint) for endpoint in _BUILTIN_ENDPOINTS]
+        current = get_config()
+        if current.base_url and not any(
+            endpoint["provider"] == current.provider
+            and endpoint["base_url"] == current.base_url
+            for endpoint in endpoints
+        ):
+            endpoints.append({
+                "id": "global-default",
+                "name": "全局默认端点",
+                "provider": current.provider,
+                "base_url": current.base_url,
+            })
+        return endpoints
+    try:
+        values = json.loads(raw)
+        if not isinstance(values, list):
+            raise ValueError
+        endpoints = []
+        seen_ids = set()
+        seen_targets = set()
+        for value in values:
+            if not isinstance(value, dict):
+                raise ValueError
+            endpoint_id = str(value.get("id", ""))
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", endpoint_id):
+                raise ValueError
+            endpoint = _validated_managed_endpoint(
+                endpoint_id=endpoint_id,
+                name=str(value.get("name", "")),
+                provider=str(value.get("provider", "")),
+                base_url=str(value.get("base_url", "")),
+            )
+            target = (endpoint["provider"], endpoint["base_url"])
+            if endpoint_id in seen_ids or target in seen_targets:
+                raise ValueError
+            seen_ids.add(endpoint_id)
+            seen_targets.add(target)
+            endpoints.append(endpoint)
+        return endpoints
+    except (TypeError, ValueError, json.JSONDecodeError, TerminalAIError) as exc:
+        raise TerminalAIError("受管端点配置无效，请由管理员重新保存") from exc
+
+
+def _save_managed_endpoints(endpoints: List[Dict[str, str]]) -> None:
+    _write_env({
+        _ENDPOINTS_ENV_KEY: json.dumps(
+            endpoints, ensure_ascii=False, separators=(",", ":")
+        )
+    })
+
+
+def create_managed_endpoint(
+    *, name: str, provider: str, base_url: str
+) -> Dict[str, str]:
+    endpoints = get_managed_endpoints()
+    endpoint = _validated_managed_endpoint(
+        endpoint_id=secrets.token_hex(8),
+        name=name,
+        provider=provider,
+        base_url=base_url,
+    )
+    if any(
+        item["provider"] == endpoint["provider"]
+        and item["base_url"] == endpoint["base_url"]
+        for item in endpoints
+    ):
+        raise TerminalAIError("该模型服务端点已存在")
+    endpoints.append(endpoint)
+    _save_managed_endpoints(endpoints)
+    return endpoint
+
+
+def update_managed_endpoint(
+    endpoint_id: str, *, name: str, provider: str, base_url: str
+) -> Dict[str, str]:
+    endpoints = get_managed_endpoints()
+    index = next(
+        (position for position, item in enumerate(endpoints) if item["id"] == endpoint_id),
+        None,
+    )
+    if index is None:
+        raise TerminalAIError("模型服务端点不存在")
+    endpoint = _validated_managed_endpoint(
+        endpoint_id=endpoint_id,
+        name=name,
+        provider=provider,
+        base_url=base_url,
+    )
+    if any(
+        item["id"] != endpoint_id
+        and item["provider"] == endpoint["provider"]
+        and item["base_url"] == endpoint["base_url"]
+        for item in endpoints
+    ):
+        raise TerminalAIError("该模型服务端点已存在")
+    endpoints[index] = endpoint
+    _save_managed_endpoints(endpoints)
+    return endpoint
+
+
+def delete_managed_endpoint(endpoint_id: str) -> None:
+    endpoints = get_managed_endpoints()
+    remaining = [item for item in endpoints if item["id"] != endpoint_id]
+    if len(remaining) == len(endpoints):
+        raise TerminalAIError("模型服务端点不存在")
+    _save_managed_endpoints(remaining)
 
 
 def validate_model_name(value: str) -> str:

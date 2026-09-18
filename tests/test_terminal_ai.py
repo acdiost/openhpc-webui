@@ -26,6 +26,7 @@ from openhpc_webui.services.terminal_ai import (
     TerminalAIReply,
     validate_model_name,
 )
+from openhpc_webui.schemas import TerminalAIEndpointUpdate
 import openhpc_webui.application as main
 
 
@@ -92,6 +93,50 @@ class TerminalAICommandTests(unittest.TestCase):
 
 
 class TerminalAIConfigTests(unittest.TestCase):
+    def test_admin_can_create_update_and_delete_managed_endpoints(self):
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(
+            terminal_ai, "PROJECT_ROOT", Path(temp_dir)
+        ), patch.dict(os.environ, {"TERMINAL_AI_ENDPOINTS": "[]"}, clear=False):
+            created = terminal_ai.create_managed_endpoint(
+                name="内部 Qwen",
+                provider="vllm",
+                base_url="http://models.internal.example:8000/v1/",
+            )
+            self.assertEqual(created["name"], "内部 Qwen")
+            self.assertEqual(
+                created["base_url"], "http://models.internal.example:8000/v1"
+            )
+
+            updated = terminal_ai.update_managed_endpoint(
+                created["id"],
+                name="内部 Qwen 3",
+                provider="openai-compatible",
+                base_url="https://models.internal.example/v1",
+            )
+            self.assertEqual(updated["name"], "内部 Qwen 3")
+            self.assertEqual(len(terminal_ai.get_managed_endpoints()), 1)
+
+            terminal_ai.delete_managed_endpoint(created["id"])
+            self.assertEqual(terminal_ai.get_managed_endpoints(), [])
+
+    def test_managed_endpoint_registry_rejects_duplicates_and_unknown_ids(self):
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(
+            terminal_ai, "PROJECT_ROOT", Path(temp_dir)
+        ), patch.dict(os.environ, {"TERMINAL_AI_ENDPOINTS": "[]"}, clear=False):
+            terminal_ai.create_managed_endpoint(
+                name="OpenAI",
+                provider="openai",
+                base_url="https://api.openai.com/v1",
+            )
+            with self.assertRaisesRegex(TerminalAIError, "已存在"):
+                terminal_ai.create_managed_endpoint(
+                    name="Duplicate",
+                    provider="openai",
+                    base_url="https://api.openai.com/v1/",
+                )
+            with self.assertRaisesRegex(TerminalAIError, "不存在"):
+                terminal_ai.delete_managed_endpoint("missing")
+
     def test_builds_session_config_without_persisting_or_exposing_key(self):
         config = build_config(
             enabled=True,
@@ -202,6 +247,44 @@ class TerminalAIConfigTests(unittest.TestCase):
 
     def test_audit_sanitizer_redacts_api_key(self):
         self.assertEqual(sanitize({"api_key": "secret"})["api_key"], "[REDACTED]")
+
+
+class TerminalAIEndpointAPITests(unittest.TestCase):
+    def test_endpoint_mutations_require_an_administrator(self):
+        payload = TerminalAIEndpointUpdate(
+            name="内部模型",
+            provider="vllm",
+            base_url="http://models.internal.example:8000/v1",
+        )
+
+        with self.assertRaises(main.HTTPException) as raised:
+            asyncio.run(main.create_terminal_ai_endpoint(
+                payload, {"username": "alice", "is_admin": False}
+            ))
+
+        self.assertEqual(raised.exception.status_code, 403)
+
+    def test_admin_endpoint_create_returns_only_public_fields(self):
+        payload = TerminalAIEndpointUpdate(
+            name="内部模型",
+            provider="vllm",
+            base_url="http://models.internal.example:8000/v1",
+        )
+        endpoint = {
+            "id": "endpoint-id",
+            "name": payload.name,
+            "provider": payload.provider,
+            "base_url": payload.base_url,
+        }
+        with patch.object(
+            main, "create_terminal_ai_managed_endpoint", return_value=endpoint
+        ):
+            result = asyncio.run(main.create_terminal_ai_endpoint(
+                payload, {"username": "admin", "is_admin": True}
+            ))
+
+        self.assertEqual(result["endpoint"], endpoint)
+        self.assertNotIn("api_key", result["endpoint"])
 
 
 class TerminalAIReplyTests(unittest.TestCase):
@@ -586,9 +669,9 @@ class TerminalAIProtocolTests(unittest.TestCase):
                 "text": json.dumps({
                     "type": "set_ai_config",
                     "enabled": True,
-                    "provider": "openai-compatible",
-                    "base_url": "https://models.example.test/v1",
-                    "model": "example/model",
+                    "provider": "openai",
+                    "base_url": "https://api.openai.com/v1",
+                    "model": "gpt-5.1",
                     "api_key": "user-secret",
                     "timeout_seconds": 45,
                 }),
@@ -605,7 +688,7 @@ class TerminalAIProtocolTests(unittest.TestCase):
         asyncio.run(receive())
 
         self.assertTrue(state.config.available)
-        self.assertEqual(state.config.provider, "openai-compatible")
+        self.assertEqual(state.config.provider, "openai")
         self.assertEqual(state.config.api_key, "user-secret")
         self.assertEqual(websocket.json[-1]["type"], "ai_config_changed")
         self.assertTrue(websocket.json[-1]["ai"]["api_key_configured"])
@@ -626,9 +709,9 @@ class TerminalAIProtocolTests(unittest.TestCase):
                 "text": json.dumps({
                     "type": "set_ai_config",
                     "enabled": True,
-                    "provider": "openai-compatible",
-                    "base_url": "https://other.example.test/v1",
-                    "model": "other-model",
+                    "provider": "openai",
+                    "base_url": "https://api.openai.com/v1",
+                    "model": "gpt-5.1",
                     "api_key": None,
                     "timeout_seconds": 60,
                 }),
@@ -644,9 +727,153 @@ class TerminalAIProtocolTests(unittest.TestCase):
 
         asyncio.run(receive())
 
-        self.assertEqual(state.config.base_url, "https://other.example.test/v1")
+        self.assertEqual(state.config.base_url, "https://api.openai.com/v1")
         self.assertEqual(state.config.api_key, "")
         self.assertFalse(websocket.json[-1]["ai"]["api_key_configured"])
+
+    def test_regular_user_cannot_set_an_unmanaged_session_endpoint(self):
+        for base_url in (
+            "http://127.0.0.1:8000/v1",
+            "http://10.80.4.30:8000/v1",
+            "https://models.attacker.example/v1",
+        ):
+            with self.subTest(base_url=base_url):
+                websocket = _FakeWebSocket([
+                    {
+                        "type": "websocket.receive",
+                        "text": json.dumps({
+                            "type": "set_ai_config",
+                            "enabled": True,
+                            "provider": "openai-compatible",
+                            "base_url": base_url,
+                            "model": "example/model",
+                            "api_key": "user-secret",
+                            "timeout_seconds": 45,
+                        }),
+                    },
+                    {"type": "websocket.disconnect"},
+                ])
+                state = main._TerminalAIState()
+
+                async def receive():
+                    await main._receive_terminal_input(
+                        websocket,
+                        _FakeSession(),
+                        [0.0],
+                        state,
+                        asyncio.Lock(),
+                    )
+
+                asyncio.run(receive())
+
+                self.assertIsNone(state.config)
+                self.assertEqual(websocket.json[-1]["type"], "ai_config_error")
+                self.assertIn("管理员配置", websocket.json[-1]["message"])
+
+    def test_admin_can_set_a_custom_session_endpoint(self):
+        websocket = _FakeWebSocket([
+            {
+                "type": "websocket.receive",
+                "text": json.dumps({
+                    "type": "set_ai_config",
+                    "enabled": True,
+                    "provider": "openai-compatible",
+                    "base_url": "https://models.example.test/v1",
+                    "model": "example/model",
+                    "api_key": "admin-secret",
+                    "timeout_seconds": 45,
+                }),
+            },
+            {"type": "websocket.disconnect"},
+        ])
+        state = main._TerminalAIState()
+
+        async def receive():
+            await main._receive_terminal_input(
+                websocket,
+                _FakeSession(),
+                [0.0],
+                state,
+                asyncio.Lock(),
+                allow_custom_ai_endpoint=True,
+            )
+
+        asyncio.run(receive())
+
+        self.assertEqual(state.config.base_url, "https://models.example.test/v1")
+        self.assertEqual(state.config.api_key, "admin-secret")
+        self.assertEqual(websocket.json[-1]["type"], "ai_config_changed")
+        self.assertTrue(websocket.json[-1]["ai"]["custom_endpoint_allowed"])
+
+    def test_regular_user_can_use_the_administrator_managed_endpoint(self):
+        managed = TerminalAIConfig(
+            enabled=True,
+            provider="vllm",
+            base_url="http://models.internal.example:8000/v1",
+            model="Qwen/Qwen3",
+            api_key="",
+            timeout_seconds=60,
+        )
+        websocket = _FakeWebSocket([
+            {
+                "type": "websocket.receive",
+                "text": json.dumps({
+                    "type": "set_ai_config",
+                    "enabled": True,
+                    "provider": "vllm",
+                    "base_url": managed.base_url,
+                    "model": "Qwen/Qwen3-32B",
+                    "api_key": None,
+                    "timeout_seconds": 45,
+                }),
+            },
+            {"type": "websocket.disconnect"},
+        ])
+        state = main._TerminalAIState()
+
+        async def receive():
+            await main._receive_terminal_input(
+                websocket,
+                _FakeSession(),
+                [0.0],
+                state,
+                asyncio.Lock(),
+                managed_ai_config=managed,
+            )
+
+        asyncio.run(receive())
+
+        self.assertEqual(state.config.base_url, managed.base_url)
+        self.assertEqual(websocket.json[-1]["type"], "ai_config_changed")
+
+    def test_regular_user_can_use_an_endpoint_from_the_admin_registry(self):
+        registered = [{
+            "id": "internal-qwen",
+            "name": "内部 Qwen",
+            "provider": "vllm",
+            "base_url": "http://models.internal.example:8000/v1",
+        }]
+        candidate = TerminalAIConfig(
+            enabled=True,
+            provider="vllm",
+            base_url=registered[0]["base_url"],
+            model="Qwen/Qwen3",
+            api_key="",
+            timeout_seconds=60,
+        )
+        global_config = TerminalAIConfig(
+            enabled=False,
+            provider="deepseek",
+            base_url="https://api.deepseek.com",
+            model="",
+            api_key="",
+            timeout_seconds=60,
+        )
+
+        self.assertTrue(terminal_ai.session_endpoint_is_managed(
+            candidate, global_config, managed_endpoints=registered
+        ))
+
 
     def test_ai_reply_only_stages_command_until_execute_message(self):
         websocket = _FakeWebSocket([
