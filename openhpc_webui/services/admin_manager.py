@@ -5,8 +5,13 @@
 
 import os
 import re
+import tempfile
+import threading
 from typing import List
 from ..audit import structured_print as print
+
+
+_admin_update_lock = threading.RLock()
 
 
 def get_admin_list() -> List[str]:
@@ -48,18 +53,19 @@ def set_admin(username: str, make_admin: bool) -> bool:
     if not username or not username.strip():
         return False
 
-    admins = get_admin_list()
+    with _admin_update_lock:
+        admins = get_admin_list()
 
-    if make_admin:
-        if username in admins:
-            return True  # 已是管理员，幂等
-        admins.append(username)
-    else:
-        if username not in admins:
-            return True  # 本就不是管理员，幂等
-        admins = [a for a in admins if a != username]
+        if make_admin:
+            if username in admins:
+                return True  # 已是管理员，幂等
+            admins.append(username)
+        else:
+            if username not in admins:
+                return True  # 本就不是管理员，幂等
+            admins = [a for a in admins if a != username]
 
-    return _write_admin_list(admins)
+        return _write_admin_list(admins)
 
 
 def add_admin(username: str) -> bool:
@@ -122,14 +128,14 @@ def _find_env_file() -> str:
 
 def _write_admin_list(admins: List[str]) -> bool:
     """
-    将管理员列表写回 .env 文件，并同步更新 os.environ 使本进程立即生效。
+    原子写回管理员列表，并在持久化成功后更新当前进程权限。
 
     步骤：
       1. 去重（保持顺序）
       2. 序列化为逗号分隔字符串
-      3. 更新 os.environ["ADMIN_USERS"]（当前进程立即生效，无需重启）
-      4. 读取 .env 文件，替换或追加 ADMIN_USERS 行
-      5. 写回文件
+      3. 读取 .env 文件，替换或追加 ADMIN_USERS 行
+      4. 将新内容写入同目录临时文件并原子替换 .env
+      5. 更新 os.environ["ADMIN_USERS"]（当前进程立即生效，无需重启）
 
     Args:
         admins: 已经过处理的管理员列表
@@ -137,44 +143,54 @@ def _write_admin_list(admins: List[str]) -> bool:
     Returns:
         成功返回 True，IO 异常返回 False
     """
-    unique_admins = _dedupe(admins)
-    admin_str = ",".join(unique_admins)
+    with _admin_update_lock:
+        unique_admins = _dedupe(admins)
+        admin_str = ",".join(unique_admins)
+        env_path = os.path.abspath(_find_env_file())
+        env_dir = os.path.dirname(env_path)
+        temp_path = ""
 
-    # ── 1. 立即更新运行时环境变量 ──────────────────────────────────────────
-    os.environ["ADMIN_USERS"] = admin_str
+        try:
+            if os.path.exists(env_path):
+                with open(env_path, "r", encoding="utf-8") as env_file:
+                    content = env_file.read()
+                env_mode = os.stat(env_path).st_mode & 0o777
+            else:
+                content = ""
+                env_mode = 0o600
 
-    # ── 2. 持久化到 .env 文件 ─────────────────────────────────────────────
-    env_path = _find_env_file()
+            new_line = f"ADMIN_USERS={admin_str}"
+            if re.search(r"^ADMIN_USERS\s*=", content, re.MULTILINE):
+                content = re.sub(
+                    r"^ADMIN_USERS\s*=.*$",
+                    new_line,
+                    content,
+                    flags=re.MULTILINE,
+                )
+            else:
+                if content and not content.endswith("\n"):
+                    content += "\n"
+                content += new_line + "\n"
 
-    try:
-        # 读取现有内容
-        if os.path.exists(env_path):
-            with open(env_path, "r", encoding="utf-8") as f:
-                content = f.read()
-        else:
-            content = ""
-
-        new_line = f"ADMIN_USERS={admin_str}"
-
-        # 替换已有的 ADMIN_USERS 行，或追加新行
-        if re.search(r"^ADMIN_USERS\s*=", content, re.MULTILINE):
-            content = re.sub(
-                r"^ADMIN_USERS\s*=.*$",
-                new_line,
-                content,
-                flags=re.MULTILINE,
+            descriptor, temp_path = tempfile.mkstemp(
+                prefix=".env.admins-", dir=env_dir
             )
-        else:
-            # 确保文件末尾有换行符后再追加
-            if content and not content.endswith("\n"):
-                content += "\n"
-            content += new_line + "\n"
+            with os.fdopen(descriptor, "w", encoding="utf-8") as temp_file:
+                os.chmod(temp_path, env_mode)
+                temp_file.write(content)
+                temp_file.flush()
+                os.fsync(temp_file.fileno())
 
-        with open(env_path, "w", encoding="utf-8") as f:
-            f.write(content)
-
-        return True
-
-    except OSError as exc:
-        print(f"[admin_manager] 写入 .env 文件失败: {exc}")
-        return False
+            os.replace(temp_path, env_path)
+            temp_path = ""
+            os.environ["ADMIN_USERS"] = admin_str
+            return True
+        except OSError as exc:
+            print(f"[admin_manager] 写入 .env 文件失败: {exc}")
+            return False
+        finally:
+            if temp_path:
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
