@@ -188,6 +188,14 @@ page_scripts %}
 <script>
     /* ── 数据加载 ─────────────────────────────────────────── */
 
+    let loadedGroups = [];
+
+    function escapeHtml(value) {
+        return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+            "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+        })[character]);
+    }
+
     async function loadGroups() {
         const tbody = document.getElementById("groupsTableBody");
         const groups = await fetchGroups();
@@ -199,8 +207,10 @@ page_scripts %}
             return;
         }
 
+        loadedGroups = groups;
+
         tbody.innerHTML = groups
-            .map((group) => {
+            .map((group, groupIndex) => {
                 const memberPreview =
                     group.members && group.members.length > 0
                         ? group.members.slice(0, 3).join(", ") +
@@ -210,18 +220,18 @@ page_scripts %}
                         : "—";
                 return `
                 <tr>
-                    <td><strong>${group.name}</strong></td>
-                    <td class="col-number">${group.gid}</td>
+                    <td><strong>${escapeHtml(group.name)}</strong></td>
+                    <td class="col-number">${escapeHtml(group.gid)}</td>
                     <td class="col-number">${group.members ? group.members.length : 0}</td>
-                    <td style="font-size: 13px; color: #6b7280;">${memberPreview}</td>
-                    <td>${group.description || "—"}</td>
+                    <td style="font-size: 13px; color: #6b7280;">${escapeHtml(memberPreview)}</td>
+                    <td>${escapeHtml(group.description || "—")}</td>
                     <td class="col-actions"><div class="data-table-actions">
                         <button class="btn btn-secondary"
                                 style="padding: 4px 12px; font-size: 12px; margin-right: 4px;"
-                                onclick="showEditGroupModal('${group.name}')">编辑</button>
+                                onclick="showEditGroupModal(loadedGroups[${groupIndex}].name)">编辑</button>
                         <button class="btn"
                                 style="padding: 4px 12px; font-size: 12px; background-color: #dc3023; color: white;"
-                                onclick="deleteGroupConfirm('${group.name}')">删除</button>
+                                onclick="deleteGroupConfirm(loadedGroups[${groupIndex}].name)">删除</button>
                     </div></td>
                 </tr>`;
             })

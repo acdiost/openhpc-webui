@@ -918,7 +918,7 @@ page_scripts %}
             <tr>
                 <td>
                     <div style="display:flex; align-items:center; gap:8px;">
-                        <strong>${user.username}</strong>
+                        <strong>${escapeHtml(user.username)}</strong>
                         ${
                             user.is_admin
                                 ? `<span class="badge badge-error" style="font-size:10px; padding:1px 6px;">管理员</span>`
@@ -927,9 +927,9 @@ page_scripts %}
                     </div>
                 </td>
                 <td>${escapeHtml(user.sn || "—")}</td>
-                <td>${user.uid}</td>
-                <td>${user.gid}</td>
-                <td style="font-family: monospace; font-size: 12px;">${user.home}</td>
+                <td>${escapeHtml(user.uid)}</td>
+                <td>${escapeHtml(user.gid)}</td>
+                <td style="font-family: monospace; font-size: 12px;">${escapeHtml(user.home)}</td>
                 <td>
                     ${
                         user.storage_quota_gb && user.storage_quota_gb > 0
@@ -943,8 +943,8 @@ page_scripts %}
                 <td>${!user.has_tres_association ? "—" : user.gpu_minutes == null ? "无限" : `${(user.gpu_minutes / 60).toFixed(2)} h`}</td>
                 <td>${user.gpu_used_minutes == null ? "—" : `${(user.gpu_used_minutes / 60).toFixed(2)} h`}</td>
                 <td>${!user.has_tres_association ? "—" : user.gpu_remaining_minutes == null ? "无限" : `${(user.gpu_remaining_minutes / 60).toFixed(2)} h`}</td>
-                <td style="font-family: monospace; font-size: 12px;">${user.shell}</td>
-                <td>${user.groups && user.groups.length > 0 ? user.groups.join(", ") : "—"}</td>
+                <td style="font-family: monospace; font-size: 12px;">${escapeHtml(user.shell)}</td>
+                <td>${user.groups && user.groups.length > 0 ? escapeHtml(user.groups.join(", ")) : "—"}</td>
                 <td class="col-status">
                     ${
                         isDisabledShell(user.shell)
@@ -980,13 +980,13 @@ page_scripts %}
                 row.innerHTML = `
                     <span class="badge badge-success">已连接</span>
                     <span style="color: #6b7280; font-size: 14px;">
-                        服务器: ${status.server} &nbsp;|&nbsp; Bind DN: ${status.bind_dn}
+                        服务器: ${escapeHtml(status.server)} &nbsp;|&nbsp; Bind DN: ${escapeHtml(status.bind_dn)}
                     </span>`;
             } else {
                 row.innerHTML = `
                     <span class="badge badge-error">未连接</span>
                     <span style="color: #6b7280; font-size: 14px;">
-                        错误: ${status.error || "无法连接"}
+                        错误: ${escapeHtml(status.error || "无法连接")}
                     </span>`;
             }
         } catch (e) {
@@ -1003,7 +1003,7 @@ page_scripts %}
         const options = groups
             .map(
                 (g) =>
-                    `<option value="${g.gid}">${g.name} (GID: ${g.gid})</option>`,
+                    `<option value="${escapeHtml(g.gid)}">${escapeHtml(g.name)} (GID: ${escapeHtml(g.gid)})</option>`,
             )
             .join("");
         const placeholder = '<option value="">选择组…</option>';
@@ -1252,17 +1252,17 @@ page_scripts %}
                 .map(
                     (job) => `
                 <tr>
-                    <td>${job.job_id}</td>
-                    <td>${job.name || "—"}</td>
-                    <td><span class="report-state ${reportStateTone(job.state)}">${job.state || "—"}</span></td>
-                    <td>${job.partition || "—"}</td>
+                    <td>${escapeHtml(job.job_id)}</td>
+                    <td>${escapeHtml(job.name || "—")}</td>
+                    <td><span class="report-state ${reportStateTone(job.state)}">${escapeHtml(job.state || "—")}</span></td>
+                    <td>${escapeHtml(job.partition || "—")}</td>
                     <td>${job.alloc_cpus || "—"}</td>
                     <td>${job.alloc_gpus || "—"}</td>
                     <td>${job.cpu_hours ?? 0}</td>
                     <td>${job.gpu_hours ?? 0}</td>
                     <td>${job.elapsed_hours ?? 0}</td>
-                    <td>${job.start_time || "—"}</td>
-                    <td>${job.end_time || "—"}</td>
+                    <td>${escapeHtml(job.start_time || "—")}</td>
+                    <td>${escapeHtml(job.end_time || "—")}</td>
                 </tr>
             `,
                 )

@@ -278,6 +278,8 @@ Slurm 用户关联页
 <script>
     /* ── 数据加载 ─────────────────────────────────────────── */
 
+    let loadedAssociations = [];
+
     function escapeHtml(value) {
         const node = document.createElement("span");
         node.textContent = String(value ?? "");
@@ -292,7 +294,7 @@ Slurm 用户关联页
         const createSelect = document.getElementById("create_assoc_account");
 
         const options = accounts
-            .map((a) => `<option value="${a.name}">${a.name}</option>`)
+            .map((a) => `<option value="${escapeHtml(a.name)}">${escapeHtml(a.name)}</option>`)
             .join("");
 
         if (createSelect) {
@@ -386,8 +388,10 @@ Slurm 用户关联页
             return;
         }
 
+        loadedAssociations = assocs;
+
         tbody.innerHTML = assocs
-            .map((assoc) => {
+            .map((assoc, assocIndex) => {
                 const qos = assoc.qos && assoc.qos.length > 0 ? assoc.qos.join(", ") : "—";
                 const isAccountLevel = !assoc.user;
                 const userLabel = isAccountLevel ? "（账户级）" : assoc.user;
@@ -396,23 +400,23 @@ Slurm 用户关联页
                     : `
                         <button class="btn btn-secondary"
                                 style="padding: 4px 12px; font-size: 12px; margin-right: 4px;"
-                                onclick="showTRESMinutesModal('${assoc.account}', '${assoc.user}', '${assoc.partition || ""}')">拨付</button>
+                                onclick="showTRESMinutesModal(loadedAssociations[${assocIndex}].account, loadedAssociations[${assocIndex}].user, loadedAssociations[${assocIndex}].partition || '')">拨付</button>
                         <button class="btn btn-secondary"
                                 style="padding: 4px 12px; font-size: 12px; margin-right: 4px;"
-                                onclick="showEditAssocModal('${assoc.account}', '${assoc.user}', '${assoc.partition || ""}')">编辑</button>
+                                onclick="showEditAssocModal(loadedAssociations[${assocIndex}].account, loadedAssociations[${assocIndex}].user, loadedAssociations[${assocIndex}].partition || '')">编辑</button>
                         <button class="btn"
                                 style="padding: 4px 12px; font-size: 12px; background-color: #dc3023; color: white;"
-                                onclick="deleteAssocConfirm('${assoc.account}', '${assoc.user}', '${assoc.partition || ""}')">删除</button>
+                                onclick="deleteAssocConfirm(loadedAssociations[${assocIndex}].account, loadedAssociations[${assocIndex}].user, loadedAssociations[${assocIndex}].partition || '')">删除</button>
                       `;
                 return `
                 <tr>
-                    <td><strong>${userLabel || "—"}</strong></td>
-                    <td>${assoc.account || "—"}</td>
-                    <td>${assoc.cluster || "—"}</td>
-                    <td>${assoc.partition || "全局"}</td>
+                    <td><strong>${escapeHtml(userLabel || "—")}</strong></td>
+                    <td>${escapeHtml(assoc.account || "—")}</td>
+                    <td>${escapeHtml(assoc.cluster || "—")}</td>
+                    <td>${escapeHtml(assoc.partition || "全局")}</td>
                     <td>${renderPartitionAccessStatus(assoc)}</td>
-                    <td style="font-size: 13px; color: #6b7280;">${qos}</td>
-                    <td>${assoc.default_qos || "—"}</td>
+                    <td style="font-size: 13px; color: #6b7280;">${escapeHtml(qos)}</td>
+                    <td>${escapeHtml(assoc.default_qos || "—")}</td>
                     <td class="col-number">${assoc.cpu_minutes == null ? "无限" : (assoc.cpu_minutes / 60).toFixed(2)}</td>
                     <td class="col-number">${assoc.gpu_minutes == null ? "无限" : (assoc.gpu_minutes / 60).toFixed(2)}</td>
                     <td title="${escapeHtml(assoc.comment || "")}">${escapeHtml(assoc.comment || "—")}</td>

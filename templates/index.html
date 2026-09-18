@@ -149,6 +149,12 @@ breadcrumb_title %}系统概览{% endblock %} {% block content %} {# ── 页�
 
 {% endblock %} {% block page_scripts %}
 <script>
+    function escapeHtml(value) {
+        return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+            "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+        })[character]);
+    }
+
     const STATE_MAP = {
         RUNNING: { text: "运行中", cls: "badge-success" },
         PENDING: { text: "排队中", cls: "badge-warning" },
@@ -208,13 +214,13 @@ breadcrumb_title %}系统概览{% endblock %} {% block content %} {# ── 页�
                     };
                     return `
                     <tr>
-                        <td><strong>${job.job_id}</strong></td>
-                        <td>${job.user}</td>
-                        <td>${job.partition}</td>
-                        <td><span class="badge ${st.cls}">${st.text}</span></td>
-                        <td>${job.time || "—"}</td>
-                        <td>${job.cpus ?? job.alloc_cpus ?? "—"}</td>
-                        <td>${job.nodes || "—"}</td>
+                        <td><strong>${escapeHtml(job.job_id)}</strong></td>
+                        <td>${escapeHtml(job.user)}</td>
+                        <td>${escapeHtml(job.partition)}</td>
+                        <td><span class="badge ${st.cls}">${escapeHtml(st.text)}</span></td>
+                        <td>${escapeHtml(job.time || "—")}</td>
+                        <td>${escapeHtml(job.cpus ?? job.alloc_cpus ?? "—")}</td>
+                        <td>${escapeHtml(job.nodes || "—")}</td>
                     </tr>`;
                 })
                 .join("");
@@ -249,11 +255,11 @@ breadcrumb_title %}系统概览{% endblock %} {% block content %} {# ── 页�
                     idleTotal += idle;
                     return `
                     <tr>
-                        <td><strong>${p.name}</strong></td>
-                        <td>${total}</td>
-                        <td>${allocated}</td>
-                        <td>${idle}</td>
-                        <td>${offline}</td>
+                        <td><strong>${escapeHtml(p.name)}</strong></td>
+                        <td>${escapeHtml(total)}</td>
+                        <td>${escapeHtml(allocated)}</td>
+                        <td>${escapeHtml(idle)}</td>
+                        <td>${escapeHtml(offline)}</td>
                         <td>
                             <span class="badge ${isUp ? "badge-success" : "badge-error"}">
                                 ${isUp ? "正常" : "停用"}

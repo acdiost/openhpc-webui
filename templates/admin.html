@@ -357,10 +357,17 @@ GET /admin 仅管理员可访问
 page_scripts %}
 <script>
     /* ── 当前登录用户（从服务端注入） ────────────────────── */
-    const SELF_USERNAME = "{{ user.get('username', '') }}";
+    const SELF_USERNAME = {{ user.get('username', '')|tojson }};
 
     /* ── LDAP 用户缓存（供补全使用） ─────────────────────── */
     let ldapUsers = [];
+    let loadedAdmins = [];
+
+    function escapeHtml(value) {
+        return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+            "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+        })[character]);
+    }
 
     /* ══════════════════════════════════════════════════════
        数据加载
@@ -375,6 +382,7 @@ page_scripts %}
         try {
             const data = await (await fetch("/api/admin/list")).json();
             const admins = data.admins || [];
+            loadedAdmins = admins;
 
             document.getElementById("adminCount").textContent = admins.length;
             document.getElementById("emptyAdminTip").style.display =
@@ -396,7 +404,7 @@ page_scripts %}
             // 并行检查每位管理员是否存在于 LDAP
             const ldapChecks = await Promise.allSettled(
                 admins.map((u) =>
-                    fetch(`/api/ldap/users/${u}`).then((r) => r.ok),
+                    fetch(`/api/ldap/users/${encodeURIComponent(u)}`).then((r) => r.ok),
                 ),
             );
 
@@ -417,10 +425,10 @@ page_scripts %}
                                         background:#dc3023;color:#fff;
                                         display:flex;align-items:center;justify-content:center;
                                         font-weight:700;font-size:13px;flex-shrink:0;">
-                                ${initials}
+                                ${escapeHtml(initials)}
                             </div>
                             <div>
-                                <div style="font-weight:600;">${username}</div>
+                                <div style="font-weight:600;">${escapeHtml(username)}</div>
                                 ${isSelf ? '<div style="font-size:11px;color:#6b7280;">（当前登录）</div>' : ""}
                             </div>
                             <span class="badge badge-error" style="font-size:11px;">管理员</span>
@@ -446,7 +454,7 @@ page_scripts %}
                                 ? `<button class="btn btn-secondary" disabled
                                        style="padding:4px 12px;font-size:12px;opacity:0.5;cursor:not-allowed;"
                                        title="不能撤销自己的管理员权限">撤销权限</button>`
-                                : `<button class="btn" onclick="removeAdmin('${username}')"
+                                : `<button class="btn" onclick="removeAdmin(loadedAdmins[${idx}])"
                                        style="padding:4px 12px;font-size:12px;background:#dc3023;color:white;">
                                    撤销权限
                                </button>`
@@ -578,18 +586,16 @@ page_scripts %}
             return;
         }
 
-        box.innerHTML = matches
-            .map(
-                (u) => `
-            <div onclick="selectSuggestion('${u}')"
-                 style="padding:8px 12px; font-size:13px; cursor:pointer;
-                        border-bottom:1px solid #f3f4f6; transition:background .1s;"
-                 onmouseover="this.style.background='#f9fafb'"
-                 onmouseout="this.style.background=''">
-                ${u}
-            </div>`,
-            )
-            .join("");
+        box.replaceChildren();
+        for (const u of matches) {
+            const item = document.createElement("div");
+            item.style.cssText = "padding:8px 12px;font-size:13px;cursor:pointer;border-bottom:1px solid #f3f4f6;transition:background .1s;";
+            item.textContent = u;
+            item.addEventListener("click", () => selectSuggestion(u));
+            item.addEventListener("mouseover", () => { item.style.background = "#f9fafb"; });
+            item.addEventListener("mouseout", () => { item.style.background = ""; });
+            box.appendChild(item);
+        }
         box.style.display = "block";
     }
 

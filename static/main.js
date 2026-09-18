@@ -839,7 +839,7 @@ function showModal(title, content, options = {}) {
 
     modal.innerHTML = `
         <div class="modal-scroll-header">
-            <h3>${title}</h3>
+            <h3 data-modal-title></h3>
             <button type="button" onclick="closeModal('${modalId}')" class="modal-close" aria-label="关闭弹窗">&times;</button>
         </div>
         <div class="text-gray-700">
@@ -851,6 +851,8 @@ function showModal(title, content, options = {}) {
             </button>
         </div>
     `;
+    const modalTitle = modal.querySelector('[data-modal-title]');
+    modalTitle.textContent = String(title ?? '');
 
     backdrop.appendChild(modal);
     document.body.appendChild(backdrop);
@@ -898,21 +900,38 @@ function showConfirmModal(title, message, onConfirm) {
     const modal = document.createElement('div');
     modal.className = 'bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl';
 
-    modal.innerHTML = `
-        <div class="modal-scroll-header">
-            <h3>${title}</h3>
-            <button type="button" onclick="closeConfirmModal()" class="modal-close" aria-label="关闭确认弹窗">&times;</button>
-        </div>
-        <p class="text-gray-600 mb-6">${message}</p>
-        <div class="flex gap-3 justify-end">
-            <button onclick="closeConfirmModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition">
-                取消
-            </button>
-            <button onclick="confirmAction()" class="px-4 py-2 text-white rounded-md transition" style="background-color: ${config.primaryColor};">
-                确认
-            </button>
-        </div>
-    `;
+    const header = document.createElement('div');
+    header.className = 'modal-scroll-header';
+    const titleElement = document.createElement('h3');
+    titleElement.textContent = String(title ?? '');
+    const closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.className = 'modal-close';
+    closeButton.setAttribute('aria-label', '关闭确认弹窗');
+    closeButton.textContent = '×';
+    closeButton.addEventListener('click', closeConfirmModal);
+    header.append(titleElement, closeButton);
+
+    const messageElement = document.createElement('p');
+    messageElement.className = 'text-gray-600 mb-6';
+    messageElement.style.whiteSpace = 'pre-line';
+    messageElement.textContent = String(message ?? '');
+
+    const actions = document.createElement('div');
+    actions.className = 'flex gap-3 justify-end';
+    const cancelButton = document.createElement('button');
+    cancelButton.type = 'button';
+    cancelButton.className = 'px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition';
+    cancelButton.textContent = '取消';
+    cancelButton.addEventListener('click', closeConfirmModal);
+    const confirmButton = document.createElement('button');
+    confirmButton.type = 'button';
+    confirmButton.className = 'px-4 py-2 text-white rounded-md transition';
+    confirmButton.style.backgroundColor = config.primaryColor;
+    confirmButton.textContent = '确认';
+    confirmButton.addEventListener('click', confirmAction);
+    actions.append(cancelButton, confirmButton);
+    modal.append(header, messageElement, actions);
 
     backdrop.appendChild(modal);
     document.body.appendChild(backdrop);

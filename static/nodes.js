@@ -70,7 +70,7 @@ function runSelectedNodeAction(action) {
     }
     showConfirmModal(
         `${operation.label}所选节点`,
-        `确定要${operation.label}以下 ${names.length} 个节点吗？${operation.detail}<br>${names.map(escapeNodeText).join('、')}`,
+        `确定要${operation.label}以下 ${names.length} 个节点吗？${operation.detail}\n${names.join('、')}`,
         async () => {
             if (nodeActionRunning) return;
             nodeActionRunning = true;
@@ -195,10 +195,10 @@ function renderNodesTable(nodes) {
                 <td><input class="node-selector" type="checkbox" value="${escapeNodeText(node.name)}" aria-label="选择节点 ${escapeNodeText(node.name)}"></td>
                 <td><strong>${escapeNodeText(node.name)}</strong></td>
                 <td class="col-status">${stateBadge}</td>
-                <td class="col-number">${node.cpus || node.config?.cpus || '-'}</td>
-                <td class="col-number">${node.memory || node.config?.real_memory || '-'}</td>
-                <td>${node.partition || '-'}</td>
-                <td><code style="font-size: 11px;">${gres}</code></td>
+                <td class="col-number">${escapeNodeText(node.cpus || node.config?.cpus || '-')}</td>
+                <td class="col-number">${escapeNodeText(node.memory || node.config?.real_memory || '-')}</td>
+                <td>${escapeNodeText(node.partition || '-')}</td>
+                <td><code style="font-size: 11px;">${escapeNodeText(gres)}</code></td>
             </tr>
         `;
     }).join('');
@@ -222,7 +222,7 @@ function getStateBadge(state) {
     } else if (stateUpper === 'N/A') {
         return '<span class="badge">N/A</span>';
     } else {
-        return `<span class="badge">${state}</span>`;
+        return `<span class="badge">${escapeNodeText(state)}</span>`;
     }
 }
 
@@ -381,46 +381,46 @@ function editNode(nodeName) {
 
     modal.innerHTML = `
         <div class="modal-scroll-header">
-            <h3>编辑节点: ${nodeName}</h3>
+            <h3>编辑节点: ${escapeNodeText(nodeName)}</h3>
             <button type="button" onclick="closeEditNodeModal()" class="modal-close" aria-label="关闭编辑节点弹窗">&times;</button>
         </div>
         <form id="editNodeForm" class="space-y-4">
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">CPUs</label>
-                    <input type="number" name="cpus" value="${nodeConfig.cpus || ''}" min="1" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                    <input type="number" name="cpus" value="${escapeNodeText(nodeConfig.cpus || '')}" min="1" class="w-full px-3 py-2 border border-gray-300 rounded-md">
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Boards</label>
-                    <input type="number" name="boards" value="${nodeConfig.boards || ''}" min="1" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                    <input type="number" name="boards" value="${escapeNodeText(nodeConfig.boards || '')}" min="1" class="w-full px-3 py-2 border border-gray-300 rounded-md">
                 </div>
             </div>
 
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">SocketsPerBoard</label>
-                    <input type="number" name="sockets_per_board" value="${nodeConfig.sockets_per_board || ''}" min="1" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                    <input type="number" name="sockets_per_board" value="${escapeNodeText(nodeConfig.sockets_per_board || '')}" min="1" class="w-full px-3 py-2 border border-gray-300 rounded-md">
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">CoresPerSocket</label>
-                    <input type="number" name="cores_per_socket" value="${nodeConfig.cores_per_socket || ''}" min="1" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                    <input type="number" name="cores_per_socket" value="${escapeNodeText(nodeConfig.cores_per_socket || '')}" min="1" class="w-full px-3 py-2 border border-gray-300 rounded-md">
                 </div>
             </div>
 
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">ThreadsPerCore</label>
-                    <input type="number" name="threads_per_core" value="${nodeConfig.threads_per_core || ''}" min="1" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                    <input type="number" name="threads_per_core" value="${escapeNodeText(nodeConfig.threads_per_core || '')}" min="1" class="w-full px-3 py-2 border border-gray-300 rounded-md">
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">RealMemory (MB)</label>
-                    <input type="number" name="real_memory" value="${nodeConfig.real_memory || ''}" min="1" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                    <input type="number" name="real_memory" value="${escapeNodeText(nodeConfig.real_memory || '')}" min="1" class="w-full px-3 py-2 border border-gray-300 rounded-md">
                 </div>
             </div>
 
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Gres</label>
-                <input type="text" name="gres" value="${nodeConfig.gres || ''}" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                <input type="text" name="gres" value="${escapeNodeText(nodeConfig.gres || '')}" class="w-full px-3 py-2 border border-gray-300 rounded-md">
             </div>
 
             ${nodeConfigFields()}

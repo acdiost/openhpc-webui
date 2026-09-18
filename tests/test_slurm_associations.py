@@ -263,7 +263,12 @@ class SlurmAssociationUpdateTests(unittest.TestCase):
 
         self.assertIn('id="edit_assoc_partition" name="partition"', template)
         self.assertIn('id="edit_assoc_partition_display"', template)
-        self.assertIn("showEditAssocModal('${assoc.account}', '${assoc.user}', '${assoc.partition || \"\"}')", template)
+        self.assertIn(
+            "showEditAssocModal(loadedAssociations[${assocIndex}].account, "
+            "loadedAssociations[${assocIndex}].user, "
+            "loadedAssociations[${assocIndex}].partition || '')",
+            template,
+        )
         self.assertIn("a.partition || \"\"", template)
 
     def test_create_form_explains_and_selects_partition_scope(self):

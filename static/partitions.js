@@ -5,6 +5,13 @@
 let allNodes = [];
 let allNodesConfig = [];  // 节点配置列表（来自 /etc/slurm/node.conf）
 let allPartitions = [];
+let loadedPartitions = [];
+
+function escapePartitionText(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[char]);
+}
 
 // 页面加载时初始化
 document.addEventListener('DOMContentLoaded', async () => {
@@ -17,6 +24,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function loadPartitions() {
     const partitions = await fetchPartitions();
     allPartitions = partitions;
+    loadedPartitions = partitions;
     renderPartitionsTable(partitions);
 }
 
@@ -42,7 +50,7 @@ function renderPartitionsTable(partitions) {
         return;
     }
 
-    tbody.innerHTML = partitions.map(partition => {
+    tbody.innerHTML = partitions.map((partition, partitionIndex) => {
         const stateBadge = getStateBadge(partition.state);
         const defaultBadge = partition.default
             ? '<span class="badge badge-info">是</span>'
@@ -56,18 +64,18 @@ function renderPartitionsTable(partitions) {
 
         return `
             <tr>
-                <td><strong>${partition.name}</strong></td>
+                <td><strong>${escapePartitionText(partition.name)}</strong></td>
                 <td class="col-status">${stateBadge}</td>
                 <td class="col-number">${nodeStats.total}</td>
                 <td class="col-number">${nodeStats.alloc}</td>
                 <td class="col-number">${nodeStats.idle}</td>
                 <td class="col-number">${nodeStats.down}</td>
                 <td style="white-space: nowrap;">${nodeStateBadges}</td>
-                <td>${partition.max_time || '-'}</td>
+                <td>${escapePartitionText(partition.max_time || '-')}</td>
                 <td class="col-status">${defaultBadge}</td>
                 <td class="col-actions"><div class="data-table-actions">
-                    <button onclick="editPartition('${partition.name}')" class="btn btn-secondary" style="padding: 4px 12px; font-size: 12px; margin-right: 4px;">编辑</button>
-                    <button onclick="deletePartition('${partition.name}')" class="btn" style="padding: 4px 12px; font-size: 12px; background-color: #ef4444; color: white;">删除</button>
+                    <button onclick="editPartition(loadedPartitions[${partitionIndex}].name)" class="btn btn-secondary" style="padding: 4px 12px; font-size: 12px; margin-right: 4px;">编辑</button>
+                    <button onclick="deletePartition(loadedPartitions[${partitionIndex}].name)" class="btn" style="padding: 4px 12px; font-size: 12px; background-color: #ef4444; color: white;">删除</button>
                 </div></td>
             </tr>
         `;
@@ -97,7 +105,7 @@ function getStateBadge(state) {
     } else if (stateUpper.includes('DRAIN')) {
         return '<span class="badge badge-warning">DRAIN</span>';
     } else {
-        return `<span class="badge">${state}</span>`;
+        return `<span class="badge">${escapePartitionText(state)}</span>`;
     }
 }
 
@@ -137,7 +145,7 @@ function getNodeStateBadges(nodeStateStr) {
             badgeText = state;
         }
 
-        return `<span class="${badgeClass}" style="font-size: 11px; margin-right: 4px;">${badgeText}</span>`;
+        return `<span class="${badgeClass}" style="font-size: 11px; margin-right: 4px;">${escapePartitionText(badgeText)}</span>`;
     });
 
     return badges.join('');
@@ -248,9 +256,9 @@ function generateNodesCheckboxes() {
 
                 return `
                     <label class="flex items-center hover:bg-gray-50 p-2 rounded cursor-pointer">
-                        <input type="checkbox" name="node_checkbox" value="${node.name}" class="mr-2">
-                        <span class="flex-1">${node.name}</span>
-                        <span class="text-xs text-gray-500">${configDisplay}</span>
+                        <input type="checkbox" name="node_checkbox" value="${escapePartitionText(node.name)}" class="mr-2">
+                        <span class="flex-1">${escapePartitionText(node.name)}</span>
+                        <span class="text-xs text-gray-500">${escapePartitionText(configDisplay)}</span>
                     </label>
                 `;
             }).join('')}
@@ -318,13 +326,13 @@ function editPartition(partitionName) {
 
     modal.innerHTML = `
         <div class="modal-scroll-header">
-            <h3>编辑分区: ${partition.name}</h3>
+            <h3>编辑分区: ${escapePartitionText(partition.name)}</h3>
             <button type="button" onclick="closeEditPartitionModal()" class="modal-close" aria-label="关闭编辑分区弹窗">&times;</button>
         </div>
         <form id="editPartitionForm" class="space-y-4">
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">节点范围</label>
-                <input type="text" name="nodes" value="${partition.nodes || ''}" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="node[01-08]">
+                <input type="text" name="nodes" value="${escapePartitionText(partition.nodes || '')}" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="node[01-08]">
             </div>
 
             <div class="grid grid-cols-2 gap-4">
@@ -338,13 +346,13 @@ function editPartition(partitionName) {
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">最大时间</label>
-                    <input type="text" name="max_time" value="${partition.max_time || ''}" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="INFINITE 或 24:00:00">
+                    <input type="text" name="max_time" value="${escapePartitionText(partition.max_time || '')}" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="INFINITE 或 24:00:00">
                 </div>
             </div>
 
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">允许的组 (AllowGroups)</label>
-                <input type="text" name="allow_groups" value="${partition.allow_groups || ''}" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="group1,group2">
+                <input type="text" name="allow_groups" value="${escapePartitionText(partition.allow_groups || '')}" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="group1,group2">
             </div>
 
             <div class="flex items-center">

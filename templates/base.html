@@ -581,8 +581,8 @@
      *       真正的权限校验在后端 API 层完成。
      */
     const __USER__ = Object.freeze({
-        username: "{{ user.get('username', '') | e }}",
-        cn:       "{{ user.get('cn', user.get('username', '')) | e }}",
+        username: {{ user.get('username', '') | tojson }},
+        cn:       {{ user.get('cn', user.get('username', '')) | tojson }},
         isAdmin:  {{ 'true' if user.get('is_admin') else 'false' }},
     });
 </script>

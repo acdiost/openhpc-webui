@@ -136,6 +136,12 @@
 
 {% block page_scripts %}
 <script>
+    function escapeHtml(value) {
+        return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+            "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+        })[character]);
+    }
+
     const MY_STATE_MAP = {
         RUNNING: { text: "运行中", cls: "badge-success" },
         PENDING: { text: "排队中", cls: "badge-warning" },
@@ -197,13 +203,13 @@
             const state = MY_STATE_MAP[stateKey] || { text: job.state || "未知", cls: "badge-info" };
             const cpus = job.cpus ?? job.alloc_cpus;
             return `<tr>
-                <td><strong>${job.job_id ?? "—"}</strong></td>
-                <td>${job.name || "—"}</td>
-                <td><span class="badge ${state.cls}">${state.text}</span></td>
-                <td>${job.partition || "—"}</td>
-                <td class="col-number">${cpus ?? "—"}</td>
-                <td>${job._time}</td>
-                <td>${job._date}</td>
+                <td><strong>${escapeHtml(job.job_id ?? "—")}</strong></td>
+                <td>${escapeHtml(job.name || "—")}</td>
+                <td><span class="badge ${state.cls}">${escapeHtml(state.text)}</span></td>
+                <td>${escapeHtml(job.partition || "—")}</td>
+                <td class="col-number">${escapeHtml(cpus ?? "—")}</td>
+                <td>${escapeHtml(job._time)}</td>
+                <td>${escapeHtml(job._date)}</td>
             </tr>`;
         }).join("");
     }
@@ -217,11 +223,11 @@
         tbody.innerHTML = partitions.map((partition) => {
             const isUp = String(partition.state || "").toUpperCase() === "UP";
             return `<tr>
-                <td><strong>${partition.name || "—"}</strong></td>
-                <td class="col-number">${partition.total_nodes ?? 0}</td>
-                <td class="col-number">${partition.alloc_nodes ?? 0}</td>
-                <td class="col-number">${partition.idle_nodes ?? 0}</td>
-                <td class="col-number">${partition.offline_nodes ?? 0}</td>
+                <td><strong>${escapeHtml(partition.name || "—")}</strong></td>
+                <td class="col-number">${escapeHtml(partition.total_nodes ?? 0)}</td>
+                <td class="col-number">${escapeHtml(partition.alloc_nodes ?? 0)}</td>
+                <td class="col-number">${escapeHtml(partition.idle_nodes ?? 0)}</td>
+                <td class="col-number">${escapeHtml(partition.offline_nodes ?? 0)}</td>
                 <td><span class="badge ${isUp ? "badge-success" : "badge-error"}">${isUp ? "正常" : "停用"}</span></td>
             </tr>`;
         }).join("");
