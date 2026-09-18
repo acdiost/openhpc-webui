@@ -19,16 +19,24 @@ def _resource_dir(name: str) -> Path:
 STATIC_DIR = _resource_dir("static")
 TEMPLATES_DIR = _resource_dir("templates")
 DEFAULT_SLURM_CONFIG_DIR = "/etc/slurm"
+_TRUE_VALUES = frozenset({"true", "1", "yes", "on"})
+_FALSE_VALUES = frozenset({"false", "0", "no", "off"})
 
 load_dotenv(PROJECT_ROOT / ".env")
 
 
 def env_bool(name: str, default: bool) -> bool:
-    """Read a conventional boolean environment variable."""
+    """Read an explicit boolean environment variable or reject invalid input."""
     value = os.getenv(name)
     if value is None:
         return default
-    return value.strip().lower() in {"true", "1", "yes", "on"}
+    normalized = value.strip().lower()
+    if normalized in _TRUE_VALUES:
+        return True
+    if normalized in _FALSE_VALUES:
+        return False
+    allowed = ", ".join(sorted(_TRUE_VALUES | _FALSE_VALUES))
+    raise ValueError(f"{name} must be one of: {allowed}")
 
 
 def env_positive_int(name: str, default: int) -> int:
