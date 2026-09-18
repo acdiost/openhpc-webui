@@ -283,8 +283,8 @@ page_scripts %}
                     text: job.state,
                     cls: "badge-info",
                 };
-                // 取消按钮：管理员可取消任意作业，普通用户只能取消自己的作业
-                const canCancel =
+                // 敏感操作：管理员可访问任意作业，普通用户只能访问自己的作业。
+                const canAccess =
                     __USER__.isAdmin || job.user === __USER__.username;
                 const row = document.createElement("tr");
                 const jobIdCell = appendTextCell(row, job.job_id, true);
@@ -320,22 +320,28 @@ page_scripts %}
                 actions.className = "col-actions";
                 const actionGroup = document.createElement("div");
                 actionGroup.className = "data-table-actions";
-                actionGroup.appendChild(
-                    createActionButton("详情", () => showJobDetail(job.job_id)),
+                const detailButton = createActionButton(
+                    "详情",
+                    () => showJobDetail(job.job_id),
+                    canAccess ? "secondary" : "disabled",
                 );
-                actionGroup.appendChild(
-                    createActionButton(
-                        "监控",
-                        () => showJobMonitor(job.job_id),
-                        "monitor",
-                    ),
+                const monitorButton = createActionButton(
+                    "监控",
+                    () => showJobMonitor(job.job_id),
+                    canAccess ? "monitor" : "disabled",
                 );
+                if (!canAccess) {
+                    detailButton.title = "只能查看自己的作业详情和监控";
+                    monitorButton.title = "只能查看自己的作业详情和监控";
+                }
+                actionGroup.appendChild(detailButton);
+                actionGroup.appendChild(monitorButton);
                 const cancelButton = createActionButton(
                     "取消",
                     () => cancelJob(job.job_id),
-                    canCancel ? "danger" : "disabled",
+                    canAccess ? "danger" : "disabled",
                 );
-                if (!canCancel) cancelButton.title = "只能取消自己的作业";
+                if (!canAccess) cancelButton.title = "只能取消自己的作业";
                 actionGroup.appendChild(cancelButton);
                 actions.appendChild(actionGroup);
                 row.appendChild(actions);

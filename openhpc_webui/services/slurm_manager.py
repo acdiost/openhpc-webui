@@ -493,7 +493,9 @@ class SlurmManager:
                     continue
         return max(values) if values else None
 
-    def get_job_resource_usage(self, job_id: str) -> Optional[Dict]:
+    def get_job_resource_usage(
+        self, job_id: str, *, job_detail: Optional[Dict] = None
+    ) -> Optional[Dict]:
         """Return current resource usage for an active job using ``sstat``.
 
         GPU metrics are populated when the cluster exposes ``gres/gpuutil``
@@ -502,7 +504,7 @@ class SlurmManager:
         if not self.is_valid_job_id(job_id):
             return None
 
-        detail = self.get_job_detail(job_id)
+        detail = job_detail or self.get_job_detail(job_id)
         if not detail:
             return None
 

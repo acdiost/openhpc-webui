@@ -73,6 +73,23 @@ class SlurmJobListTests(unittest.TestCase):
         self.assertEqual(usage["steps"], [])
 
     @patch("openhpc_webui.services.slurm_manager.subprocess.run")
+    def test_job_resource_usage_can_reuse_an_authorized_detail(self, run):
+        detail = {
+            "JobId": "124",
+            "UserId": "alice(1001)",
+            "JobState": "PENDING",
+            "NumNodes": "1",
+            "NumCPUs": "2",
+        }
+        run.return_value = Mock(stdout="")
+
+        usage = self.manager.get_job_resource_usage("124", job_detail=detail)
+
+        self.assertEqual(usage["job_id"], "124")
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(run.call_args.args[0][0], "sstat")
+
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
     def test_job_resource_usage_rejects_invalid_job_id(self, run):
         self.assertIsNone(self.manager.get_job_resource_usage("--help"))
         run.assert_not_called()

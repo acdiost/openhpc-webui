@@ -394,6 +394,58 @@ class ConfigPreservationTests(unittest.TestCase):
 
 
 class SlurmJobRouteValidationTests(unittest.TestCase):
+    def test_regular_user_cannot_read_another_users_job_detail(self):
+        job = {"JobId": "123", "UserId": "alice(1001)", "Command": "secret"}
+        with patch.object(main.slurm_mgr, "get_job_detail", return_value=job):
+            with self.assertRaises(HTTPException) as context:
+                asyncio.run(main.get_job_detail(
+                    "123", {"username": "bob", "is_admin": False}
+                ))
+
+        self.assertEqual(context.exception.status_code, 403)
+        self.assertNotIn("alice", context.exception.detail)
+
+    def test_owner_and_admin_can_read_job_detail(self):
+        job = {"JobId": "123", "UserId": "alice(1001)", "Command": "srun app"}
+        with patch.object(main.slurm_mgr, "get_job_detail", return_value=job):
+            owner_result = asyncio.run(main.get_job_detail(
+                "123", {"username": "alice", "is_admin": False}
+            ))
+            admin_result = asyncio.run(main.get_job_detail(
+                "123", {"username": "admin", "is_admin": True}
+            ))
+
+        self.assertEqual(owner_result, job)
+        self.assertEqual(admin_result, job)
+
+    def test_regular_user_cannot_monitor_another_users_job(self):
+        job = {"JobId": "123", "UserId": "alice(1001)"}
+        with patch.object(
+            main.slurm_mgr, "get_job_detail", return_value=job
+        ), patch.object(main.slurm_mgr, "get_job_resource_usage") as usage:
+            with self.assertRaises(HTTPException) as context:
+                asyncio.run(main.get_job_resource_usage(
+                    "123", {"username": "bob", "is_admin": False}
+                ))
+
+        self.assertEqual(context.exception.status_code, 403)
+        usage.assert_not_called()
+
+    def test_owner_monitor_reuses_the_authorized_job_detail(self):
+        job = {"JobId": "123", "UserId": "alice(1001)"}
+        resource_usage = {"job_id": "123", "available": True}
+        with patch.object(
+            main.slurm_mgr, "get_job_detail", return_value=job
+        ), patch.object(
+            main.slurm_mgr, "get_job_resource_usage", return_value=resource_usage
+        ) as usage:
+            result = asyncio.run(main.get_job_resource_usage(
+                "123", {"username": "alice", "is_admin": False}
+            ))
+
+        self.assertEqual(result, resource_usage)
+        usage.assert_called_once_with("123", job_detail=job)
+
     def test_admin_cancel_rejects_option_shaped_job_id(self):
         with patch.object(main.slurm_mgr, "cancel_job") as cancel:
             with self.assertRaises(HTTPException) as context:
@@ -646,7 +698,7 @@ class FrontendSecurityTests(unittest.TestCase):
         self.assertIn("appendTextCell(row, job.name)", template)
         self.assertIn("safe(job.Command)", template)
         self.assertIn('"监控",', template)
-        self.assertIn('"monitor",', template)
+        self.assertIn('canAccess ? "monitor" : "disabled"', template)
         self.assertIn(".btn-monitor { background:#ff9830", template)
         self.assertIn("encodeURIComponent(jobId)", template)
         self.assertIn("JOB_MONITOR_RETENTION_MS", template)
