@@ -176,6 +176,9 @@ server {
     listen 443 ssl;
     server_name hpc.example.edu;
 
+    # 比 FILE_UPLOAD_MAX_MB 多留 1 MiB，用于容纳 multipart 请求开销
+    client_max_body_size 1025m;
+
     ssl_certificate     /etc/pki/tls/certs/openhpc_webui.crt;
     ssl_certificate_key /etc/pki/tls/private/openhpc_webui.key;
 
@@ -191,6 +194,11 @@ server {
     }
 }
 ```
+
+Nginx 的 `client_max_body_size` 限制整个 HTTP 请求体，而应用的
+`FILE_UPLOAD_MAX_MB` 限制单个文件内容。默认值因此分别设为 1025 MiB 和
+1024 MiB，为 multipart 元数据预留 1 MiB。调整上传上限时必须同步修改两项配置，
+并让 Nginx 的值略大于应用值；否则合法文件会在到达应用前被 Nginx 以 413 拒绝。
 
 检查并重新加载 Nginx：
 

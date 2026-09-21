@@ -16,6 +16,10 @@ server {
     listen 443 ssl;
     server_name hpc.example.edu;
 
+    # Must remain slightly above FILE_UPLOAD_MAX_MB to allow multipart overhead.
+    # Keep both values in sync when changing the application upload limit.
+    client_max_body_size 1025m;
+
     ssl_certificate /etc/pki/tls/certs/openhpc_webui.crt;
     ssl_certificate_key /etc/pki/tls/private/openhpc_webui.key;
     ssl_protocols TLSv1.2 TLSv1.3;
