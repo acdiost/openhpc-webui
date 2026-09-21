@@ -8,10 +8,82 @@ from typing import List, Dict, Optional
 from .node_config import NodeConfigManager
 from .partition_config import PartitionConfigManager
 import os
-from collections import deque
 from pathlib import Path
 from ..audit import log_current_exception, structured_print as print
 from .integration_timeout import bounded_timeout_seconds
+
+
+DEFAULT_JOB_OUTPUT_MAX_BYTES = 1024 * 1024
+MAX_JOB_OUTPUT_MAX_BYTES = 16 * 1024 * 1024
+JOB_OUTPUT_READ_CHUNK_BYTES = 64 * 1024
+
+
+def _configured_job_output_max_bytes() -> int:
+    """Return a safe byte ceiling even when environment configuration is invalid."""
+    raw_value = os.getenv(
+        "JOB_OUTPUT_MAX_BYTES", str(DEFAULT_JOB_OUTPUT_MAX_BYTES)
+    ).strip()
+    try:
+        value = int(raw_value)
+    except ValueError:
+        return DEFAULT_JOB_OUTPUT_MAX_BYTES
+    return max(1024, min(value, MAX_JOB_OUTPUT_MAX_BYTES))
+
+
+def _read_output_tail(
+    output,
+    file_size: int,
+    max_lines: int,
+    max_bytes: int,
+) -> Dict:
+    """Read a bounded tail without walking the file from its beginning."""
+    position = file_size
+    bytes_read = 0
+    newline_count = 0
+    chunks = []
+
+    while position > 0 and bytes_read < max_bytes:
+        read_size = min(
+            JOB_OUTPUT_READ_CHUNK_BYTES,
+            position,
+            max_bytes - bytes_read,
+        )
+        position -= read_size
+        output.seek(position)
+        chunk = output.read(read_size)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        bytes_read += len(chunk)
+        newline_count += chunk.count(b"\n")
+        if newline_count > max_lines:
+            break
+
+    buffered = b"".join(reversed(chunks))
+    truncated_by_bytes = position > 0 and bytes_read >= max_bytes
+
+    # A backward read normally starts in the middle of a line. Drop that
+    # fragment when a following complete line exists; for a giant single line,
+    # retain its bounded tail so the response remains useful.
+    if position > 0 and b"\n" in buffered:
+        buffered = buffered.split(b"\n", 1)[1]
+
+    lines = buffered.splitlines(keepends=True)
+    truncated_by_lines = (
+        len(lines) > max_lines
+        or (position > 0 and newline_count > max_lines)
+    )
+    if truncated_by_lines:
+        lines = lines[-max_lines:]
+
+    content_bytes = b"".join(lines)
+    return {
+        "content": content_bytes.decode("utf-8", errors="replace"),
+        "lines_read": len(lines),
+        "bytes_read": bytes_read,
+        "truncated_by_lines": truncated_by_lines,
+        "truncated_by_bytes": truncated_by_bytes,
+    }
 
 
 class SlurmServiceUnavailable(RuntimeError):
@@ -2558,6 +2630,7 @@ class SlurmManager:
         job_id: str,
         file_type: str,
         max_lines: int = 1000,
+        max_bytes: Optional[int] = None,
         allowed_roots: Optional[List[str]] = None,
         job_detail: Optional[Dict] = None,
     ) -> Dict:
@@ -2567,6 +2640,7 @@ class SlurmManager:
             job_id: 作业ID
             file_type: 文件类型 ('stdout' 或 'stderr')
             max_lines: 最多读取的行数,默认1000行
+            max_bytes: 最多从文件尾部读取的字节数
 
         Returns:
             包含文件内容和元数据的字典
@@ -2647,27 +2721,34 @@ class SlurmManager:
                 raise
 
             file_size = opened_stat.st_size
+            max_lines = max(1, min(int(max_lines), 10_000))
+            if max_bytes is None:
+                max_bytes = _configured_job_output_max_bytes()
+            else:
+                max_bytes = max(1, min(int(max_bytes), MAX_JOB_OUTPUT_MAX_BYTES))
 
-            # 读取文件内容（最多读取最后 max_lines 行）
-            lines = deque(maxlen=max_lines)
-            line_count = 0
-            with os.fdopen(
-                descriptor, 'r', encoding='utf-8', errors='replace'
-            ) as output:
-                for line in output:
-                    lines.append(line)
-                    line_count += 1
-            content = ''.join(lines)
-            actual_lines = len(lines)
+            with os.fdopen(descriptor, "rb") as output:
+                tail = _read_output_tail(
+                    output,
+                    file_size,
+                    max_lines,
+                    max_bytes,
+                )
 
             return {
                 'success': True,
-                'content': content,
+                'content': tail["content"],
                 'file_path': str(resolved_path),
                 'file_size': file_size,
-                'lines_read': actual_lines,
+                'lines_read': tail["lines_read"],
+                'bytes_read': tail["bytes_read"],
                 'max_lines': max_lines,
-                'truncated': line_count > max_lines,
+                'max_bytes': max_bytes,
+                'truncated': (
+                    tail["truncated_by_lines"] or tail["truncated_by_bytes"]
+                ),
+                'truncated_by_lines': tail["truncated_by_lines"],
+                'truncated_by_bytes': tail["truncated_by_bytes"],
             }
 
         except SlurmServiceUnavailable:

@@ -896,10 +896,19 @@ page_scripts %}
 
             const fileTypeText =
                 fileType === "stdout" ? "标准输出" : "标准错误";
+            const truncationReasons = [];
+            if (data.truncated_by_lines) {
+                truncationReasons.push(`超过 ${data.max_lines} 行`);
+            }
+            if (data.truncated_by_bytes) {
+                truncationReasons.push(
+                    `超过 ${formatFileSize(data.max_bytes)} 读取上限`,
+                );
+            }
             const truncatedWarning = data.truncated
                 ? `<div style="background:#fef3c7;border:1px solid #fbbf24;border-radius:6px;
                                padding:8px;margin-bottom:12px;font-size:12px;color:#92400e;">
-                       ⚠️ 文件较大，仅显示最后 ${data.lines_read} 行
+                       ⚠️ 文件较大，仅显示尾部 ${data.lines_read} 行（${truncationReasons.join("、")}）
                    </div>`
                 : "";
 
@@ -938,7 +947,7 @@ page_scripts %}
                     </div>
                     <!-- 文件元信息 -->
                     <div style="margin-bottom:12px;font-size:12px;color:#6b7280;">
-                        <div><strong>文件路径:</strong> ${data.file_path}</div>
+                        <div><strong>文件路径:</strong> ${escapeHtml(data.file_path)}</div>
                         <div><strong>文件大小:</strong> ${formatFileSize(data.file_size)}</div>
                         <div><strong>显示行数:</strong> ${data.lines_read} / ${data.max_lines}</div>
                     </div>
