@@ -69,5 +69,22 @@ class Settings:
     terminal_idle_minutes: int = env_positive_int("TERMINAL_IDLE_MINUTES", 30)
     terminal_max_sessions: int = env_positive_int("TERMINAL_MAX_SESSIONS", 2)
 
+    @classmethod
+    def from_env(cls) -> "Settings":
+        """Build a fresh snapshot after page-managed environment changes."""
+        return cls(
+            auth_enabled=env_bool("AUTHORIZED", True),
+            session_https_only=env_bool("SESSION_HTTPS_ONLY", False),
+            login_max_failed_attempts=env_positive_int(
+                "LOGIN_MAX_FAILED_ATTEMPTS", 5
+            ),
+            login_lockout_minutes=env_positive_int("LOGIN_LOCKOUT_MINUTES", 30),
+            file_upload_max_mb=env_positive_int("FILE_UPLOAD_MAX_MB", 1024),
+            file_edit_max_kb=env_positive_int("FILE_EDIT_MAX_KB", 2048),
+            terminal_enabled=env_bool("TERMINAL_ENABLED", True),
+            terminal_idle_minutes=env_positive_int("TERMINAL_IDLE_MINUTES", 30),
+            terminal_max_sessions=env_positive_int("TERMINAL_MAX_SESSIONS", 2),
+        )
 
-settings = Settings()
+
+settings = Settings.from_env()

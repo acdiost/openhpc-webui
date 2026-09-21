@@ -239,6 +239,46 @@ class PasswordChangeRequest(BaseModel):
     new_password: str
 
 
+class SystemSettingsUpdate(BaseModel):
+    ldap_uri: Optional[str] = Field(None, max_length=2048)
+    ldap_base_dn: Optional[str] = Field(None, max_length=1024)
+    ldap_bind_dn: Optional[str] = Field(None, max_length=1024)
+    ldap_bind_password: Optional[str] = Field(None, max_length=4096)
+    ldap_port: Optional[int] = Field(None, ge=1, le=65535)
+    ldap_use_ssl: Optional[bool] = None
+    slurm_cluster_name: Optional[str] = Field(None, max_length=64)
+    slurm_default_account: Optional[str] = Field(None, max_length=64)
+    slurm_config_dir: Optional[str] = Field(None, max_length=4096)
+    authorized: Optional[bool] = None
+    session_https_only: Optional[bool] = None
+    secret_key: Optional[str] = Field(None, max_length=4096)
+    login_max_failed_attempts: Optional[int] = Field(None, ge=1, le=100)
+    login_lockout_minutes: Optional[int] = Field(None, ge=1, le=10080)
+    file_upload_max_mb: Optional[int] = Field(None, ge=1, le=1048576)
+    file_edit_max_kb: Optional[int] = Field(None, ge=1, le=1048576)
+    job_output_allowed_roots: Optional[str] = Field(None, max_length=16384)
+    nfs_quota_fs: Optional[str] = Field(None, max_length=4096)
+    terminal_enabled: Optional[bool] = None
+    terminal_idle_minutes: Optional[int] = Field(None, ge=1, le=10080)
+    terminal_max_sessions: Optional[int] = Field(None, ge=1, le=100)
+    log_level: Optional[str] = Field(None, max_length=16)
+
+
+class SetupRequest(BaseModel):
+    setup_token: str = Field(..., min_length=32, max_length=256)
+    ldap_uri: str = Field(..., min_length=1, max_length=2048)
+    ldap_base_dn: str = Field(..., min_length=1, max_length=1024)
+    ldap_bind_dn: str = Field(..., min_length=1, max_length=1024)
+    ldap_bind_password: str = Field(..., min_length=1, max_length=4096)
+    ldap_port: int = Field(389, ge=1, le=65535)
+    ldap_use_ssl: bool = False
+    slurm_cluster_name: str = Field(..., min_length=1, max_length=64)
+    slurm_default_account: str = Field(..., min_length=1, max_length=64)
+    slurm_config_dir: str = Field("/etc/slurm", min_length=1, max_length=4096)
+    admin_username: str = Field(..., min_length=1, max_length=64)
+    session_https_only: bool = False
+
+
 class TerminalAISettingsUpdate(BaseModel):
     enabled: bool = False
     provider: str = Field("deepseek", max_length=32)

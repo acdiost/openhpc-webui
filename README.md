@@ -113,19 +113,24 @@ PyPI 安装不包含仓库级 `env.example` 和部署示例，完整配置及 sy
 
 ```bash
 uv sync
-cp env.example .env
 uv run uvicorn openhpc_webui.application:app --reload --port 6827
 ```
 
-浏览器访问 `http://127.0.0.1:6827`。也可以使用项目命令启动监听在 `0.0.0.0:6827` 的服务：
+浏览器访问 `http://127.0.0.1:6827`，首次启动会自动进入安装向导，依次配置 LDAP、
+Slurm 和首位管理员，并自动生成 Session 密钥。也可以使用项目命令启动监听在
+`0.0.0.0:6827` 的服务：
 
 ```bash
 uv run openhpc_webui
 ```
 
-### 最小配置
+### 系统配置
 
-编辑 `.env`，至少确认以下配置：
+安装后的日常配置在管理员「系统设置」页面维护，并以权限 `0600` 原子写入 `.env`。
+敏感值只显示“已配置”状态，不会回传浏览器。管理员列表、终端 AI 和终端公告分别由
+现有的权限管理及系统设置卡片维护。
+
+以下配置均可通过安装向导或系统设置页面管理：
 
 | 配置项 | 用途 |
 | --- | --- |
@@ -150,6 +155,10 @@ uv run openhpc_webui
 | `SLURM_DEFAULT_ACCOUNT` | 创建 LDAP 用户时使用的默认 Slurm 账户 |
 | `SLURM_CLUSTER_NAME` | WebUI 管理的 Slurm `ClusterName`，必须显式配置且与本机配置一致 |
 | `SLURM_CONFIG_DIR` | 节点与分区配置文件目录，默认 `/etc/slurm` |
+
+`.env` 仍作为持久化与无人值守部署的兼容入口；已经提供有效 `SECRET_KEY` 的旧部署会被
+自动视为已安装，不会跳转到安装向导。认证模式、Session 密钥和 HTTPS Cookie 设置修改后
+需要重启服务。
 
 完整配置说明见[技术指南](./docs/TECHNICAL_GUIDE.md)。
 

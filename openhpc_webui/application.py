@@ -42,7 +42,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from . import __version__
 from .audit import AuditMiddleware, log_event, sanitize
-from .config import STATIC_DIR, TEMPLATES_DIR, settings
+from .config import STATIC_DIR, TEMPLATES_DIR, Settings, settings
 from .schemas import (
     AccountCreate,
     AccountUpdate,
@@ -68,6 +68,8 @@ from .schemas import (
     PartitionCreate,
     PartitionUpdate,
     PasswordChangeRequest,
+    SetupRequest,
+    SystemSettingsUpdate,
     TerminalAnnouncementSettingsUpdate,
     TerminalAIEndpointUpdate,
     TerminalAISettingsUpdate,
@@ -84,6 +86,13 @@ from .services.login_limiter import LoginAttemptLimiter
 from .services.nfs_quota_manager import NFSQuotaManager
 from .services.slurm_manager import SlurmAssociationDeleteError, SlurmManager
 from .services.terminal_manager import TerminalError, TerminalManager, TerminalSession
+from .services.system_settings import (
+    SystemSettingsError,
+    complete_setup,
+    public_config as public_system_config,
+    save_config as save_system_config,
+    setup_required,
+)
 from .services.terminal_announcement import (
     TerminalAnnouncementError,
     public_config as public_terminal_announcement_config,
@@ -110,6 +119,7 @@ from .services.terminal_ai import (
 )
 
 AUTH_ENABLED = settings.auth_enabled
+_SETUP_SESSION_SECRET = secrets.token_urlsafe(48)
 
 _INSECURE_SECRET_KEYS = {
     "",
@@ -137,6 +147,8 @@ def _is_disabled_login_shell(shell: Optional[str]) -> bool:
 
 def _get_session_secret() -> str:
     secret_key = os.getenv("SECRET_KEY", "").strip()
+    if setup_required() and not secret_key:
+        return _SETUP_SESSION_SECRET
     if AUTH_ENABLED and (
         secret_key in _INSECURE_SECRET_KEYS or len(secret_key) < 32
     ):
@@ -181,6 +193,36 @@ login_limiter = LoginAttemptLimiter(
 terminal_mgr = TerminalManager(max_sessions_per_user=settings.terminal_max_sessions)
 terminal_ai_client = TerminalAIClient()
 logger = logging.getLogger(__name__)
+
+
+def _model_values(payload) -> dict:
+    """Return explicitly supplied Pydantic fields across v1 and v2."""
+    if hasattr(payload, "model_dump"):
+        return payload.model_dump(exclude_none=True)
+    return payload.dict(exclude_none=True)
+
+
+def _reload_runtime_configuration() -> None:
+    """Refresh services whose configuration is safe to replace in-process."""
+    global settings, ldap_mgr, slurm_mgr, auth_mgr, quota_mgr
+    global file_mgr, login_limiter, terminal_mgr
+    settings = Settings.from_env()
+    ldap_mgr = LDAPManager()
+    slurm_mgr = SlurmManager()
+    auth_mgr = AuthManager()
+    quota_mgr = NFSQuotaManager()
+    file_mgr = FileManager(
+        max_upload_bytes=settings.file_upload_max_mb * 1024 * 1024,
+        max_edit_bytes=settings.file_edit_max_kb * 1024,
+    )
+    login_limiter = LoginAttemptLimiter(
+        max_failures=settings.login_max_failed_attempts,
+        lockout_seconds=settings.login_lockout_minutes * 60,
+    )
+    terminal_mgr.max_sessions_per_user = settings.terminal_max_sessions
+    templates.env.globals["terminal_enabled"] = (
+        settings.terminal_enabled and AUTH_ENABLED
+    )
 
 
 def _pick_fields(value: Optional[dict], fields: tuple[str, ...]) -> Optional[dict]:
@@ -687,6 +729,65 @@ async def settings_page(request: Request, user: dict = Depends(get_current_user)
     if not user.get("is_admin"):
         return RedirectResponse(url="/jobs", status_code=302)
     return templates.TemplateResponse("settings.html", {"request": request, "user": user})
+
+
+@router.get("/setup", response_class=HTMLResponse)
+async def setup_page(request: Request):
+    """First-run installer; unavailable after an installation is complete."""
+    if not setup_required():
+        return RedirectResponse(url="/login", status_code=302)
+    setup_token = request.session.get("setup_token") or secrets.token_urlsafe(32)
+    request.session["setup_token"] = setup_token
+    return templates.TemplateResponse(
+        "setup.html", {"request": request, "setup_token": setup_token}
+    )
+
+
+@router.post("/api/setup")
+async def install_application(request: Request, payload: SetupRequest):
+    """Write the initial configuration without requiring a pre-existing login."""
+    if not setup_required():
+        raise HTTPException(status_code=409, detail="系统已经完成安装")
+    expected_token = str(request.session.get("setup_token") or "")
+    if not expected_token or not secrets.compare_digest(expected_token, payload.setup_token):
+        raise HTTPException(status_code=403, detail="安装会话已失效，请刷新页面")
+    try:
+        values = _model_values(payload)
+        values.pop("setup_token", None)
+        result = await run_in_threadpool(complete_setup, values)
+        _reload_runtime_configuration()
+    except SystemSettingsError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "message": "安装配置已保存，请重启服务后登录",
+        **result,
+    }
+
+
+@router.get("/api/system/settings")
+async def get_system_settings(user: dict = Depends(get_current_user)):
+    """Return non-sensitive environment-backed settings to administrators."""
+    _require_admin(user)
+    return public_system_config()
+
+
+@router.put("/api/system/settings")
+async def update_system_settings(
+    payload: SystemSettingsUpdate,
+    user: dict = Depends(get_current_user),
+):
+    """Validate and persist environment-backed settings from the admin page."""
+    _require_admin(user)
+    try:
+        result = await run_in_threadpool(save_system_config, _model_values(payload))
+        _reload_runtime_configuration()
+    except SystemSettingsError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    restart_keys = result["restart_required"]
+    message = "系统配置已保存并应用"
+    if restart_keys:
+        message = "系统配置已保存；认证或 Session 相关变更需重启服务"
+    return {"message": message, **result}
 
 
 @router.get("/api/terminal/ai/settings")
@@ -2959,6 +3060,22 @@ async def update_node_state(
 def create_app() -> FastAPI:
     """Construct and configure a FastAPI application instance."""
     application = FastAPI(title=settings.app_title)
+
+    @application.middleware("http")
+    async def require_initial_setup(request: Request, call_next):
+        if setup_required() and request.url.path not in {
+            "/setup",
+            "/api/setup",
+            "/favicon.ico",
+        } and not request.url.path.startswith("/static/"):
+            if request.url.path.startswith("/api/"):
+                return JSONResponse(
+                    status_code=503,
+                    content={"detail": "请先完成系统安装向导"},
+                )
+            return RedirectResponse(url="/setup", status_code=302)
+        return await call_next(request)
+
     application.add_middleware(AuditMiddleware, snapshot_resolver=_audit_snapshot)
     application.add_middleware(
         SessionMiddleware,

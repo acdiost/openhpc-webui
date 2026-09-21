@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>安装向导 · OpenHPC WebUI</title>
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/static/all-tailwind-classes-full-min.css">
+    <link rel="stylesheet" href="/static/compat.css">
+    <style>
+        :root { color-scheme: light; font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif; }
+        body { min-height: 100vh; margin: 0; background: #f4f5f7; color: #111827; }
+        .setup-shell { width: min(920px, calc(100% - 32px)); margin: 0 auto; padding: 48px 0; }
+        .setup-brand { display: flex; margin-bottom: 24px; align-items: center; gap: 12px; }
+        .setup-mark { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 12px; background: #dc3023; color: #fff; font-weight: 800; }
+        .setup-brand h1 { margin: 0; font-size: 21px; }
+        .setup-brand p { margin: 3px 0 0; color: #6b7280; font-size: 13px; }
+        .setup-card { overflow: hidden; border: 1px solid #e5e7eb; border-radius: 14px; background: #fff; box-shadow: 0 16px 45px rgba(15,23,42,.08); }
+        .setup-progress { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid #e5e7eb; background: #fafafa; }
+        .setup-progress-item { padding: 18px; color: #6b7280; text-align: center; font-size: 13px; font-weight: 600; }
+        .setup-progress-item.active { background: #fff; color: #dc3023; box-shadow: inset 0 -3px #dc3023; }
+        .setup-body { padding: 34px 38px 38px; }
+        .setup-step { display: none; }
+        .setup-step.active { display: block; }
+        .setup-step h2 { margin: 0 0 7px; font-size: 24px; }
+        .setup-lead { margin: 0 0 26px; color: #6b7280; line-height: 1.6; }
+        .setup-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+        .setup-field { margin-bottom: 18px; }
+        .setup-field.full { grid-column: 1 / -1; }
+        .setup-field label { display: block; margin-bottom: 7px; color: #374151; font-size: 13px; font-weight: 650; }
+        .setup-field input { width: 100%; min-height: 43px; padding: 9px 11px; box-sizing: border-box; border: 1px solid #d1d5db; border-radius: 7px; font: inherit; }
+        .setup-field input:focus { outline: none; border-color: #dc3023; box-shadow: 0 0 0 3px rgba(220,48,35,.1); }
+        .setup-check { display: flex; align-items: center; gap: 8px; color: #4b5563; font-size: 13px; }
+        .setup-note { padding: 14px 16px; border: 1px solid #bfdbfe; border-radius: 8px; background: #eff6ff; color: #1e40af; font-size: 13px; line-height: 1.55; }
+        .setup-actions { display: flex; margin-top: 28px; justify-content: space-between; gap: 12px; }
+        .setup-button { min-height: 42px; padding: 0 18px; border: 1px solid #d1d5db; border-radius: 7px; background: #fff; color: #374151; font: inherit; font-weight: 650; cursor: pointer; }
+        .setup-button.primary { border-color: #dc3023; background: #dc3023; color: #fff; }
+        .setup-button:disabled { opacity: .55; cursor: wait; }
+        .setup-error { display: none; margin-top: 18px; padding: 12px 14px; border-radius: 7px; background: #fef2f2; color: #b91c1c; font-size: 13px; }
+        @media (max-width: 680px) { .setup-shell { padding: 20px 0; } .setup-body { padding: 25px 20px; } .setup-grid { grid-template-columns: 1fr; } .setup-field.full { grid-column: auto; } .setup-progress-item { padding: 14px 6px; font-size: 12px; } }
+    </style>
+</head>
+<body>
+<main class="setup-shell">
+    <div class="setup-brand">
+        <div class="setup-mark">HPC</div>
+        <div><h1>OpenHPC WebUI</h1><p>首次启动配置</p></div>
+    </div>
+    <section class="setup-card">
+        <div class="setup-progress" aria-label="安装进度">
+            <div class="setup-progress-item active" data-progress="1">1. LDAP 服务</div>
+            <div class="setup-progress-item" data-progress="2">2. Slurm 集群</div>
+            <div class="setup-progress-item" data-progress="3">3. 管理与安全</div>
+        </div>
+        <form id="setupForm" class="setup-body">
+            <input id="setup_token" type="hidden" value="{{ setup_token }}">
+            <div class="setup-step active" data-step="1">
+                <h2>连接 LDAP</h2>
+                <p class="setup-lead">填写门户用于查询和管理用户目录的服务连接信息。</p>
+                <div class="setup-grid">
+                    <div class="setup-field full"><label for="setup_ldap_uri">LDAP 地址</label><input id="setup_ldap_uri" required value="ldap://localhost" placeholder="ldap://ldap.example.edu"></div>
+                    <div class="setup-field"><label for="setup_ldap_base_dn">Base DN</label><input id="setup_ldap_base_dn" required placeholder="dc=example,dc=edu"></div>
+                    <div class="setup-field"><label for="setup_ldap_port">端口</label><input id="setup_ldap_port" type="number" min="1" max="65535" required value="389"></div>
+                    <div class="setup-field"><label for="setup_ldap_bind_dn">管理 Bind DN</label><input id="setup_ldap_bind_dn" required placeholder="cn=admin,dc=example,dc=edu"></div>
+                    <div class="setup-field"><label for="setup_ldap_bind_password">Bind 密码</label><input id="setup_ldap_bind_password" type="password" autocomplete="new-password" required></div>
+                </div>
+                <label class="setup-check"><input id="setup_ldap_use_ssl" type="checkbox"> 使用 LDAPS 加密连接</label>
+            </div>
+            <div class="setup-step" data-step="2">
+                <h2>连接 Slurm</h2>
+                <p class="setup-lead">指定当前门户管理的集群以及配置文件位置。</p>
+                <div class="setup-grid">
+                    <div class="setup-field"><label for="setup_slurm_cluster_name">ClusterName</label><input id="setup_slurm_cluster_name" required value="cluster"></div>
+                    <div class="setup-field"><label for="setup_slurm_default_account">默认账户</label><input id="setup_slurm_default_account" required value="dawn"></div>
+                    <div class="setup-field full"><label for="setup_slurm_config_dir">配置目录</label><input id="setup_slurm_config_dir" required value="/etc/slurm"></div>
+                </div>
+                <div class="setup-note">运行 WebUI 的系统账户仍需具备相应的 Slurm 命令与配置文件权限；安装向导不会修改 Linux 权限。</div>
+            </div>
+            <div class="setup-step" data-step="3">
+                <h2>管理员与安全</h2>
+                <p class="setup-lead">指定首位 LDAP 管理员。Session 密钥将由系统自动生成，不会显示在浏览器中。</p>
+                <div class="setup-field"><label for="setup_admin_username">管理员 LDAP 用户名</label><input id="setup_admin_username" required maxlength="64" placeholder="admin"></div>
+                <label class="setup-check"><input id="setup_session_https_only" type="checkbox"> 仅通过 HTTPS 发送 Session Cookie（已配置 HTTPS 反向代理时启用）</label>
+                <div class="setup-note" style="margin-top:20px">完成后安装向导会自动锁定。请重启 OpenHPC WebUI，再使用上面的 LDAP 管理员账户登录。</div>
+            </div>
+            <div id="setupError" class="setup-error" role="alert"></div>
+            <div class="setup-actions">
+                <button id="setupPrevious" class="setup-button" type="button" style="visibility:hidden">上一步</button>
+                <button id="setupNext" class="setup-button primary" type="button">下一步</button>
+                <button id="setupSubmit" class="setup-button primary" type="submit" style="display:none">完成安装</button>
+            </div>
+        </form>
+    </section>
+</main>
+<script>
+    let setupStep = 1;
+    const steps = Array.from(document.querySelectorAll(".setup-step"));
+    const progressItems = Array.from(document.querySelectorAll(".setup-progress-item"));
+    const previousButton = document.getElementById("setupPrevious");
+    const nextButton = document.getElementById("setupNext");
+    const submitButton = document.getElementById("setupSubmit");
+    const errorBox = document.getElementById("setupError");
+
+    function showStep(step) {
+        setupStep = step;
+        steps.forEach((item) => item.classList.toggle("active", Number(item.dataset.step) === step));
+        progressItems.forEach((item) => item.classList.toggle("active", Number(item.dataset.progress) === step));
+        previousButton.style.visibility = step === 1 ? "hidden" : "visible";
+        nextButton.style.display = step === 3 ? "none" : "inline-block";
+        submitButton.style.display = step === 3 ? "inline-block" : "none";
+        errorBox.style.display = "none";
+    }
+
+    function currentStepValid() {
+        const fields = steps[setupStep - 1].querySelectorAll("input[required]");
+        for (const field of fields) if (!field.reportValidity()) return false;
+        return true;
+    }
+
+    nextButton.addEventListener("click", () => { if (currentStepValid()) showStep(Math.min(3, setupStep + 1)); });
+    previousButton.addEventListener("click", () => showStep(Math.max(1, setupStep - 1)));
+
+    document.getElementById("setupForm").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!currentStepValid()) return;
+        submitButton.disabled = true;
+        errorBox.style.display = "none";
+        try {
+            const response = await fetch("/api/setup", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    setup_token: document.getElementById("setup_token").value,
+                    ldap_uri: document.getElementById("setup_ldap_uri").value,
+                    ldap_base_dn: document.getElementById("setup_ldap_base_dn").value,
+                    ldap_bind_dn: document.getElementById("setup_ldap_bind_dn").value,
+                    ldap_bind_password: document.getElementById("setup_ldap_bind_password").value,
+                    ldap_port: Number(document.getElementById("setup_ldap_port").value),
+                    ldap_use_ssl: document.getElementById("setup_ldap_use_ssl").checked,
+                    slurm_cluster_name: document.getElementById("setup_slurm_cluster_name").value,
+                    slurm_default_account: document.getElementById("setup_slurm_default_account").value,
+                    slurm_config_dir: document.getElementById("setup_slurm_config_dir").value,
+                    admin_username: document.getElementById("setup_admin_username").value,
+                    session_https_only: document.getElementById("setup_session_https_only").checked,
+                }),
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || "安装配置保存失败");
+            document.querySelector(".setup-body").innerHTML = `<div style="padding:30px 0;text-align:center"><h2>安装完成</h2><p class="setup-lead">配置已安全写入。请重启服务，然后进入登录页。</p><a class="setup-button primary" href="/login" style="display:inline-flex;align-items:center;text-decoration:none">前往登录</a></div>`;
+        } catch (error) {
+            errorBox.textContent = error.message;
+            errorBox.style.display = "block";
+        } finally {
+            submitButton.disabled = false;
+        }
+    });
+</script>
+</body>
+</html>

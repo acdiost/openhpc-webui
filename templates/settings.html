@@ -50,7 +50,11 @@
     .settings-endpoint-item strong, .settings-endpoint-item small { display: block; overflow-wrap: anywhere; }
     .settings-endpoint-item small { margin-top: 3px; color: #6b7280; }
     .settings-endpoint-actions { display: flex; flex: none; gap: 7px; }
-    @media (max-width: 980px) { .settings-grid { grid-template-columns: 1fr; } }
+    .settings-system-card { margin-bottom: 20px; }
+    .settings-system-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+    .settings-system-group { min-width: 0; }
+    .settings-system-group h4 { margin: 0 0 15px; padding-bottom: 9px; border-bottom: 1px solid #e5e7eb; color: #374151; font-size: 14px; }
+    @media (max-width: 980px) { .settings-grid, .settings-system-groups { grid-template-columns: 1fr; } }
     @media (max-width: 620px) {
         .settings-header { align-items: flex-start; flex-direction: column; gap: 12px; }
         .settings-card-header, .settings-card-body { padding-left: 18px; padding-right: 18px; }
@@ -77,6 +81,70 @@
         </svg>
         <span>此处修改的是全局配置，保存后会立即应用到当前 WebUI 进程；请在变更前确认服务地址、模型与公告内容。</span>
     </div>
+
+    <section class="card settings-card settings-system-card" aria-labelledby="system-config-title">
+        <div class="settings-card-header">
+            <div class="settings-card-heading">
+                <span class="settings-card-icon" aria-hidden="true">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15.5A3.5 3.5 0 1012 8a3.5 3.5 0 000 7.5zM19.4 15a1.7 1.7 0 00.34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0015 19.4a1.7 1.7 0 00-1 .6l-.04.08H10l-.04-.08a1.7 1.7 0 00-1-.6 1.7 1.7 0 00-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 004.6 15a1.7 1.7 0 00-.6-1l-.08-.04V10l.08-.04a1.7 1.7 0 00.6-1 1.7 1.7 0 00-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 009 4.6a1.7 1.7 0 001-.6l.04-.08H14l.04.08a1.7 1.7 0 001 .6 1.7 1.7 0 001.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0019.4 9c.1.4.32.75.6 1l.08.04V14l-.08.04c-.28.25-.5.6-.6.96z" /></svg>
+                </span>
+                <div><h3 id="system-config-title">基础系统配置</h3><p>替代日常手工编辑 .env；敏感值不会回显</p></div>
+            </div>
+        </div>
+        <div class="settings-card-body">
+            <form id="systemSettingsForm" class="settings-form" onsubmit="saveSystemSettings(event)">
+                <div class="settings-system-groups">
+                    <div class="settings-system-group">
+                        <h4>LDAP 目录服务</h4>
+                        <div class="form-group"><label for="ldap_uri">LDAP 地址</label><input id="ldap_uri" maxlength="2048" placeholder="ldap://localhost"></div>
+                        <div class="settings-fields">
+                            <div class="form-group"><label for="ldap_base_dn">Base DN</label><input id="ldap_base_dn" maxlength="1024"></div>
+                            <div class="form-group"><label for="ldap_port">端口</label><input id="ldap_port" type="number" min="1" max="65535"></div>
+                        </div>
+                        <div class="form-group"><label for="ldap_bind_dn">管理 Bind DN</label><input id="ldap_bind_dn" maxlength="1024"></div>
+                        <div class="form-group"><label for="ldap_bind_password">Bind 密码</label><input id="ldap_bind_password" type="password" maxlength="4096" autocomplete="new-password" placeholder="留空则保留现有密码"><small id="ldapPasswordStatus" class="settings-help"></small></div>
+                        <label class="settings-check"><input id="ldap_use_ssl" type="checkbox"> 使用 LDAPS</label>
+                    </div>
+                    <div class="settings-system-group">
+                        <h4>Slurm 集群</h4>
+                        <div class="settings-fields">
+                            <div class="form-group"><label for="slurm_cluster_name">ClusterName</label><input id="slurm_cluster_name" maxlength="64"></div>
+                            <div class="form-group"><label for="slurm_default_account">默认账户</label><input id="slurm_default_account" maxlength="64"></div>
+                        </div>
+                        <div class="form-group"><label for="slurm_config_dir">配置目录</label><input id="slurm_config_dir" maxlength="4096"></div>
+                        <h4>日志与认证</h4>
+                        <div class="settings-fields">
+                            <div class="form-group"><label for="log_level">日志级别</label><select id="log_level"><option>DEBUG</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>CRITICAL</option></select></div>
+                            <div class="form-group"><label for="secret_key">Session 密钥</label><input id="secret_key" type="password" minlength="32" maxlength="4096" autocomplete="new-password" placeholder="留空则保留现有密钥"><small id="secretKeyStatus" class="settings-help"></small></div>
+                        </div>
+                        <label class="settings-check"><input id="authorized" type="checkbox"> 启用登录认证</label>
+                        <label class="settings-check"><input id="session_https_only" type="checkbox"> Session Cookie 仅限 HTTPS</label>
+                    </div>
+                    <div class="settings-system-group">
+                        <h4>登录保护与文件</h4>
+                        <div class="settings-fields">
+                            <div class="form-group"><label for="login_max_failed_attempts">连续失败次数</label><input id="login_max_failed_attempts" type="number" min="1" max="100"></div>
+                            <div class="form-group"><label for="login_lockout_minutes">锁定分钟数</label><input id="login_lockout_minutes" type="number" min="1" max="10080"></div>
+                            <div class="form-group"><label for="file_upload_max_mb">上传上限（MB）</label><input id="file_upload_max_mb" type="number" min="1"></div>
+                            <div class="form-group"><label for="file_edit_max_kb">编辑上限（KB）</label><input id="file_edit_max_kb" type="number" min="1"></div>
+                        </div>
+                        <div class="form-group"><label for="job_output_allowed_roots">作业输出额外目录</label><input id="job_output_allowed_roots" maxlength="16384" placeholder="/data:/scratch"></div>
+                        <div class="form-group"><label for="nfs_quota_fs">NFS Quota 文件系统</label><input id="nfs_quota_fs" maxlength="4096" placeholder="/home"></div>
+                    </div>
+                    <div class="settings-system-group">
+                        <h4>Web 终端</h4>
+                        <div class="settings-fields">
+                            <div class="form-group"><label for="terminal_idle_minutes">空闲超时（分钟）</label><input id="terminal_idle_minutes" type="number" min="1" max="10080"></div>
+                            <div class="form-group"><label for="terminal_max_sessions">每用户会话数</label><input id="terminal_max_sessions" type="number" min="1" max="100"></div>
+                        </div>
+                        <label class="settings-check"><input id="terminal_enabled" type="checkbox"> 启用 Web 终端</label>
+                        <small class="settings-help">认证模式、Session 密钥与 HTTPS Cookie 的变更保存后需要重启服务。</small>
+                    </div>
+                </div>
+                <div class="settings-card-actions"><button class="btn btn-primary" type="submit">保存系统配置</button></div>
+            </form>
+        </div>
+    </section>
 
     <div class="settings-grid">
         <section class="card settings-card" aria-labelledby="terminal-ai-title">
@@ -245,6 +313,56 @@
 <script>
     const providerDefaults = {deepseek: "https://api.deepseek.com", openai: "https://api.openai.com/v1", claude: "https://api.anthropic.com/v1", glm: "https://open.bigmodel.cn/api/paas/v4", vllm: "http://127.0.0.1:8000/v1", sglang: "http://127.0.0.1:30000/v1", "openai-compatible": ""};
     const providerModelDefaults = {deepseek: "deepseek-v4-flash", openai: "gpt-5.1", claude: "claude-sonnet-4-5-20250929", glm: "glm-5.2", vllm: "", sglang: "", "openai-compatible": ""};
+
+    async function loadSystemSettings() {
+        try {
+            const res = await fetch("/api/system/settings");
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "读取系统配置失败");
+            const values = {
+                ldap_uri: data.ldap.uri, ldap_base_dn: data.ldap.base_dn, ldap_bind_dn: data.ldap.bind_dn, ldap_port: data.ldap.port,
+                slurm_cluster_name: data.slurm.cluster_name, slurm_default_account: data.slurm.default_account, slurm_config_dir: data.slurm.config_dir,
+                log_level: data.logging.level, login_max_failed_attempts: data.security.login_max_failed_attempts, login_lockout_minutes: data.security.login_lockout_minutes,
+                file_upload_max_mb: data.files.upload_max_mb, file_edit_max_kb: data.files.edit_max_kb, job_output_allowed_roots: data.files.job_output_allowed_roots,
+                nfs_quota_fs: data.files.nfs_quota_fs, terminal_idle_minutes: data.terminal.idle_minutes, terminal_max_sessions: data.terminal.max_sessions,
+            };
+            for (const [id, value] of Object.entries(values)) document.getElementById(id).value = value ?? "";
+            document.getElementById("ldap_use_ssl").checked = Boolean(data.ldap.use_ssl);
+            document.getElementById("authorized").checked = Boolean(data.security.authorized);
+            document.getElementById("session_https_only").checked = Boolean(data.security.session_https_only);
+            document.getElementById("terminal_enabled").checked = Boolean(data.terminal.enabled);
+            document.getElementById("ldapPasswordStatus").textContent = data.ldap.bind_password_configured ? "已配置；留空不会覆盖。" : "尚未配置。";
+            document.getElementById("secretKeyStatus").textContent = data.security.secret_key_configured ? "已配置；留空不会覆盖。" : "尚未配置。";
+        } catch (error) { showToast(error.message, "error"); }
+    }
+
+    async function saveSystemSettings(event) {
+        event.preventDefault();
+        const button = event.submitter;
+        if (button) button.disabled = true;
+        const value = (id) => document.getElementById(id).value;
+        const number = (id) => Number(value(id));
+        const payload = {
+            ldap_uri: value("ldap_uri"), ldap_base_dn: value("ldap_base_dn"), ldap_bind_dn: value("ldap_bind_dn"), ldap_port: number("ldap_port"), ldap_use_ssl: document.getElementById("ldap_use_ssl").checked,
+            slurm_cluster_name: value("slurm_cluster_name"), slurm_default_account: value("slurm_default_account"), slurm_config_dir: value("slurm_config_dir"),
+            authorized: document.getElementById("authorized").checked, session_https_only: document.getElementById("session_https_only").checked,
+            login_max_failed_attempts: number("login_max_failed_attempts"), login_lockout_minutes: number("login_lockout_minutes"),
+            file_upload_max_mb: number("file_upload_max_mb"), file_edit_max_kb: number("file_edit_max_kb"), job_output_allowed_roots: value("job_output_allowed_roots"), nfs_quota_fs: value("nfs_quota_fs"),
+            terminal_enabled: document.getElementById("terminal_enabled").checked, terminal_idle_minutes: number("terminal_idle_minutes"), terminal_max_sessions: number("terminal_max_sessions"), log_level: value("log_level"),
+        };
+        if (value("ldap_bind_password")) payload.ldap_bind_password = value("ldap_bind_password");
+        if (value("secret_key")) payload.secret_key = value("secret_key");
+        try {
+            const res = await fetch("/api/system/settings", {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "保存系统配置失败");
+            document.getElementById("ldap_bind_password").value = "";
+            document.getElementById("secret_key").value = "";
+            showToast(data.message, "success");
+            await loadSystemSettings();
+        } catch (error) { showToast(error.message, "error"); }
+        finally { if (button) button.disabled = false; }
+    }
 
     async function loadTerminalAI() {
         try {
@@ -475,6 +593,7 @@
     }
     document.getElementById("terminalAIEndpointCancel").addEventListener("click", resetTerminalAIEndpointForm);
 
+    loadSystemSettings();
     loadTerminalAI();
     loadTerminalAIEndpoints();
     loadTerminalAnnouncement();

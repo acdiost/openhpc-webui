@@ -6,6 +6,18 @@ PROJECT_ROOT = Path(__file__).parents[1]
 
 
 class TerminalFrontendTests(unittest.TestCase):
+    def test_system_settings_page_exposes_environment_configuration(self):
+        settings_template = (PROJECT_ROOT / "templates/settings.html").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('id="systemSettingsForm"', settings_template)
+        self.assertIn('/api/system/settings', settings_template)
+        self.assertIn('id="ldap_uri"', settings_template)
+        self.assertIn('id="slurm_cluster_name"', settings_template)
+        self.assertIn('id="secret_key"', settings_template)
+        self.assertIn('type="password"', settings_template)
+
     def test_terminal_announcement_is_configurable_and_rendered_as_text(self):
         terminal_template = (PROJECT_ROOT / "templates/terminal.html").read_text(
             encoding="utf-8"

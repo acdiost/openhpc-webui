@@ -40,7 +40,16 @@ exit
 
 离线环境应提前把仓库、uv 可执行文件和 Python 包缓存带入内网；不要在生产主机上临时改动 `uv.lock`。
 
-## 3. 配置环境变量
+## 3. 完成安装向导（推荐）
+
+先保留 `SECRET_KEY=`，启动 Supervisor 和 Nginx 后从受控管理网络访问站点。系统会自动
+跳转到 `/setup`，依次填写 LDAP、Slurm 和首位管理员。向导会生成 Session 密钥、写入
+`.env` 并锁定自身；完成后重启服务。
+
+安装入口在配置完成后不可再次使用。为避免首装配置被抢占，首次启动期间不要向不受信任
+网络开放站点。
+
+也可以继续采用无人值守方式，直接编辑 `/srv/openhpc-webui/.env`：
 
 编辑 `/srv/openhpc-webui/.env`，至少确认以下配置：
 
@@ -74,7 +83,8 @@ openssl rand -hex 32
 
 使用 HTTPS 反向代理时必须设置 `SESSION_HTTPS_ONLY=True`。只有在受控网络中直接使用 HTTP 访问 Uvicorn 时才设置为 `False`。生产环境必须保持 `AUTHORIZED=True`。
 
-`.env` 需要由运行用户读取和写入，因为权限管理页面会持久化 `ADMIN_USERS`。不要在日志、工单或 Shell 历史中输出整个 `.env`。
+`.env` 需要由运行用户读取和写入，因为安装向导、系统设置和权限管理页面都会持久化配置。
+不要在日志、工单或 Shell 历史中输出整个 `.env`。
 
 `SLURM_CLUSTER_NAME` 必须与 `scontrol show config` 输出的 `ClusterName` 一致。
 账户和 Association 的读取、创建、修改及删除都会使用该值限定集群；配置错误时相关操作会失败，

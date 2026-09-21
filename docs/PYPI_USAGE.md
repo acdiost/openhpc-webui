@@ -39,10 +39,19 @@ sudo /srv/openhpc-webui/.venv/bin/python -m pip install "openhpc-webui==0.3.1"
 
 版本输出应为 `0.3.1`。
 
-## 3. 配置环境变量
+## 3. 配置系统
 
-创建 `/srv/openhpc-webui/.env`。示例中的占位值必须替换为实际配置；密码包含空格、
-`#` 等特殊字符时应使用引号：
+推荐先创建空配置文件并限制权限，启动服务后通过受控网络访问 `/setup` 安装向导：
+
+```bash
+sudo install -o root -g root -m 0600 /dev/null /srv/openhpc-webui/.env
+```
+
+向导会配置 LDAP、Slurm 和首位管理员，自动生成 Session 密钥并锁定安装入口。完成后
+重启服务。首次配置期间不要将站点暴露给不受信任网络。
+
+无人值守部署也可以直接创建 `/srv/openhpc-webui/.env`。示例中的占位值必须替换为
+实际配置；密码包含空格、`#` 等特殊字符时应使用引号：
 
 ```dotenv
 AUTHORIZED=True
