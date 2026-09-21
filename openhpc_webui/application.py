@@ -12,7 +12,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import NoReturn, Optional
+from typing import Callable, NoReturn, Optional
 from urllib.parse import urlsplit
 
 from fastapi import (
@@ -1881,40 +1881,132 @@ async def get_user(username: str, user: dict = Depends(get_current_user)):
     return user_data
 
 
+def _run_user_lifecycle_step(
+    description: str, operation: Callable[[], bool]
+) -> bool:
+    """Run one external lifecycle operation without bypassing compensation."""
+    try:
+        succeeded = bool(operation())
+    except Exception:
+        logger.exception("用户生命周期步骤异常: %s", description)
+        return False
+    if not succeeded:
+        logger.error("用户生命周期步骤失败: %s", description)
+    return succeeded
+
+
+def _record_user_compensation(
+    failures: list[str],
+    description: str,
+    operation: Callable[[], bool],
+) -> None:
+    if not _run_user_lifecycle_step(f"回滚 {description}", operation):
+        failures.append(description)
+
+
+def _rollback_created_user(
+    username: str,
+    *,
+    slurm_added: bool = False,
+    admin_added: bool = False,
+) -> list[str]:
+    failures: list[str] = []
+    if admin_added:
+        _record_user_compensation(
+            failures,
+            "管理员权限",
+            lambda: admin_mgr.remove_admin(username),
+        )
+    if slurm_added:
+        _record_user_compensation(
+            failures,
+            "Slurm 账户",
+            lambda: slurm_mgr.remove_user_account(username),
+        )
+    _record_user_compensation(
+        failures,
+        "LDAP 用户",
+        lambda: ldap_mgr.delete_user(username),
+    )
+    return failures
+
+
+def _raise_user_lifecycle_failure(
+    failure: str, rollback_failures: list[str]
+) -> NoReturn:
+    if rollback_failures:
+        failed_items = "、".join(rollback_failures)
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"{failure}，且回滚 {failed_items} 失败；"
+                "系统状态可能不一致，请人工处理"
+            ),
+        )
+    raise HTTPException(status_code=500, detail=f"{failure}，此前变更已回滚")
+
+
 @router.post("/api/ldap/users")
 async def create_user(user_data: UserCreate, user: dict = Depends(get_current_user)):
-    """创建新 LDAP 用户，可选同时授予管理员权限。"""
+    """跨 LDAP、Slurm、管理员列表和配额创建用户。"""
     _require_admin(user)
 
-    success = ldap_mgr.create_user(
-        username=user_data.username,
-        uid=user_data.uid,
-        gid=user_data.gid,
-        home=user_data.home,
-        shell=user_data.shell,
-        password=user_data.password,
-        sn=user_data.sn,
-        phone=user_data.phone,
-        email=user_data.email,
+    quota_gb = user_data.storage_quota_gb
+    if quota_gb is not None and quota_gb < 0:
+        raise HTTPException(status_code=400, detail="配额必须为 0 或正数")
+    quota_requested = quota_gb is not None and quota_gb > 0
+    if quota_requested and not _run_user_lifecycle_step(
+        "检查 NFS quota", quota_mgr.is_enabled
+    ):
+        raise HTTPException(status_code=503, detail="NFS quota 未配置或未启用")
+
+    ldap_created = _run_user_lifecycle_step(
+        "创建 LDAP 用户",
+        lambda: ldap_mgr.create_user(
+            username=user_data.username,
+            uid=user_data.uid,
+            gid=user_data.gid,
+            home=user_data.home,
+            shell=user_data.shell,
+            password=user_data.password,
+            sn=user_data.sn,
+            phone=user_data.phone,
+            email=user_data.email,
+        ),
     )
-    if not success:
+    if not ldap_created:
         raise HTTPException(status_code=500, detail="创建用户失败")
 
-    # 同步到 Slurm 账户系统
-    slurm_success = slurm_mgr.add_user_account(user_data.username)
-    if not slurm_success:
-        logger.warning("Slurm 账户添加失败，但 LDAP 用户 %s 已创建", user_data.username)
+    slurm_added = _run_user_lifecycle_step(
+        "添加 Slurm 账户",
+        lambda: slurm_mgr.add_user_account(user_data.username),
+    )
+    if not slurm_added:
+        failures = _rollback_created_user(user_data.username)
+        _raise_user_lifecycle_failure("添加 Slurm 账户失败", failures)
 
-    # 处理管理员权限
+    admin_added = False
     if user_data.is_admin:
-        admin_mgr.add_admin(user_data.username)
+        admin_added = _run_user_lifecycle_step(
+            "授予管理员权限",
+            lambda: admin_mgr.add_admin(user_data.username),
+        )
+        if not admin_added:
+            failures = _rollback_created_user(
+                user_data.username, slurm_added=True
+            )
+            _raise_user_lifecycle_failure("授予管理员权限失败", failures)
 
-    # 处理 NFS 配额（默认不限制）
-    if user_data.storage_quota_gb and user_data.storage_quota_gb > 0:
-        if not quota_mgr.is_enabled():
-            raise HTTPException(status_code=503, detail="NFS quota 未配置或未启用")
-        if not quota_mgr.set_user_quota(user_data.username, user_data.storage_quota_gb):
-            raise HTTPException(status_code=500, detail="设置磁盘配额失败")
+    if quota_requested and not _run_user_lifecycle_step(
+        "设置磁盘配额",
+        lambda: quota_mgr.set_user_quota(user_data.username, quota_gb),
+    ):
+        failures = _rollback_created_user(
+            user_data.username,
+            slurm_added=True,
+            admin_added=admin_added,
+        )
+        _raise_user_lifecycle_failure("设置磁盘配额失败", failures)
 
     return {
         "message": f"用户 {user_data.username} 创建成功",
@@ -1924,18 +2016,48 @@ async def create_user(user_data: UserCreate, user: dict = Depends(get_current_us
 
 @router.delete("/api/ldap/users/{username}")
 async def delete_user(username: str, user: dict = Depends(get_current_user)):
-    """删除用户（同时从管理员列表移除）。"""
+    """删除用户；LDAP 删除放在可补偿的外部变更之后。"""
     _require_admin(user)
 
-    success = ldap_mgr.delete_user(username)
-    if not success:
-        raise HTTPException(status_code=500, detail="删除用户失败")
+    if not ldap_mgr.get_user(username):
+        raise HTTPException(status_code=404, detail="用户不存在")
 
-    # 从 Slurm 账户系统移除
-    slurm_mgr.remove_user_account(username)
+    was_admin = admin_mgr.is_admin(username)
+    if not _run_user_lifecycle_step(
+        "移除 Slurm 账户", lambda: slurm_mgr.remove_user_account(username)
+    ):
+        raise HTTPException(
+            status_code=500,
+            detail="移除 Slurm 账户失败，LDAP 用户未删除",
+        )
 
-    # 如果该用户是管理员，同时移除管理员权限
-    admin_mgr.remove_admin(username)
+    if was_admin and not _run_user_lifecycle_step(
+        "撤销管理员权限", lambda: admin_mgr.remove_admin(username)
+    ):
+        failures = []
+        _record_user_compensation(
+            failures,
+            "Slurm 账户",
+            lambda: slurm_mgr.add_user_account(username),
+        )
+        _raise_user_lifecycle_failure("撤销管理员权限失败", failures)
+
+    if not _run_user_lifecycle_step(
+        "删除 LDAP 用户", lambda: ldap_mgr.delete_user(username)
+    ):
+        failures = []
+        if was_admin:
+            _record_user_compensation(
+                failures,
+                "管理员权限",
+                lambda: admin_mgr.add_admin(username),
+            )
+        _record_user_compensation(
+            failures,
+            "Slurm 账户",
+            lambda: slurm_mgr.add_user_account(username),
+        )
+        _raise_user_lifecycle_failure("删除 LDAP 用户失败", failures)
 
     return {"message": f"用户 {username} 已删除"}
 
