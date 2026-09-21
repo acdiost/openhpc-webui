@@ -65,12 +65,23 @@ openssl rand -hex 32
 | --- | --- | --- |
 | `SECRET_KEY` | Session 签名密钥；启用认证时至少 32 个字符 | 必须配置 |
 | `SESSION_HTTPS_ONLY` | 是否只通过 HTTPS 发送 Session Cookie | `False` |
-| `LOGIN_MAX_FAILED_ATTEMPTS` | 同一用户名连续登录失败多少次后锁定 | `5` |
-| `LOGIN_LOCKOUT_MINUTES` | 登录锁定时长；同时也是连续失败计数窗口 | `30` |
+| `LOGIN_MAX_FAILED_ATTEMPTS` | 同一来源对同一账户连续失败多少次后限制该组合 | `5` |
+| `LOGIN_SOURCE_MAX_FAILED_ATTEMPTS` | 同一来源对所有账户累计失败多少次后限制该来源 | `20` |
+| `LOGIN_LOCKOUT_MINUTES` | 来源/组合限制时长；同时也是失败计数窗口 | `30` |
+| `LOGIN_MAX_FAILURE_DELAY_SECONDS` | 账户遭遇分布式失败时，失败响应的最大渐进延迟 | `5` |
+| `LOGIN_LIMITER_DB_PATH` | 多进程共享的限流 SQLite 文件 | `.runtime/login_attempts.sqlite3` |
 
 直接通过 HTTP 访问时保持 `SESSION_HTTPS_ONLY=False`。经 HTTPS 反向代理访问时必须设为 `True`，并确保代理正确传递协议和客户端信息。
 
-登录失败计数按用户名维护。默认在 30 分钟内连续失败 5 次后锁定 30 分钟，第 5 次失败立即返回 `429` 和 `Retry-After`；锁定期间不会请求 LDAP，成功登录会清零计数。状态保存在当前应用进程内，重启会清空；如部署多个 Uvicorn worker，应改用 Redis 等共享存储后再启用多进程。
+用户名会先执行 `strip().casefold()` 规范化。默认同一来源对同一账户连续失败 5 次后，
+限制该“来源+账户”组合 30 分钟；同一来源对不同账户累计失败 20 次后限制该来源。
+来自多个来源的账户失败只会渐进延迟失败响应，不会全局锁定账户，因此正确凭据仍可从
+未受限来源登录。成功登录会清除账户和当前组合的失败序列，但不会清除来源累计。
+
+限流状态保存在权限受限的 SQLite 文件中，事务更新可供同一主机上的多个 Uvicorn worker
+共享，进程重启后仍有效。多主机部署必须把 `LOGIN_LIMITER_DB_PATH` 放在支持可靠文件锁的
+共享文件系统上，或改用集中式限流服务。应用只使用 Uvicorn 已按受信代理配置解析出的
+客户端地址，不直接信任任意请求提供的 `X-Forwarded-For`。
 
 ### 结构化日志与审计
 

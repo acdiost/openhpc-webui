@@ -179,7 +179,6 @@ _BLOCKING_INTEGRATION_PATHS = (
     "/api/files",
     "/api/ldap",
     "/api/slurm",
-    "/api/auth/login",
     "/api/auth/change-password",
 )
 
@@ -232,6 +231,8 @@ file_mgr = FileManager(
 login_limiter = LoginAttemptLimiter(
     max_failures=settings.login_max_failed_attempts,
     lockout_seconds=settings.login_lockout_minutes * 60,
+    source_max_failures=settings.login_source_max_failed_attempts,
+    max_delay_seconds=settings.login_max_failure_delay_seconds,
 )
 terminal_mgr = TerminalManager(max_sessions_per_user=settings.terminal_max_sessions)
 terminal_ai_client = TerminalAIClient()
@@ -261,6 +262,8 @@ def _reload_runtime_configuration() -> None:
     login_limiter = LoginAttemptLimiter(
         max_failures=settings.login_max_failed_attempts,
         lockout_seconds=settings.login_lockout_minutes * 60,
+        source_max_failures=settings.login_source_max_failed_attempts,
+        max_delay_seconds=settings.login_max_failure_delay_seconds,
     )
     terminal_mgr.max_sessions_per_user = settings.terminal_max_sessions
     templates.env.globals["terminal_enabled"] = (
@@ -525,17 +528,31 @@ def _raise_file_error(exc: FileManagerError) -> NoReturn:
     raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-def _raise_login_failure(request: Request, username: str) -> NoReturn:
-    retry_after = login_limiter.record_failure(username)
+def _login_source(request: Request) -> str:
+    """Use the client address resolved by the trusted proxy configuration."""
+    client = request.client
+    host = getattr(client, "host", None) if client else None
+    return host if isinstance(host, str) and host else "unknown"
+
+
+async def _raise_login_failure(
+    request: Request,
+    username: str,
+    source: str,
+) -> NoReturn:
+    retry_after = login_limiter.record_failure(username, source)
     request.state.audit_result_detail = (
-        "account_locked" if retry_after else "invalid_credentials"
+        "login_rate_limited" if retry_after else "invalid_credentials"
     )
     if retry_after:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="登录失败次数过多，账户已临时锁定",
+            detail="此来源登录尝试过多，请稍后重试",
             headers={"Retry-After": str(retry_after)},
         )
+    delay = login_limiter.failure_delay(username)
+    if delay:
+        await asyncio.sleep(delay)
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误"
     )
@@ -617,20 +634,25 @@ async def login_page(request: Request):
 @router.post("/api/auth/login")
 async def login(request: Request, login_data: LoginRequest):
     """处理登录请求，成功后将用户信息写入 session。"""
-    retry_after = login_limiter.retry_after(login_data.username)
+    source = _login_source(request)
+    retry_after = login_limiter.retry_after(login_data.username, source)
     if retry_after:
-        request.state.audit_result_detail = "account_locked"
+        request.state.audit_result_detail = "login_rate_limited"
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="登录失败次数过多，账户已临时锁定",
+            detail="此来源登录尝试过多，请稍后重试",
             headers={"Retry-After": str(retry_after)},
         )
 
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", login_data.username):
-        _raise_login_failure(request, login_data.username)
+        await _raise_login_failure(request, login_data.username, source)
 
     try:
-        user_info = auth_mgr.authenticate_user(login_data.username, login_data.password)
+        user_info = await run_in_threadpool(
+            auth_mgr.authenticate_user,
+            login_data.username,
+            login_data.password,
+        )
     except AuthenticationServiceError:
         request.state.audit_result_detail = "authentication_service_unavailable"
         raise HTTPException(
@@ -638,13 +660,16 @@ async def login(request: Request, login_data: LoginRequest):
             detail="认证服务暂时不可用，请稍后重试",
         )
     if not user_info:
-        _raise_login_failure(request, login_data.username)
+        await _raise_login_failure(request, login_data.username, source)
     login_shell = user_info.get("shell")
     if login_shell is None:
-        login_shell = ldap_mgr.get_user_login_shell(login_data.username)
+        login_shell = await run_in_threadpool(
+            ldap_mgr.get_user_login_shell,
+            login_data.username,
+        )
     if _is_disabled_login_shell(login_shell):
-        _raise_login_failure(request, login_data.username)
-    login_limiter.record_success(login_data.username)
+        await _raise_login_failure(request, login_data.username, source)
+    login_limiter.record_success(login_data.username, source)
     request.state.audit_result_detail = "authenticated"
     # is_admin 不写入 session，每次请求动态计算（保证权限变更即时生效）
     request.session["user"] = user_info

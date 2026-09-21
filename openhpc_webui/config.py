@@ -63,6 +63,12 @@ class Settings:
     session_https_only: bool = env_bool("SESSION_HTTPS_ONLY", False)
     login_max_failed_attempts: int = env_positive_int("LOGIN_MAX_FAILED_ATTEMPTS", 5)
     login_lockout_minutes: int = env_positive_int("LOGIN_LOCKOUT_MINUTES", 30)
+    login_source_max_failed_attempts: int = env_positive_int(
+        "LOGIN_SOURCE_MAX_FAILED_ATTEMPTS", 20
+    )
+    login_max_failure_delay_seconds: int = env_positive_int(
+        "LOGIN_MAX_FAILURE_DELAY_SECONDS", 5
+    )
     file_upload_max_mb: int = env_positive_int("FILE_UPLOAD_MAX_MB", 1024)
     file_edit_max_kb: int = env_positive_int("FILE_EDIT_MAX_KB", 2048)
     terminal_enabled: bool = env_bool("TERMINAL_ENABLED", True)
@@ -79,6 +85,12 @@ class Settings:
                 "LOGIN_MAX_FAILED_ATTEMPTS", 5
             ),
             login_lockout_minutes=env_positive_int("LOGIN_LOCKOUT_MINUTES", 30),
+            login_source_max_failed_attempts=env_positive_int(
+                "LOGIN_SOURCE_MAX_FAILED_ATTEMPTS", 20
+            ),
+            login_max_failure_delay_seconds=env_positive_int(
+                "LOGIN_MAX_FAILURE_DELAY_SECONDS", 5
+            ),
             file_upload_max_mb=env_positive_int("FILE_UPLOAD_MAX_MB", 1024),
             file_edit_max_kb=env_positive_int("FILE_EDIT_MAX_KB", 2048),
             terminal_enabled=env_bool("TERMINAL_ENABLED", True),

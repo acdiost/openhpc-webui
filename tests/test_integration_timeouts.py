@@ -15,6 +15,7 @@ from openhpc_webui.services.slurm_manager import (
     SlurmManager,
     SlurmServiceUnavailable,
 )
+from openhpc_webui.schemas import LoginRequest
 
 
 ADMIN = {"username": "admin", "is_admin": True}
@@ -34,6 +35,31 @@ async def heartbeat_delay(awaitable) -> float:
 
 
 class IntegrationThreadpoolTests(unittest.TestCase):
+    def test_login_ldap_call_does_not_block_the_event_loop(self):
+        request = MagicMock()
+        request.client.host = "192.0.2.10"
+        request.session = {}
+
+        def slow_authentication(_username, _password):
+            time.sleep(0.12)
+            return {"username": "alice", "shell": "/bin/bash"}
+
+        with patch.object(
+            main.auth_mgr,
+            "authenticate_user",
+            side_effect=slow_authentication,
+        ), patch.object(main.admin_mgr, "is_admin", return_value=False):
+            delay = asyncio.run(
+                heartbeat_delay(
+                    main.login(
+                        request,
+                        LoginRequest(username="alice", password="secret"),
+                    )
+                )
+            )
+
+        self.assertLess(delay, 0.06)
+
     def test_slurm_api_route_does_not_block_the_event_loop(self):
         route = next(
             item for item in main.router.routes if item.path == "/api/slurm/partitions"

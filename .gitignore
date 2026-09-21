@@ -1,5 +1,6 @@
 .env
 __pycache__/
 .venv
+.runtime/
 .Ds_Store
 .playwright-cli 
