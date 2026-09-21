@@ -99,8 +99,16 @@ openssl rand -hex 32
 | `SLURM_CONFIG_DIR` | 节点与分区配置文件目录（`node.conf`、`partition.conf`） | `/etc/slurm` |
 | `JOB_OUTPUT_ALLOWED_ROOTS` | 允许读取作业输出的额外根目录；Linux 下以冒号分隔 | - |
 | `NFS_QUOTA_FS` | 启用用户存储配额时使用的文件系统路径 | - |
+| `FILE_UPLOAD_MAX_MB` | 单个上传文件的业务层大小上限 | `1024` |
+| `FILE_UPLOAD_MAX_CONCURRENT` | 每个应用进程同时解析的上传请求数 | `2` |
+| `FILE_UPLOAD_TIMEOUT_SECONDS` | 单个上传请求的总处理超时（秒） | `3600` |
 
 用户在 LDAP 中配置的 Home 目录会自动加入其作业输出允许范围。不要将敏感系统目录加入 `JOB_OUTPUT_ALLOWED_ROOTS`。
+
+上传入口在 multipart 解析前检查 `Content-Length`，并在接收请求流时再次累计实际字节数，
+因此伪造或省略长度也不能绕过限制。完整请求体上限为 `FILE_UPLOAD_MAX_MB` 加 1 MiB
+multipart 协议开销；业务层仍会独立检查实际文件内容大小。并发限制按应用进程计算，多
+worker 部署的总并发上限是 worker 数量与该配置的乘积。
 
 ## 运行
 

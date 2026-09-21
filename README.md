@@ -143,6 +143,8 @@ uv run openhpc_webui
 | `ADMIN_USERS` | 管理员用户名，多个值使用英文逗号分隔 |
 | `JOB_OUTPUT_MAX_BYTES` | 作业输出单次尾部读取上限，默认 1048576 字节（1 MiB） |
 | `FILE_UPLOAD_MAX_MB` | 文件管理单个上传文件大小上限，默认 1024 MB |
+| `FILE_UPLOAD_MAX_CONCURRENT` | 每个应用进程同时处理的上传数，默认 2 |
+| `FILE_UPLOAD_TIMEOUT_SECONDS` | 上传请求体接收与处理超时，默认 3600 秒 |
 | `FILE_EDIT_MAX_KB` | 在线 UTF-8 文本编辑大小上限，默认 2048 KB |
 | `TERMINAL_ENABLED` | 是否启用 xterm.js Web 终端，默认启用；认证关闭时始终不可用 |
 | `TERMINAL_IDLE_MINUTES` | 终端无输入输出的自动断开时间，默认 30 分钟 |

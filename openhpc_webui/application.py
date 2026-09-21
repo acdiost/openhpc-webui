@@ -78,6 +78,7 @@ from .schemas import (
     UserCreditRequest,
     UserQuotaUpdate,
     UserUpdate,
+    validate_ldap_identifier,
 )
 from .services import admin_manager as admin_mgr
 from .services.auth_manager import AuthenticationServiceError, AuthManager
@@ -85,6 +86,7 @@ from .services.csv_export import render_spreadsheet_safe_csv
 from .services.file_manager import FileAccessDenied, FileManager, FileManagerError
 from .services.ldap_manager import LDAPManager, LDAPServiceUnavailable
 from .services.login_limiter import LoginAttemptLimiter
+from .services.upload_guard import UploadPolicy, UploadRequestGuard
 from .services.integration_timeout import bounded_timeout_seconds
 from .services.nfs_quota_manager import NFSQuotaManager
 from .services.slurm_manager import (
@@ -141,6 +143,7 @@ _DISABLED_LOGIN_SHELLS = {
 }
 
 _CREDIT_COMMENT_INPUT_MAX_LENGTH = 478
+_MULTIPART_OVERHEAD_BYTES = 1024 * 1024
 
 
 def _timestamp_credit_comment(comment: str) -> str:
@@ -150,6 +153,24 @@ def _timestamp_credit_comment(comment: str) -> str:
 
 def _is_disabled_login_shell(shell: Optional[str]) -> bool:
     return (shell or "").strip() in _DISABLED_LOGIN_SHELLS
+
+
+def _require_ldap_identifier(value: str, label: str) -> None:
+    try:
+        validate_ldap_identifier(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"{label}格式无效") from exc
+
+
+def _upload_policy() -> UploadPolicy:
+    return UploadPolicy(
+        max_body_bytes=(
+            settings.file_upload_max_mb * 1024 * 1024
+            + _MULTIPART_OVERHEAD_BYTES
+        ),
+        max_concurrent=settings.file_upload_max_concurrent,
+        timeout_seconds=settings.file_upload_timeout_seconds,
+    )
 
 
 def _get_session_secret() -> str:
@@ -1961,6 +1982,7 @@ async def get_users(user: dict = Depends(get_current_user)):
 async def get_user(username: str, user: dict = Depends(get_current_user)):
     """获取单个用户信息，并附加 is_admin 字段。"""
     _require_admin(user)
+    _require_ldap_identifier(username, "用户名")
     user_data = ldap_mgr.get_user(username)
     if not user_data:
         raise HTTPException(status_code=404, detail="用户不存在")
@@ -2112,6 +2134,7 @@ async def create_user(user_data: UserCreate, user: dict = Depends(get_current_us
 async def delete_user(username: str, user: dict = Depends(get_current_user)):
     """删除用户；LDAP 删除放在可补偿的外部变更之后。"""
     _require_admin(user)
+    _require_ldap_identifier(username, "用户名")
 
     if not ldap_mgr.get_user(username):
         raise HTTPException(status_code=404, detail="用户不存在")
@@ -2161,8 +2184,7 @@ async def disable_user(username: str, user: dict = Depends(get_current_user)):
     """通过将登录 Shell 改为 nologin 禁用用户。"""
     _require_admin(user)
 
-    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", username):
-        raise HTTPException(status_code=400, detail="用户名格式无效")
+    _require_ldap_identifier(username, "用户名")
 
     if not ldap_mgr.get_user(username):
         raise HTTPException(status_code=404, detail="用户不存在")
@@ -2179,8 +2201,7 @@ async def enable_user(username: str, user: dict = Depends(get_current_user)):
     """通过恢复默认登录 Shell 启用用户。"""
     _require_admin(user)
 
-    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", username):
-        raise HTTPException(status_code=400, detail="用户名格式无效")
+    _require_ldap_identifier(username, "用户名")
 
     if not ldap_mgr.get_user(username):
         raise HTTPException(status_code=404, detail="用户不存在")
@@ -2198,6 +2219,7 @@ async def update_user(
 ):
     """更新用户信息，可选同步修改管理员权限。"""
     _require_admin(user)
+    _require_ldap_identifier(username, "用户名")
 
     existing_user = ldap_mgr.get_user(username)
     if not existing_user:
@@ -2240,8 +2262,7 @@ async def update_user_quota(
 ):
     """仅修改用户存储配额，避免为配额操作触发 LDAP 用户更新。"""
     _require_admin(user)
-    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", username):
-        raise HTTPException(status_code=400, detail="用户名格式无效")
+    _require_ldap_identifier(username, "用户名")
     if not ldap_mgr.get_user(username):
         raise HTTPException(status_code=404, detail="用户不存在")
     if not quota_mgr.is_enabled():
@@ -2258,6 +2279,7 @@ async def update_user_quota(
 async def reset_user_ssh_key(username: str, user: dict = Depends(get_current_user)):
     """生成并重置用户 SSH 密钥（仅管理员）。"""
     _require_admin(user)
+    _require_ldap_identifier(username, "用户名")
     if not ldap_mgr.get_user(username):
         raise HTTPException(status_code=404, detail="用户不存在")
 
@@ -2292,6 +2314,7 @@ async def get_groups(user: dict = Depends(get_current_user)):
 async def get_group(group_name: str, user: dict = Depends(get_current_user)):
     """获取单个组信息。"""
     _require_admin(user)
+    _require_ldap_identifier(group_name, "组名")
     group = ldap_mgr.get_group(group_name)
     if not group:
         raise HTTPException(status_code=404, detail="组不存在")
@@ -2316,6 +2339,7 @@ async def update_group(
 ):
     """更新组信息。"""
     _require_admin(user)
+    _require_ldap_identifier(group_name, "组名")
     existing_group = ldap_mgr.get_group(group_name)
     if not existing_group:
         raise HTTPException(status_code=404, detail="组不存在")
@@ -2332,6 +2356,7 @@ async def update_group(
 async def delete_group(group_name: str, user: dict = Depends(get_current_user)):
     """删除组。"""
     _require_admin(user)
+    _require_ldap_identifier(group_name, "组名")
     success = ldap_mgr.delete_group(group_name)
     if not success:
         raise HTTPException(status_code=500, detail="删除组失败")
@@ -3269,6 +3294,10 @@ def create_app() -> FastAPI:
             return RedirectResponse(url="/setup", status_code=302)
         return await call_next(request)
 
+    application.add_middleware(
+        UploadRequestGuard,
+        policy_provider=_upload_policy,
+    )
     application.add_middleware(AuditMiddleware, snapshot_resolver=_audit_snapshot)
     application.add_middleware(
         SessionMiddleware,

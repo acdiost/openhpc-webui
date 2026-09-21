@@ -70,6 +70,12 @@ class Settings:
         "LOGIN_MAX_FAILURE_DELAY_SECONDS", 5
     )
     file_upload_max_mb: int = env_positive_int("FILE_UPLOAD_MAX_MB", 1024)
+    file_upload_max_concurrent: int = env_positive_int(
+        "FILE_UPLOAD_MAX_CONCURRENT", 2
+    )
+    file_upload_timeout_seconds: int = env_positive_int(
+        "FILE_UPLOAD_TIMEOUT_SECONDS", 3600
+    )
     file_edit_max_kb: int = env_positive_int("FILE_EDIT_MAX_KB", 2048)
     terminal_enabled: bool = env_bool("TERMINAL_ENABLED", True)
     terminal_idle_minutes: int = env_positive_int("TERMINAL_IDLE_MINUTES", 30)
@@ -92,6 +98,12 @@ class Settings:
                 "LOGIN_MAX_FAILURE_DELAY_SECONDS", 5
             ),
             file_upload_max_mb=env_positive_int("FILE_UPLOAD_MAX_MB", 1024),
+            file_upload_max_concurrent=env_positive_int(
+                "FILE_UPLOAD_MAX_CONCURRENT", 2
+            ),
+            file_upload_timeout_seconds=env_positive_int(
+                "FILE_UPLOAD_TIMEOUT_SECONDS", 3600
+            ),
             file_edit_max_kb=env_positive_int("FILE_EDIT_MAX_KB", 2048),
             terminal_enabled=env_bool("TERMINAL_ENABLED", True),
             terminal_idle_minutes=env_positive_int("TERMINAL_IDLE_MINUTES", 30),

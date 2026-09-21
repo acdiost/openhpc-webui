@@ -72,6 +72,8 @@ SLURM_CONFIG_DIR=/etc/slurm
 NFS_QUOTA_FS=
 JOB_OUTPUT_ALLOWED_ROOTS=
 FILE_UPLOAD_MAX_MB=1024
+FILE_UPLOAD_MAX_CONCURRENT=2
+FILE_UPLOAD_TIMEOUT_SECONDS=3600
 FILE_EDIT_MAX_KB=2048
 LOGIN_SOURCE_MAX_FAILED_ATTEMPTS=20
 LOGIN_MAX_FAILURE_DELAY_SECONDS=5
@@ -202,6 +204,9 @@ Nginx 的 `client_max_body_size` 限制整个 HTTP 请求体，而应用的
 `FILE_UPLOAD_MAX_MB` 限制单个文件内容。默认值因此分别设为 1025 MiB 和
 1024 MiB，为 multipart 元数据预留 1 MiB。调整上传上限时必须同步修改两项配置，
 并让 Nginx 的值略大于应用值；否则合法文件会在到达应用前被 Nginx 以 413 拒绝。
+应用还会在 multipart 解析前按声明长度和实际接收字节双重限制完整请求体，并通过
+`FILE_UPLOAD_MAX_CONCURRENT` 限制每个 worker 的并发上传数、通过
+`FILE_UPLOAD_TIMEOUT_SECONDS` 终止超时请求。多 worker 的总并发上限为两者乘积。
 
 检查并重新加载 Nginx：
 

@@ -8,6 +8,14 @@ from pydantic import BaseModel, Field, field_validator
 
 
 _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_LDAP_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+
+
+def validate_ldap_identifier(value: str) -> str:
+    """Validate an LDAP uid/cn accepted by the management API."""
+    if not _LDAP_IDENTIFIER_PATTERN.fullmatch(value):
+        raise ValueError("LDAP 标识符只能包含字母、数字、点、下划线和连字符")
+    return value
 
 
 class UserContactFields(BaseModel):
@@ -52,6 +60,11 @@ class UserCreate(UserContactFields):
     is_admin: bool = False
     storage_quota_gb: Optional[float] = None
 
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, value: str) -> str:
+        return validate_ldap_identifier(value)
+
 
 class UserUpdate(UserContactFields):
     gid: Optional[int] = None
@@ -73,6 +86,11 @@ class GroupCreate(BaseModel):
     gid: int
     description: Optional[str] = ""
 
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return validate_ldap_identifier(value)
+
 
 class GroupUpdate(BaseModel):
     gid: Optional[int] = None
@@ -82,6 +100,11 @@ class GroupUpdate(BaseModel):
 class GroupMemberUpdate(BaseModel):
     username: str
     group_name: str
+
+    @field_validator("username", "group_name")
+    @classmethod
+    def validate_identifiers(cls, value: str) -> str:
+        return validate_ldap_identifier(value)
 
 
 class AccountCreate(BaseModel):

@@ -1,5 +1,6 @@
 from ldap3 import Server, Connection, ALL, BASE, MODIFY_ADD, MODIFY_DELETE, MODIFY_REPLACE
 from ldap3.core.exceptions import LDAPException
+from ldap3.utils.conv import escape_filter_chars
 from ldap3.utils.dn import escape_rdn
 import os
 import hashlib
@@ -159,7 +160,7 @@ class LDAPManager:
                 if gid:
                     group_search = conn.search(
                         f"ou=Groups,{self.base_dn}",
-                        f"(gidNumber={gid})",
+                        f"(gidNumber={escape_filter_chars(str(gid))})",
                         attributes=['cn']
                     )
                     if group_search and conn.entries:
@@ -197,7 +198,7 @@ class LDAPManager:
 
     def get_user(self, username: str) -> Optional[Dict]:
         """获取单个用户信息"""
-        users = self.list_users(f"(uid={username})")
+        users = self.list_users(f"(uid={escape_filter_chars(username)})")
         return users[0] if users else None
 
     def get_user_login_shell(self, username: str) -> Optional[str]:
@@ -248,7 +249,7 @@ class LDAPManager:
             return False
 
         try:
-            dn = f"uid={username},ou=People,{self.base_dn}"
+            dn = f"uid={escape_rdn(username)},ou=People,{self.base_dn}"
             surname = sn.strip() if sn and sn.strip() else username
             attrs = {
                 'objectClass': ['top', 'posixAccount', 'inetOrgPerson'],
@@ -287,7 +288,7 @@ class LDAPManager:
             return False
 
         try:
-            dn = f"uid={username},ou=People,{self.base_dn}"
+            dn = f"uid={escape_rdn(username)},ou=People,{self.base_dn}"
             conn.delete(dn)
             return conn.result['result'] == 0
         except LDAPServiceUnavailable:
@@ -317,7 +318,7 @@ class LDAPManager:
             return False
 
         try:
-            dn = f"uid={username},ou=People,{self.base_dn}"
+            dn = f"uid={escape_rdn(username)},ou=People,{self.base_dn}"
             changes = {}
 
             if gid is not None:
@@ -394,7 +395,7 @@ class LDAPManager:
                 if gid:
                     user_search = conn.search(
                         f"ou=People,{self.base_dn}",
-                        f"(gidNumber={gid})",
+                        f"(gidNumber={escape_filter_chars(str(gid))})",
                         attributes=['uid']
                     )
                     if user_search:
@@ -428,7 +429,7 @@ class LDAPManager:
 
     def get_group(self, group_name: str) -> Optional[Dict]:
         """获取单个组信息"""
-        groups = self.list_groups(f"(cn={group_name})")
+        groups = self.list_groups(f"(cn={escape_filter_chars(group_name)})")
         return groups[0] if groups else None
 
     def create_group(self, group_name: str, gid: int, description: str = "") -> bool:
@@ -438,7 +439,7 @@ class LDAPManager:
             return False
 
         try:
-            dn = f"cn={group_name},ou=Groups,{self.base_dn}"
+            dn = f"cn={escape_rdn(group_name)},ou=Groups,{self.base_dn}"
             attrs = {
                 'objectClass': ['top', 'posixGroup'],
                 'cn': group_name,
@@ -466,7 +467,7 @@ class LDAPManager:
             return False
 
         try:
-            dn = f"cn={group_name},ou=Groups,{self.base_dn}"
+            dn = f"cn={escape_rdn(group_name)},ou=Groups,{self.base_dn}"
             changes = {}
 
             if gid is not None:
@@ -496,7 +497,7 @@ class LDAPManager:
             return False
 
         try:
-            dn = f"cn={group_name},ou=Groups,{self.base_dn}"
+            dn = f"cn={escape_rdn(group_name)},ou=Groups,{self.base_dn}"
             conn.delete(dn)
             return conn.result['result'] == 0
         except LDAPServiceUnavailable:
@@ -516,7 +517,7 @@ class LDAPManager:
             return False
 
         try:
-            dn = f"cn={group_name},ou=Groups,{self.base_dn}"
+            dn = f"cn={escape_rdn(group_name)},ou=Groups,{self.base_dn}"
             conn.modify(dn, {'memberUid': [(MODIFY_ADD, [username])]})
             return conn.result['result'] == 0
         except LDAPServiceUnavailable:
@@ -536,7 +537,7 @@ class LDAPManager:
             return False
 
         try:
-            dn = f"cn={group_name},ou=Groups,{self.base_dn}"
+            dn = f"cn={escape_rdn(group_name)},ou=Groups,{self.base_dn}"
             conn.modify(dn, {'memberUid': [(MODIFY_DELETE, [username])]})
             return conn.result['result'] == 0
         except LDAPServiceUnavailable:
@@ -556,7 +557,7 @@ class LDAPManager:
             return False
 
         try:
-            dn = f"uid={username},ou=People,{self.base_dn}"
+            dn = f"uid={escape_rdn(username)},ou=People,{self.base_dn}"
             search_ok = conn.search(
                 dn,
                 "(objectClass=*)",
