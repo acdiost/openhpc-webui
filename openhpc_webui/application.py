@@ -81,6 +81,7 @@ from .schemas import (
 )
 from .services import admin_manager as admin_mgr
 from .services.auth_manager import AuthenticationServiceError, AuthManager
+from .services.csv_export import render_spreadsheet_safe_csv
 from .services.file_manager import FileAccessDenied, FileManager, FileManagerError
 from .services.ldap_manager import LDAPManager, LDAPServiceUnavailable
 from .services.login_limiter import LoginAttemptLimiter
@@ -2969,33 +2970,10 @@ async def export_user_report_csv(
         "start_time",
         "end_time",
     ]
-    lines = [",".join(header)]
-    for row in rows:
-        values = [
-            row.get("job_id", ""),
-            row.get("name", ""),
-            row.get("state", ""),
-            row.get("partition", ""),
-            row.get("alloc_cpus", ""),
-            row.get("alloc_gpus", ""),
-            row.get("cpu_hours", ""),
-            row.get("gpu_hours", ""),
-            row.get("elapsed_hours", ""),
-            row.get("submit_time", ""),
-            row.get("start_time", ""),
-            row.get("end_time", ""),
-        ]
-        escaped = []
-        for value in values:
-            text = str(value)
-            if '"' in text:
-                text = text.replace('"', '""')
-            if "," in text or "\n" in text or "\r" in text:
-                text = f'"{text}"'
-            escaped.append(text)
-        lines.append(",".join(escaped))
-
-    csv_content = "\n".join(lines)
+    csv_content = render_spreadsheet_safe_csv(
+        header,
+        ([row.get(column, "") for column in header] for row in rows),
+    )
     filename = f"{username}_report.csv"
     return Response(
         content=csv_content,
