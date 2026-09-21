@@ -11,6 +11,24 @@ import os
 from collections import deque
 from pathlib import Path
 from ..audit import log_current_exception, structured_print as print
+from .integration_timeout import bounded_timeout_seconds
+
+
+class SlurmServiceUnavailable(RuntimeError):
+    """A Slurm command exceeded its configured execution deadline."""
+
+
+def _run_slurm_command(*args, **kwargs):
+    timeout = kwargs.setdefault(
+        "timeout",
+        bounded_timeout_seconds("SLURM_COMMAND_TIMEOUT_SECONDS", 15),
+    )
+    try:
+        return subprocess.run(*args, **kwargs)
+    except subprocess.TimeoutExpired as exc:
+        raise SlurmServiceUnavailable(
+            f"Slurm command timed out after {timeout} seconds"
+        ) from exc
 
 
 class SlurmAssociationDeleteError(RuntimeError):
@@ -31,6 +49,10 @@ class SlurmManager:
     def __init__(self):
         self.config_mgr = PartitionConfigManager()
         self.node_config_mgr = NodeConfigManager()
+
+    @staticmethod
+    def command_timeout_seconds() -> int:
+        return bounded_timeout_seconds("SLURM_COMMAND_TIMEOUT_SECONDS", 15)
 
     @classmethod
     def _configured_cluster_name(cls) -> Optional[str]:
@@ -111,6 +133,8 @@ class SlurmManager:
                 partitions.append(merged)
 
             return partitions
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"查询分区失败: {e}")
             log_current_exception("查询分区失败的调用栈")
@@ -126,7 +150,7 @@ class SlurmManager:
 
         try:
             # 使用 sinfo 命令获取运行时状态
-            result = subprocess.run(
+            result = _run_slurm_command(
                 ['sinfo', '-o', '%P|%a|%l|%D|%T|%N|%C'],
                 capture_output=True,
                 text=True,
@@ -186,6 +210,8 @@ class SlurmManager:
                         partition_lines[partition_name]['other_cpus'] += int(cpu_match.group(3))
                         partition_lines[partition_name]['total_cpus'] += int(cpu_match.group(4))
 
+                except SlurmServiceUnavailable:
+                    raise
                 except Exception as parse_error:
                     print(f"警告: 解析分区状态失败: {line}, 错误: {parse_error}")
                     continue
@@ -233,6 +259,8 @@ class SlurmManager:
                     'total_cpus': data['total_cpus']
                 }
 
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"获取运行时状态失败: {e}")
             log_current_exception("获取运行时状态失败的调用栈")
@@ -242,7 +270,7 @@ class SlurmManager:
     def get_partition_detail(self, partition_name: str) -> Dict:
         """获取分区详细信息"""
         try:
-            result = subprocess.run(
+            result = _run_slurm_command(
                 ['scontrol', 'show', 'partition', partition_name],
                 capture_output=True,
                 text=True,
@@ -271,6 +299,8 @@ class SlurmManager:
                     detail[key] = match.group(1)
 
             return detail
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"获取分区详情失败: {e}")
             return {}
@@ -298,7 +328,7 @@ class SlurmManager:
     def list_nodes(self) -> List[Dict]:
         """列出所有节点"""
         try:
-            result = subprocess.run(
+            result = _run_slurm_command(
                 ['sinfo', '-N', '-o', '%N|%T|%C|%m|%P'],
                 capture_output=True,
                 text=True,
@@ -323,6 +353,8 @@ class SlurmManager:
                     nodes.append(node)
 
             return nodes
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"查询节点失败: {e}")
             return []
@@ -337,7 +369,7 @@ class SlurmManager:
         try:
             # 使用 squeue 获取作业队列
             cmd = ['squeue', '-o', '%i|%j|%u|%P|%T|%D|%C|%M|%S|%N']
-            result = subprocess.run(
+            result = _run_slurm_command(
                 cmd,
                 capture_output=True,
                 text=True,
@@ -377,6 +409,8 @@ class SlurmManager:
                     jobs.append(job)
 
             return jobs
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"查询作业队列失败: {e}")
             return []
@@ -390,7 +424,7 @@ class SlurmManager:
         if not self.is_valid_job_id(job_id):
             return None
         try:
-            result = subprocess.run(
+            result = _run_slurm_command(
                 ['scontrol', 'show', 'job', job_id],
                 capture_output=True,
                 text=True,
@@ -433,6 +467,8 @@ class SlurmManager:
 
             detail["NodeList"] = self._normalize_null(detail.get("NodeList"))
             return detail
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"获取作业详情失败: {e}")
             return None
@@ -541,7 +577,7 @@ class SlurmManager:
             "TRESUsageInAve,TRESUsageInMax,AllocTRES"
         )
         try:
-            result = subprocess.run(
+            result = _run_slurm_command(
                 [
                     "sstat", "--jobs", job_id, "--allsteps", "--noheader",
                     "--parsable2", f"--format={fields}",
@@ -550,6 +586,8 @@ class SlurmManager:
                 text=True,
                 check=True,
             )
+        except SlurmServiceUnavailable:
+            raise
         except Exception as exc:
             print(f"查询作业 {job_id} 实时资源占用失败: {exc}")
             response["message"] = "暂时无法获取资源统计，请确认 Slurm 作业统计服务可用"
@@ -640,13 +678,15 @@ class SlurmManager:
         if not self.is_valid_job_id(job_id):
             return False
         try:
-            result = subprocess.run(
+            result = _run_slurm_command(
                 ['scancel', job_id],
                 capture_output=True,
                 text=True,
                 check=True
             )
             return True
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"取消作业失败: {e}")
             return False
@@ -667,7 +707,7 @@ class SlurmManager:
             # sacct 字段说明：
             # JobID | JobName | User | State | AllocCPUS | Elapsed | End | ExitCode
             cmd = """sacct -S today -o JobID,JobName,User,State,AllocCPUS,Elapsed,End,ExitCode -X -n --parsable2 | sort -t'|' -k7,7r"""
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True)
+            result = _run_slurm_command(cmd, shell=True, capture_output=True, text=True, check=True)
 
             lines = result.stdout.strip().split('\n')
             jobs = []
@@ -713,6 +753,8 @@ class SlurmManager:
 
             return jobs
 
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"查询历史作业失败: {e}")
             return []
@@ -734,6 +776,8 @@ class SlurmManager:
                 'completed': completed_count,
                 'failed': failed_count
             }
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"获取作业统计失败: {e}")
             return {
@@ -851,12 +895,14 @@ class SlurmManager:
                 "format=Login,Used",
             ]
             try:
-                result = subprocess.run(
+                result = _run_slurm_command(
                     cmd,
                     capture_output=True,
                     text=True,
                     check=True,
                 )
+            except SlurmServiceUnavailable:
+                raise
             except Exception as e:
                 print(f"获取用户 {tres} 使用量失败: {e}")
                 return None
@@ -889,18 +935,22 @@ class SlurmManager:
         if end_date:
             cmd[5:5] = ["-E", end_date]
         try:
-            result = subprocess.run(
+            result = _run_slurm_command(
                 cmd,
                 capture_output=True,
                 text=True,
                 check=True,
             )
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"获取用户作业报表 JSON 失败: {e}")
             return None
 
         try:
             payload = json.loads(result.stdout)
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"解析 sacct JSON 失败: {e}")
             return None
@@ -1070,6 +1120,8 @@ class SlurmManager:
             if value <= 0 or value >= 4294967294:
                 return "Unknown"
             return datetime.fromtimestamp(value).isoformat(timespec="seconds")
+        except SlurmServiceUnavailable:
+            raise
         except Exception:
             return "Unknown"
 
@@ -1077,6 +1129,8 @@ class SlurmManager:
     def _safe_int(value: str, default: int = 0) -> int:
         try:
             return int(value)
+        except SlurmServiceUnavailable:
+            raise
         except Exception:
             return default
 
@@ -1097,6 +1151,8 @@ class SlurmManager:
                 return None
             datetime.strptime(value, "%Y-%m-%d")
             return value
+        except SlurmServiceUnavailable:
+            raise
         except Exception:
             return None
 
@@ -1106,7 +1162,7 @@ class SlurmManager:
         if cluster_name is None:
             return []
         try:
-            association_result = subprocess.run(
+            association_result = _run_slurm_command(
                 [
                     "sacctmgr",
                     "show",
@@ -1129,7 +1185,7 @@ class SlurmManager:
             if not local_accounts:
                 return []
 
-            result = subprocess.run(
+            result = _run_slurm_command(
                 ["sacctmgr", "show", "account", "--json"],
                 capture_output=True,
                 text=True,
@@ -1152,6 +1208,8 @@ class SlurmManager:
                     }
                 )
             return sorted(items, key=lambda x: x.get("name", ""))
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"获取 Slurm 账户失败: {e}")
             return []
@@ -1166,7 +1224,7 @@ class SlurmManager:
         try:
             # GrpTRESMins is stored on the account association, not on the
             # account metadata row returned by `show account`.
-            result = subprocess.run(
+            result = _run_slurm_command(
                 [
                     "sacctmgr",
                     "show",
@@ -1192,6 +1250,8 @@ class SlurmManager:
                     and not parts[1].strip()
                 ):
                     return self._parse_tres_minutes(parts[2].strip())
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"获取账户 TRES 限额失败: {e}")
         return None
@@ -1230,8 +1290,10 @@ class SlurmManager:
             ]
             if comment is not None:
                 args.append(f"Comment={comment}")
-            subprocess.run(args, capture_output=True, text=True, check=True)
+            _run_slurm_command(args, capture_output=True, text=True, check=True)
             return True
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"设置账户 TRES 限额失败: {e}")
             return False
@@ -1260,9 +1322,11 @@ class SlurmManager:
             if organization:
                 args.append(f"Organization={organization}")
 
-            result = subprocess.run(args, capture_output=True, text=True, check=True)
+            result = _run_slurm_command(args, capture_output=True, text=True, check=True)
             print(f"Slurm 创建账户 {name} 成功: {result.stdout}")
             return True
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"Slurm 创建账户失败: {e}")
             return False
@@ -1297,9 +1361,11 @@ class SlurmManager:
                 "set",
             ]
             args.extend(changes)
-            result = subprocess.run(args, capture_output=True, text=True, check=True)
+            result = _run_slurm_command(args, capture_output=True, text=True, check=True)
             print(f"Slurm 更新账户 {name} 成功: {result.stdout}")
             return True
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"Slurm 更新账户失败: {e}")
             return False
@@ -1310,7 +1376,7 @@ class SlurmManager:
         if cluster_name is None or not self._is_valid_slurm_name(name):
             return False
         try:
-            result = subprocess.run(
+            result = _run_slurm_command(
                 [
                     "sacctmgr",
                     "-i",
@@ -1325,6 +1391,8 @@ class SlurmManager:
             )
             print(f"Slurm 删除账户 {name} 成功: {result.stdout}")
             return True
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"Slurm 删除账户失败: {e}")
             return False
@@ -1332,7 +1400,7 @@ class SlurmManager:
     def list_qos(self) -> List[Dict]:
         """列出 Slurm QoS 配置。"""
         try:
-            result = subprocess.run(["sacctmgr", "show", "qos", "--json"], capture_output=True, text=True, check=True)
+            result = _run_slurm_command(["sacctmgr", "show", "qos", "--json"], capture_output=True, text=True, check=True)
             records = json.loads(result.stdout or "{}").get("qos", []) or []
             return sorted([{
                 "name": q.get("name") or "",
@@ -1348,6 +1416,8 @@ class SlurmManager:
                 "max_tres_pa": self._qos_tres(q, "account"),
                 "usage_factor": self._qos_number(q.get("usage_factor")),
             } for q in records], key=lambda item: item["name"])
+        except SlurmServiceUnavailable:
+            raise
         except Exception as exc:
             print(f"获取 Slurm QoS 失败: {exc}")
             return []
@@ -1408,8 +1478,10 @@ class SlurmManager:
         try:
             args = ["sacctmgr", "-i", "add", "qos", f"name={name}"]
             args.extend(self._qos_changes(**kwargs))
-            subprocess.run(args, capture_output=True, text=True, check=True)
+            _run_slurm_command(args, capture_output=True, text=True, check=True)
             return True
+        except SlurmServiceUnavailable:
+            raise
         except Exception as exc:
             print(f"创建 Slurm QoS 失败: {exc}")
             return False
@@ -1421,16 +1493,20 @@ class SlurmManager:
                 return True
             args = ["sacctmgr", "-i", "modify", "qos", f"name={name}", "set"]
             args.extend(changes)
-            subprocess.run(args, capture_output=True, text=True, check=True)
+            _run_slurm_command(args, capture_output=True, text=True, check=True)
             return True
+        except SlurmServiceUnavailable:
+            raise
         except Exception as exc:
             print(f"更新 Slurm QoS 失败: {exc}")
             return False
 
     def delete_qos(self, name: str) -> bool:
         try:
-            subprocess.run(["sacctmgr", "-i", "delete", "qos", f"name={name}"], capture_output=True, text=True, check=True)
+            _run_slurm_command(["sacctmgr", "-i", "delete", "qos", f"name={name}"], capture_output=True, text=True, check=True)
             return True
+        except SlurmServiceUnavailable:
+            raise
         except Exception as exc:
             print(f"删除 Slurm QoS 失败: {exc}")
             return False
@@ -1445,7 +1521,7 @@ class SlurmManager:
                 account = os.getenv("SLURM_DEFAULT_ACCOUNT", "acdiost")
             if not self._is_valid_slurm_name(account):
                 return []
-            result = subprocess.run(
+            result = _run_slurm_command(
                 [
                     "sacctmgr",
                     "show",
@@ -1484,6 +1560,8 @@ class SlurmManager:
                         key = f"{t_type}/{t_name}" if t_name else t_type
                         try:
                             grp_tres_mins[key] = int(count)
+                        except SlurmServiceUnavailable:
+                            raise
                         except Exception:
                             continue
                 items.append(
@@ -1520,6 +1598,8 @@ class SlurmManager:
                 else:
                     item["partition_access_status"] = "restricted"
             return items
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"获取 Slurm 关联失败: {e}")
             return []
@@ -1527,7 +1607,7 @@ class SlurmManager:
     def get_users_tres_limits(self) -> Dict[str, Dict[str, Optional[int]]]:
         """批量读取用户 TRES 限额、有效用量和剩余量，优先使用全局关联。"""
         try:
-            result = subprocess.run(
+            result = _run_slurm_command(
                 ["scontrol", "show", "assoc_mgr", "flags=assoc"],
                 capture_output=True,
                 text=True,
@@ -1562,6 +1642,8 @@ class SlurmManager:
                     ),
                 }
             return values_by_user
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"获取用户核时/卡时限额和用量失败: {e}")
             return {}
@@ -1569,7 +1651,7 @@ class SlurmManager:
     def get_accounts_tres_usage_minutes(self) -> Dict[str, Dict[str, int]]:
         """批量读取账户 Association 的累计 TRES 用量，优先使用全局关联。"""
         try:
-            result = subprocess.run(
+            result = _run_slurm_command(
                 ["scontrol", "show", "assoc_mgr", "flags=assoc"],
                 capture_output=True,
                 text=True,
@@ -1592,6 +1674,8 @@ class SlurmManager:
                     "gpu_used_minutes": selected["gpu_used_minutes"],
                 }
             return values_by_account
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"获取账户核时/卡时用量失败: {e}")
             return {}
@@ -1673,9 +1757,11 @@ class SlurmManager:
                 args.append(f"qos={qos}")
             if default_qos:
                 args.append(f"defaultqos={default_qos}")
-            result = subprocess.run(args, capture_output=True, text=True, check=True)
+            result = _run_slurm_command(args, capture_output=True, text=True, check=True)
             print(f"Slurm 创建关联 {username}/{account} 成功: {result.stdout}")
             return True
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"Slurm 创建关联失败: {e}")
             return False
@@ -1720,9 +1806,11 @@ class SlurmManager:
             ]
             args.append("set")
             args.extend(changes)
-            result = subprocess.run(args, capture_output=True, text=True, check=True)
+            result = _run_slurm_command(args, capture_output=True, text=True, check=True)
             print(f"Slurm 更新关联 {username}/{account} 成功: {result.stdout}")
             return True
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"Slurm 更新关联失败: {e}")
             return False
@@ -1750,7 +1838,7 @@ class SlurmManager:
                 f"account={account}",
                 self._partition_selector(partition),
             ]
-            result = subprocess.run(args, capture_output=True, text=True, check=True)
+            result = _run_slurm_command(args, capture_output=True, text=True, check=True)
             print(f"Slurm 删除关联 {username}/{account} 成功: {result.stdout}")
             return True
         except subprocess.CalledProcessError as exc:
@@ -1773,6 +1861,8 @@ class SlurmManager:
             raise SlurmAssociationDeleteError(
                 f"Slurm 删除关联失败：{output[:2000] or '命令未返回错误详情'}"
             ) from exc
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"Slurm 删除关联失败: {e}")
             return False
@@ -1822,12 +1912,14 @@ class SlurmManager:
                     return False
                 set_values.append(f"Comment={comment}")
             args.extend(["set", *set_values])
-            result = subprocess.run(args, capture_output=True, text=True, check=True)
+            result = _run_slurm_command(args, capture_output=True, text=True, check=True)
             print(
                 f"Slurm 设置 GrpTRESMins {username}/{account} 成功"
                 f" comment={comment!r}: {result.stdout}"
             )
             return True
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"Slurm 设置 GrpTRESMins 失败: {e}")
             return False
@@ -1856,7 +1948,7 @@ class SlurmManager:
         if not self._is_valid_slurm_name(username):
             return None
         try:
-            result = subprocess.run(
+            result = _run_slurm_command(
                 [
                     "sacctmgr",
                     "show",
@@ -1875,6 +1967,8 @@ class SlurmManager:
                 if len(parts) >= 2 and parts[0] == username:
                     account = parts[1].strip()
                     return account if self._is_valid_slurm_name(account) else None
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"获取 Slurm 用户默认账户失败: {e}")
         return None
@@ -1904,7 +1998,7 @@ class SlurmManager:
             args.extend(
                 ["format=User,Account,Partition,GrpTRESMins", "-n", "-P"]
             )
-            result = subprocess.run(
+            result = _run_slurm_command(
                 args,
                 capture_output=True,
                 text=True,
@@ -1919,6 +2013,8 @@ class SlurmManager:
                 if association_partition == expected_partition:
                     return self._parse_tres_minutes(parts[3])
             return None
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"获取 Slurm 关联 TRES 限额失败: {e}")
             return None
@@ -1938,7 +2034,7 @@ class SlurmManager:
         ):
             return None
         try:
-            result = subprocess.run(
+            result = _run_slurm_command(
                 [
                     "scontrol",
                     "show",
@@ -1950,6 +2046,8 @@ class SlurmManager:
                 text=True,
                 check=True,
             )
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"获取用户 TRES 有效用量失败: {e}")
             return None
@@ -2080,7 +2178,7 @@ class SlurmManager:
     def _user_command(self, arguments: List[str]) -> str:
         """Run a user command without hiding an unavailable accounting service."""
         try:
-            result = subprocess.run(
+            result = _run_slurm_command(
                 ["sacctmgr", *arguments], capture_output=True, text=True,
                 check=True, timeout=30,
             )
@@ -2184,7 +2282,7 @@ class SlurmManager:
             # 使用 sacctmgr 添加用户账户
             # -i: 立即执行,不需要确认
             # account=账户名: 指定用户所属账户
-            result = subprocess.run(
+            result = _run_slurm_command(
                 [
                     "sacctmgr",
                     "-i",
@@ -2200,6 +2298,8 @@ class SlurmManager:
             )
             print(f"Slurm 添加用户 {username} 到账户 {account} 成功: {result.stdout}")
             return True
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"Slurm 添加用户失败: {e}")
             return False
@@ -2217,7 +2317,7 @@ class SlurmManager:
         try:
             # 使用 sacctmgr 删除用户账户
             # -i: 立即执行,不需要确认
-            result = subprocess.run(
+            result = _run_slurm_command(
                 [
                     "sacctmgr",
                     "-i",
@@ -2232,6 +2332,8 @@ class SlurmManager:
             )
             print(f"Slurm 删除用户 {username} 成功: {result.stdout}")
             return True
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"Slurm 删除用户失败: {e}")
             return False
@@ -2245,7 +2347,7 @@ class SlurmManager:
             node_name: 节点名称
         """
         try:
-            result = subprocess.run(
+            result = _run_slurm_command(
                 ['scontrol', 'show', 'node', node_name],
                 capture_output=True,
                 text=True,
@@ -2278,6 +2380,8 @@ class SlurmManager:
                     detail[key] = match.group(1).strip()
 
             return detail
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"获取节点详情失败: {e}")
             return None
@@ -2295,7 +2399,7 @@ class SlurmManager:
             if reason:
                 cmd.append(f'Reason="{reason}"')
 
-            result = subprocess.run(
+            result = _run_slurm_command(
                 cmd,
                 capture_output=True,
                 text=True,
@@ -2303,6 +2407,8 @@ class SlurmManager:
             )
             print(f"更新节点 {node_name} 状态为 {state} 成功")
             return True
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"更新节点状态失败: {e}")
             return False
@@ -2534,6 +2640,8 @@ class SlurmManager:
                         'error': '作业输出文件路径在读取期间发生变化',
                         'content': None,
                     }
+            except SlurmServiceUnavailable:
+                raise
             except Exception:
                 os.close(descriptor)
                 raise
@@ -2562,6 +2670,8 @@ class SlurmManager:
                 'truncated': line_count > max_lines,
             }
 
+        except SlurmServiceUnavailable:
+            raise
         except Exception as e:
             print(f"读取作业输出文件失败: {e}")
             log_current_exception("读取作业输出文件失败的调用栈")

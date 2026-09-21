@@ -7,6 +7,7 @@ from pathlib import Path
 
 from ..config import slurm_config_file
 from ..audit import structured_print as print
+from .integration_timeout import bounded_timeout_seconds
 
 
 class PartitionConfigManager:
@@ -273,7 +274,10 @@ class PartitionConfigManager:
             result = subprocess.run(
                 ['scontrol', 'reconfigure'],
                 capture_output=True,
-                text=True
+                text=True,
+                timeout=bounded_timeout_seconds(
+                    "SLURM_COMMAND_TIMEOUT_SECONDS", 15
+                ),
             )
 
             if result.returncode != 0:

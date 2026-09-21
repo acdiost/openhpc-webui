@@ -160,6 +160,11 @@ uv run openhpc_webui
 自动视为已安装，不会跳转到安装向导。认证模式、Session 密钥和 HTTPS Cookie 设置修改后
 需要重启服务。
 
+无人值守部署还可在 `.env` 中设置 `LDAP_CONNECT_TIMEOUT_SECONDS`（默认 5 秒）、
+`LDAP_RECEIVE_TIMEOUT_SECONDS`（默认 10 秒）、`SLURM_COMMAND_TIMEOUT_SECONDS`
+（默认 15 秒）和 `SSH_KEYGEN_TIMEOUT_SECONDS`（默认 30 秒）。这些值限制在 1–300 秒，
+用于防止后端服务或 CLI 卡住请求线程；修改后需要重启服务。
+
 完整配置说明见[技术指南](./docs/TECHNICAL_GUIDE.md)。
 
 ## 生产部署

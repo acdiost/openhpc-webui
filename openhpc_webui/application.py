@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import time
 from datetime import datetime
+from functools import wraps
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Callable, NoReturn, Optional
@@ -81,10 +82,15 @@ from .schemas import (
 from .services import admin_manager as admin_mgr
 from .services.auth_manager import AuthenticationServiceError, AuthManager
 from .services.file_manager import FileAccessDenied, FileManager, FileManagerError
-from .services.ldap_manager import LDAPManager
+from .services.ldap_manager import LDAPManager, LDAPServiceUnavailable
 from .services.login_limiter import LoginAttemptLimiter
+from .services.integration_timeout import bounded_timeout_seconds
 from .services.nfs_quota_manager import NFSQuotaManager
-from .services.slurm_manager import SlurmAssociationDeleteError, SlurmManager
+from .services.slurm_manager import (
+    SlurmAssociationDeleteError,
+    SlurmManager,
+    SlurmServiceUnavailable,
+)
 from .services.terminal_manager import TerminalError, TerminalManager, TerminalSession
 from .services.system_settings import (
     SystemSettingsError,
@@ -167,7 +173,43 @@ _DEBUG_USER: dict = {
     "is_admin": True,
 }
 
-router = APIRouter()
+_BLOCKING_INTEGRATION_PATHS = (
+    "/api/admin",
+    "/api/files",
+    "/api/ldap",
+    "/api/slurm",
+    "/api/auth/login",
+    "/api/auth/change-password",
+)
+
+
+def _threadpooled_integration_endpoint(endpoint):
+    @wraps(endpoint)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await run_in_threadpool(
+                lambda: asyncio.run(endpoint(*args, **kwargs))
+            )
+        except (LDAPServiceUnavailable, SlurmServiceUnavailable) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="集群后端服务响应超时，请稍后重试",
+            ) from exc
+
+    return wrapper
+
+
+class IntegrationAPIRouter(APIRouter):
+    """Offload routes backed by synchronous LDAP and Slurm clients."""
+
+    def add_api_route(self, path, endpoint, **kwargs):
+        registered_endpoint = endpoint
+        if path.startswith(_BLOCKING_INTEGRATION_PATHS):
+            registered_endpoint = _threadpooled_integration_endpoint(endpoint)
+        return super().add_api_route(path, registered_endpoint, **kwargs)
+
+
+router = IntegrationAPIRouter()
 
 # Paths are anchored to the package, so the server can start from any directory.
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -231,7 +273,7 @@ def _pick_fields(value: Optional[dict], fields: tuple[str, ...]) -> Optional[dic
     return {field: value.get(field) for field in fields if field in value}
 
 
-async def _audit_snapshot(request: Request, body: dict):
+def _audit_snapshot_sync(request: Request, body: dict):
     """Read the current persisted state for the resource changed by a request."""
     path = request.url.path
 
@@ -343,6 +385,10 @@ async def _audit_snapshot(request: Request, body: dict):
     return None
 
 
+async def _audit_snapshot(request: Request, body: dict):
+    return await run_in_threadpool(_audit_snapshot_sync, request, body)
+
+
 # ── 异常处理 ────────────────────────────────────────────────────────────────
 
 
@@ -388,7 +434,15 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未登录")
 
     username = user.get("username", "")
-    current_shell = ldap_mgr.get_user_login_shell(username)
+    try:
+        current_shell = await run_in_threadpool(
+            ldap_mgr.get_user_login_shell, username
+        )
+    except LDAPServiceUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="认证服务暂时不可用，请稍后重试",
+        ) from exc
     if _is_disabled_login_shell(current_shell):
         request.session.clear()
         raise HTTPException(
@@ -409,7 +463,15 @@ async def get_current_user_optional(request: Request) -> Optional[dict]:
         return user
     user = request.session.get("user")
     if user:
-        current_shell = ldap_mgr.get_user_login_shell(user.get("username", ""))
+        try:
+            current_shell = await run_in_threadpool(
+                ldap_mgr.get_user_login_shell, user.get("username", "")
+            )
+        except LDAPServiceUnavailable as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="认证服务暂时不可用，请稍后重试",
+            ) from exc
         if _is_disabled_login_shell(current_shell):
             request.session.clear()
             return None
@@ -523,7 +585,13 @@ def _generate_ssh_key_pair(username: str) -> tuple[str, str, str]:
         if key_type == "rsa":
             args.extend(["-b", str(key_bits)])
 
-        subprocess.run(args, check=True, capture_output=True, text=True)
+        subprocess.run(
+            args,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=bounded_timeout_seconds("SSH_KEYGEN_TIMEOUT_SECONDS", 30),
+        )
         private_key = key_path.read_text(encoding="utf-8")
         public_key = key_path.with_suffix(".pub").read_text(encoding="utf-8").strip()
 

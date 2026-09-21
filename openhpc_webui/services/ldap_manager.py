@@ -1,4 +1,5 @@
 from ldap3 import Server, Connection, ALL, BASE, MODIFY_ADD, MODIFY_DELETE, MODIFY_REPLACE
+from ldap3.core.exceptions import LDAPException
 from ldap3.utils.dn import escape_rdn
 import os
 import hashlib
@@ -6,9 +7,14 @@ import base64
 from typing import List, Dict, Optional
 from dotenv import load_dotenv
 from ..audit import log_current_exception, structured_print as print
+from .integration_timeout import bounded_timeout_seconds
 
 # Load environment variables
 load_dotenv()
+
+
+class LDAPServiceUnavailable(RuntimeError):
+    """LDAP did not complete an infrastructure operation in time."""
 
 
 class LDAPManager:
@@ -21,13 +27,32 @@ class LDAPManager:
         self.base_dn = os.getenv('LDAP_BASE_DN', 'dc=acdiost,dc=com')
         self.port = int(os.getenv('LDAP_PORT', '389'))
         self.use_ssl = os.getenv('LDAP_USE_SSL', 'False').lower() == 'true'
+        self.connect_timeout = bounded_timeout_seconds(
+            "LDAP_CONNECT_TIMEOUT_SECONDS", 5
+        )
+        self.receive_timeout = bounded_timeout_seconds(
+            "LDAP_RECEIVE_TIMEOUT_SECONDS", 10
+        )
 
         # Build the server with port and SSL settings
         if self.use_ssl:
-            self.server = Server(self.ldap_uri.replace('ldap://', 'ldaps://').replace(':389', ':636'),
-                               port=636, use_ssl=True, get_info=ALL)
+            ldap_uri = self.ldap_uri.replace("ldap://", "ldaps://").replace(
+                ":389", ":636"
+            )
+            self.server = Server(
+                ldap_uri,
+                port=636,
+                use_ssl=True,
+                get_info=ALL,
+                connect_timeout=self.connect_timeout,
+            )
         else:
-            self.server = Server(self.ldap_uri, port=self.port, get_info=ALL)
+            self.server = Server(
+                self.ldap_uri,
+                port=self.port,
+                get_info=ALL,
+                connect_timeout=self.connect_timeout,
+            )
 
     @staticmethod
     def hash_password(password: str) -> str:
@@ -46,12 +71,17 @@ class LDAPManager:
                 self.server,
                 user=self.bind_dn,
                 password=self.bind_password,
-                auto_bind=True
+                auto_bind=True,
+                receive_timeout=self.receive_timeout,
             )
             return conn
+        except LDAPServiceUnavailable:
+            raise
+        except LDAPException as e:
+            raise LDAPServiceUnavailable("LDAP service unavailable") from e
         except Exception as e:
             print(f"LDAP 连接失败: {e}")
-            return None
+            raise LDAPServiceUnavailable("LDAP service unavailable") from e
 
     def check_connection(self) -> Dict[str, any]:
         """检查 LDAP 连接状态"""
@@ -68,6 +98,10 @@ class LDAPManager:
                 "status": "disconnected",
                 "error": "无法连接到 LDAP 服务器"
             }
+        except LDAPServiceUnavailable:
+            raise
+        except LDAPException as e:
+            raise LDAPServiceUnavailable("LDAP service unavailable") from e
         except Exception as e:
             return {
                 "status": "error",
@@ -150,6 +184,10 @@ class LDAPManager:
                 print(f"Added user: {username} with groups: {groups}")
 
             return users
+        except LDAPServiceUnavailable:
+            raise
+        except LDAPException as e:
+            raise LDAPServiceUnavailable("LDAP service unavailable") from e
         except Exception as e:
             print(f"查询用户失败: {e}")
             log_current_exception("查询用户失败的调用栈")
@@ -182,6 +220,10 @@ class LDAPManager:
             if not hasattr(entry, "loginShell") or not entry.loginShell:
                 return ""
             return str(entry.loginShell.value or "")
+        except LDAPServiceUnavailable:
+            raise
+        except LDAPException as e:
+            raise LDAPServiceUnavailable("LDAP service unavailable") from e
         except Exception as e:
             print(f"查询用户登录 Shell 失败: {e}")
             return None
@@ -228,6 +270,10 @@ class LDAPManager:
 
             conn.add(dn, attributes=attrs)
             return conn.result['result'] == 0
+        except LDAPServiceUnavailable:
+            raise
+        except LDAPException as e:
+            raise LDAPServiceUnavailable("LDAP service unavailable") from e
         except Exception as e:
             print(f"创建用户失败: {e}")
             return False
@@ -244,6 +290,10 @@ class LDAPManager:
             dn = f"uid={username},ou=People,{self.base_dn}"
             conn.delete(dn)
             return conn.result['result'] == 0
+        except LDAPServiceUnavailable:
+            raise
+        except LDAPException as e:
+            raise LDAPServiceUnavailable("LDAP service unavailable") from e
         except Exception as e:
             print(f"删除用户失败: {e}")
             return False
@@ -297,6 +347,10 @@ class LDAPManager:
 
             conn.modify(dn, changes)
             return conn.result['result'] == 0
+        except LDAPServiceUnavailable:
+            raise
+        except LDAPException as e:
+            raise LDAPServiceUnavailable("LDAP service unavailable") from e
         except Exception as e:
             print(f"更新用户失败: {e}")
             return False
@@ -361,6 +415,10 @@ class LDAPManager:
                 print(f"Added group: {name} with {len(members)} members")
 
             return groups
+        except LDAPServiceUnavailable:
+            raise
+        except LDAPException as e:
+            raise LDAPServiceUnavailable("LDAP service unavailable") from e
         except Exception as e:
             print(f"查询组失败: {e}")
             log_current_exception("查询组失败的调用栈")
@@ -391,6 +449,10 @@ class LDAPManager:
 
             conn.add(dn, attributes=attrs)
             return conn.result['result'] == 0
+        except LDAPServiceUnavailable:
+            raise
+        except LDAPException as e:
+            raise LDAPServiceUnavailable("LDAP service unavailable") from e
         except Exception as e:
             print(f"创建组失败: {e}")
             return False
@@ -417,6 +479,10 @@ class LDAPManager:
 
             conn.modify(dn, changes)
             return conn.result['result'] == 0
+        except LDAPServiceUnavailable:
+            raise
+        except LDAPException as e:
+            raise LDAPServiceUnavailable("LDAP service unavailable") from e
         except Exception as e:
             print(f"更新组失败: {e}")
             return False
@@ -433,6 +499,10 @@ class LDAPManager:
             dn = f"cn={group_name},ou=Groups,{self.base_dn}"
             conn.delete(dn)
             return conn.result['result'] == 0
+        except LDAPServiceUnavailable:
+            raise
+        except LDAPException as e:
+            raise LDAPServiceUnavailable("LDAP service unavailable") from e
         except Exception as e:
             print(f"删除组失败: {e}")
             return False
@@ -449,6 +519,10 @@ class LDAPManager:
             dn = f"cn={group_name},ou=Groups,{self.base_dn}"
             conn.modify(dn, {'memberUid': [(MODIFY_ADD, [username])]})
             return conn.result['result'] == 0
+        except LDAPServiceUnavailable:
+            raise
+        except LDAPException as e:
+            raise LDAPServiceUnavailable("LDAP service unavailable") from e
         except Exception as e:
             print(f"添加用户到组失败: {e}")
             return False
@@ -465,6 +539,10 @@ class LDAPManager:
             dn = f"cn={group_name},ou=Groups,{self.base_dn}"
             conn.modify(dn, {'memberUid': [(MODIFY_DELETE, [username])]})
             return conn.result['result'] == 0
+        except LDAPServiceUnavailable:
+            raise
+        except LDAPException as e:
+            raise LDAPServiceUnavailable("LDAP service unavailable") from e
         except Exception as e:
             print(f"从组中移除用户失败: {e}")
             return False
@@ -503,6 +581,10 @@ class LDAPManager:
 
             conn.modify(dn, changes)
             return conn.result["result"] == 0
+        except LDAPServiceUnavailable:
+            raise
+        except LDAPException as e:
+            raise LDAPServiceUnavailable("LDAP service unavailable") from e
         except Exception as e:
             print(f"写入 SSH 公钥失败: {e}")
             return False

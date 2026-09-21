@@ -8,6 +8,7 @@ from ldap3 import Server, Connection, ALL, SIMPLE
 from ldap3.core.exceptions import LDAPInvalidCredentialsResult
 from dotenv import load_dotenv
 from ..audit import structured_print as print
+from .integration_timeout import bounded_timeout_seconds
 
 load_dotenv()
 
@@ -23,6 +24,12 @@ class AuthManager:
         self.ldap_uri = os.getenv('LDAP_URI', 'ldap://localhost:389')
         self.base_dn = os.getenv('LDAP_BASE_DN', 'dc=acdiost,dc=com')
         self.use_ssl = os.getenv('LDAP_USE_SSL', 'False').lower() == 'true'
+        self.connect_timeout = bounded_timeout_seconds(
+            "LDAP_CONNECT_TIMEOUT_SECONDS", 5
+        )
+        self.receive_timeout = bounded_timeout_seconds(
+            "LDAP_RECEIVE_TIMEOUT_SECONDS", 10
+        )
 
     def authenticate_user(self, username: str, password: str) -> Optional[Dict[str, str]]:
         """
@@ -43,7 +50,12 @@ class AuthManager:
             user_dn = f"uid={username},ou=People,{self.base_dn}"
 
             # 创建LDAP服务器对象
-            server = Server(self.ldap_uri, get_info=ALL, use_ssl=self.use_ssl)
+            server = Server(
+                self.ldap_uri,
+                get_info=ALL,
+                use_ssl=self.use_ssl,
+                connect_timeout=self.connect_timeout,
+            )
 
             # 尝试使用用户凭证绑定
             conn = Connection(
@@ -53,6 +65,7 @@ class AuthManager:
                 authentication=SIMPLE,
                 auto_bind=True,
                 raise_exceptions=True,
+                receive_timeout=self.receive_timeout,
             )
 
             # 如果绑定成功，获取用户信息
@@ -109,12 +122,18 @@ class AuthManager:
             admin_dn = os.getenv('LDAP_DEFAULT_BIND_DN')
             admin_password = os.getenv('LDAP_DEFAULT_AUTHTOK')
 
-            server = Server(self.ldap_uri, get_info=ALL, use_ssl=self.use_ssl)
+            server = Server(
+                self.ldap_uri,
+                get_info=ALL,
+                use_ssl=self.use_ssl,
+                connect_timeout=self.connect_timeout,
+            )
             conn = Connection(
                 server,
                 user=admin_dn,
                 password=admin_password,
-                auto_bind=True
+                auto_bind=True,
+                receive_timeout=self.receive_timeout,
             )
 
             # 搜索用户
