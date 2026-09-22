@@ -461,16 +461,26 @@ async function fetchLDAPStatus() {
     }
 }
 
-// Fetch all users
-async function fetchUsers() {
+// Fetch a page of LDAP users. Without params, preserve the legacy array return.
+async function fetchUsers(params = null) {
     try {
-        const response = await fetch(`${config.apiBase}/users`);
+        const query = new URLSearchParams();
+        if (params) {
+            query.set('page', params.page || 1);
+            query.set('page_size', params.page_size || 20);
+            if (params.search) query.set('search', params.search);
+        }
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        const response = await fetch(`${config.apiBase}/users${suffix}`);
         const data = await response.json();
-        return data.users || [];
+        if (!response.ok) throw new Error(data.detail || 'Failed to fetch users');
+        return params ? data : data.users || [];
     } catch (error) {
         console.error('Failed to fetch users:', error);
         showToast('获取用户列表失败', 'error');
-        return [];
+        return params
+            ? { users: [], count: 0, total: 0, page: 1, page_size: 20, total_pages: 1 }
+            : [];
     }
 }
 

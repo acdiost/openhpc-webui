@@ -168,6 +168,36 @@ endblock %} {% block head_extra %}
     #usersTable td:nth-child(4),
     #usersTable th:nth-child(n+6):nth-child(-n+12),
     #usersTable td:nth-child(n+6):nth-child(-n+12) { text-align: right; }
+    .user-list-toolbar { gap: 16px; flex-wrap: wrap; }
+    .user-pagination {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+        margin-top: 16px;
+        color: #64748b;
+        font-size: 14px;
+    }
+    .user-pagination-controls { display: flex; align-items: center; gap: 8px; }
+    .user-pagination button {
+        min-width: 72px;
+        padding: 7px 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        background: #fff;
+        color: #374151;
+        cursor: pointer;
+    }
+    .user-pagination button:hover:not(:disabled) { border-color: #dc3023; color: #dc3023; }
+    .user-pagination button:disabled { cursor: not-allowed; opacity: .45; }
+    .user-page-size { display: flex; align-items: center; gap: 8px; }
+    .user-page-size select {
+        padding: 6px 28px 6px 10px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        background: #fff;
+    }
 </style>
 {% endblock %} {# ══════════════════════════════════════════════════════════
 主体内容 ══════════════════════════════════════════════════════════ #} {% block
@@ -183,12 +213,12 @@ content %}
 
 <!-- 用户列表卡片 -->
 <div class="card" style="margin-bottom: 20px">
-    <div class="flex justify-between items-center" style="margin-bottom: 16px">
+    <div class="flex justify-between items-center user-list-toolbar" style="margin-bottom: 16px">
         <div>
             <input
                 type="text"
                 id="userSearch"
-                placeholder="搜索用户名、姓名、UID、家目录、配额…"
+                placeholder="搜索用户名、姓名、UID、家目录…"
                 style="
                     padding: 8px 12px;
                     border: 1px solid #e5e7eb;
@@ -237,6 +267,22 @@ content %}
                 </tr>
             </tbody>
         </table>
+    </div>
+    <div id="userPagination" class="user-pagination" aria-label="用户列表分页">
+        <div class="user-page-size">
+            <label for="userPageSize">每页显示</label>
+            <select id="userPageSize">
+                <option value="20" selected>20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+            </select>
+            <span>条</span>
+        </div>
+        <div id="userPageSummary" aria-live="polite">第 1 / 1 页</div>
+        <div class="user-pagination-controls">
+            <button type="button" id="userPreviousPage" disabled>上一页</button>
+            <button type="button" id="userNextPage" disabled>下一页</button>
+        </div>
     </div>
 </div>
 
@@ -797,6 +843,11 @@ page_scripts %}
     /* ── 数据加载 ─────────────────────────────────────────── */
 
     let loadedUsers = [];
+    let userPage = 1;
+    let userPageSize = 20;
+    let userSearch = "";
+    let userSearchTimer = null;
+    let userLoadRequest = 0;
 
     function escapeHtml(value) {
         const element = document.createElement("div");
@@ -897,15 +948,39 @@ page_scripts %}
         }, 150);
     }
 
-    async function loadUsers() {
+    function renderUserPagination(metadata) {
+        const total = Number(metadata.total ?? metadata.count ?? 0);
+        const totalPages = Math.max(1, Number(metadata.total_pages || 1));
+        userPage = Math.min(Math.max(1, Number(metadata.page || 1)), totalPages);
+        const first = total === 0 ? 0 : (userPage - 1) * userPageSize + 1;
+        const last = Math.min(userPage * userPageSize, total);
+
+        document.getElementById("userPageSummary").textContent =
+            `第 ${userPage} / ${totalPages} 页 · ${first}-${last} 条`;
+        document.getElementById("userPreviousPage").disabled = userPage <= 1;
+        document.getElementById("userNextPage").disabled = userPage >= totalPages;
+    }
+
+    async function loadUsers(page = userPage) {
         const tbody = document.getElementById("usersTableBody");
+        const requestId = ++userLoadRequest;
         closeUserActionsMenu();
-        const users = await fetchUsers();
+        tbody.innerHTML =
+            '<tr><td colspan="16" class="text-center py-8 text-gray-500">加载中…</td></tr>';
+        const result = await fetchUsers({
+            page,
+            page_size: userPageSize,
+            search: userSearch,
+        });
+        if (requestId !== userLoadRequest) return;
+
+        const users = result.users || [];
+        renderUserPagination(result);
+        document.getElementById("userCount").textContent = result.total ?? result.count ?? 0;
 
         if (!users || users.length === 0) {
             tbody.innerHTML =
-                '<tr><td colspan="16" class="text-center py-8 text-gray-500">暂无用户数据</td></tr>';
-            document.getElementById("userCount").textContent = "0";
+                `<tr><td colspan="16" class="text-center py-8 text-gray-500">${userSearch ? "没有匹配的用户" : "暂无用户数据"}</td></tr>`;
             loadedUsers = [];
             return;
         }
@@ -968,8 +1043,6 @@ page_scripts %}
         `,
             )
             .join("");
-
-        document.getElementById("userCount").textContent = users.length;
     }
 
     async function loadLDAPStatus() {
@@ -1451,8 +1524,25 @@ page_scripts %}
     document.addEventListener("DOMContentLoaded", () => {
         loadUsers();
         loadLDAPStatus();
-        setupTableSearch("userSearch", "usersTable");
-        enableTableSorting("usersTable");
+        document.getElementById("userSearch").addEventListener("input", (event) => {
+            window.clearTimeout(userSearchTimer);
+            userSearchTimer = window.setTimeout(() => {
+                userSearch = event.target.value.trim();
+                userPage = 1;
+                loadUsers(1);
+            }, 300);
+        });
+        document.getElementById("userPageSize").addEventListener("change", (event) => {
+            userPageSize = Number(event.target.value) || 20;
+            userPage = 1;
+            loadUsers(1);
+        });
+        document.getElementById("userPreviousPage").addEventListener("click", () => {
+            if (userPage > 1) loadUsers(userPage - 1);
+        });
+        document.getElementById("userNextPage").addEventListener("click", () => {
+            loadUsers(userPage + 1);
+        });
         document.addEventListener("click", closeUserActionsMenu);
         document.addEventListener("keydown", (event) => {
             if (event.key === "Escape") closeUserActionsMenu();

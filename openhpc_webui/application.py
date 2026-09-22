@@ -1948,10 +1948,53 @@ async def ldap_status(user: dict = Depends(get_current_user)):
 
 
 @router.get("/api/ldap/users")
-async def get_users(user: dict = Depends(get_current_user)):
-    """获取所有 LDAP 用户列表，并附加 is_admin 字段。"""
+async def get_users(
+    user: dict = Depends(get_current_user),
+    page: int = 1,
+    page_size: int = 20,
+    search: str = "",
+):
+    """获取分页后的 LDAP 用户列表，并附加管理与资源字段。"""
     _require_admin(user)
+    if page < 1 or page_size < 1 or page_size > 100:
+        raise HTTPException(
+            status_code=422,
+            detail="page 必须大于等于 1，page_size 必须介于 1 和 100 之间",
+        )
+
+    search = search.strip()
+    if len(search) > 128:
+        raise HTTPException(status_code=422, detail="搜索内容不能超过 128 个字符")
+
     users = ldap_mgr.list_users()
+    users.sort(key=lambda item: str(item.get("username", "")).casefold())
+    if search:
+        search_term = search.casefold()
+        searchable_fields = (
+            "username",
+            "sn",
+            "cn",
+            "uid",
+            "gid",
+            "home",
+            "shell",
+            "email",
+            "phone",
+        )
+
+        def matches(user_data: dict) -> bool:
+            values = [user_data.get(field, "") for field in searchable_fields]
+            values.extend(user_data.get("groups") or [])
+            return any(search_term in str(value).casefold() for value in values)
+
+        users = [user_data for user_data in users if matches(user_data)]
+
+    total = len(users)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    current_page = min(page, total_pages)
+    start = (current_page - 1) * page_size
+    users = users[start : start + page_size]
+
     admin_list = admin_mgr.get_admin_list()
     tres_limits = slurm_mgr.get_users_tres_limits()
     for u in users:
@@ -1975,7 +2018,15 @@ async def get_users(user: dict = Depends(get_current_user)):
         else:
             u["storage_used_gb"] = None
             u["storage_quota_gb"] = 0
-    return {"users": users, "count": len(users)}
+    return {
+        "users": users,
+        "count": total,
+        "total": total,
+        "page": current_page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+        "search": search,
+    }
 
 
 @router.get("/api/ldap/users/{username}")
