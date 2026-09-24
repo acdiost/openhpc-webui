@@ -3,11 +3,27 @@
 {% block breadcrumb_title %}Slurm 用户管理{% endblock %}
 {% block head_extra %}
 <style>
-    #slurmUsersTable { min-width: 1180px; }
-    #slurmUsersTable .col-actions { width: 330px; min-width: 330px; }
-    .slurm-partition-list { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 18px; }
+    #slurmUsersTable { width: 100%; min-width: 1270px; table-layout: fixed; }
+    #slurmUsersTable col:nth-child(1) { width: 130px; }
+    #slurmUsersTable col:nth-child(2) { width: 110px; }
+    #slurmUsersTable col:nth-child(3) { width: 250px; }
+    #slurmUsersTable col:nth-child(4) { width: 140px; }
+    #slurmUsersTable col:nth-child(5) { width: 170px; }
+    #slurmUsersTable col:nth-child(6) { width: 160px; }
+    #slurmUsersTable col:nth-child(7) { width: 90px; }
+    #slurmUsersTable col:nth-child(8) { width: 220px; }
+    #slurmUsersTable .col-actions { width: 220px; min-width: 220px; }
+    #slurmUsersTable.has-actions th:last-child,
+    #slurmUsersTable.has-actions td:last-child { position: static; box-shadow: none; }
+    .slurm-partition-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .slurm-partition-value { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; }
+    .slurm-partition-edit { flex: none; padding: 5px 8px; font-size: 12px; }
+    .slurm-partition-list { display: flex; flex-direction: column; gap: 8px; margin: 12px 20px 18px; }
     .slurm-partition-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid #e5e7eb; border-radius: 6px; }
-    .slurm-partition-note { color: #6b7280; font-size: 13px; line-height: 1.5; }
+    .slurm-partition-note { margin: 0 20px 12px; color: #6b7280; font-size: 13px; line-height: 1.5; }
+    #slurmPartitionError { margin: 0 20px; }
+    .slurm-table-scroll-hint { display: none; margin: 8px 0 0; color: #6b7280; font-size: 12px; }
+    @media (max-width: 1600px) { .slurm-table-scroll-hint { display: block; } }
 </style>
 {% endblock %}
 {% block content %}
@@ -26,14 +42,16 @@
     <p id="slurmUserError" role="alert" style="color:#b91c1c" hidden></p>
     <div class="data-table-scroll" role="region" aria-label="Slurm 用户列表" tabindex="0">
         <table class="table data-table data-table--medium has-actions" id="slurmUsersTable" data-paginate="true">
-            <thead><tr><th>用户名</th><th>集群</th><th>默认账户</th><th>关联账户</th><th>允许的分区</th><th>Slurm 管理级别</th><th>关联数</th><th class="col-actions">操作</th></tr></thead>
+            <colgroup><col><col><col><col><col><col><col><col></colgroup>
+            <thead><tr><th>用户名</th><th>集群</th><th>允许的分区</th><th>默认账户</th><th>关联账户</th><th>Slurm 管理级别</th><th>关联数</th><th class="col-actions">操作</th></tr></thead>
             <tbody id="slurmUsersBody"></tbody>
         </table>
     </div>
+    <p class="slurm-table-scroll-hint">可左右滚动表格，查看其他列和操作。</p>
 </div>
 <div class="card" style="margin-top:20px">
     <h3 class="card-title">用户与关联</h3>
-    <p>创建时会将用户加入所选账户。可在“修改分区”中按账户增删分区关联；QOS 和额度请到 <a href="/cluster-users">Slurm 用户关联</a> 中管理。</p>
+    <p>创建时会将用户加入所选账户。可在“允许的分区”列点击“修改”，按账户增删分区关联；QOS 和额度请到 <a href="/cluster-users">Slurm 用户关联</a> 中管理。</p>
     <p>修改默认账户：找到用户，在表格最右侧“操作”列点击“修改默认账户”，选择已关联账户后保存。</p>
     <p>默认账户是 Slurm 用户属性；同一计费数据库服务多个集群时，修改可能影响该用户在其他集群的默认账户选择。</p>
     <p>删除会移除该用户在当前集群中的全部账户和分区关联，可能影响排队或运行中的作业。此处操作不会创建或删除 LDAP / 系统登录用户。</p>
@@ -66,4 +84,4 @@
     </div>
 </div>
 {% endblock %}
-{% block page_scripts %}<script src="/static/slurm_users.js?v={{ app_version }}"></script>{% endblock %}
+{% block page_scripts %}<script src="/static/slurm_users.js?v={{ app_version }}-partition-layout-2"></script>{% endblock %}

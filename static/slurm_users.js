@@ -19,7 +19,11 @@
     }
     function allowedPartitions(user) {
         const associations = user.associations || [];
-        if (associations.some((assoc) => !assoc.partition)) return '全局关联';
+        if (associations.some((assoc) => !assoc.partition)) {
+            return availablePartitions.length
+                ? `${[...new Set(availablePartitions)].sort().join(', ')}（全局）`
+                : '全部分区（全局）';
+        }
         return [...new Set(associations.map((assoc) => assoc.partition).filter(Boolean))].sort().join(', ') || '—';
     }
     function render() {
@@ -30,18 +34,35 @@
         body.replaceChildren();
         for (const user of visible) {
             const row = document.createElement('tr');
-            const values = [user.username, user.cluster, user.default_account || '—', user.accounts.join(', ') || '—', allowedPartitions(user), user.admin_level || 'None', user.associations.length];
+            const values = [user.username, user.cluster, allowedPartitions(user), user.default_account || '—', user.accounts.join(', ') || '—', user.admin_level || 'None', user.associations.length];
             for (const [index, value] of values.entries()) {
                 const cell = document.createElement('td');
-                cell.textContent = value;
-                if (index === 4) cell.title = value;
+                if (index === 2) {
+                    cell.title = value;
+                    const content = document.createElement('div');
+                    content.className = 'slurm-partition-cell';
+                    const label = document.createElement('span');
+                    label.className = 'slurm-partition-value';
+                    label.textContent = value;
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = 'btn btn-secondary slurm-partition-edit';
+                    button.textContent = '修改';
+                    button.setAttribute('aria-label', `修改 ${user.username} 允许的分区`);
+                    button.disabled = busy;
+                    button.addEventListener('click', () => openPartitionEditor(user));
+                    content.append(label, button);
+                    cell.append(content);
+                } else {
+                    cell.textContent = value;
+                }
                 row.append(cell);
             }
             const cell = document.createElement('td');
             cell.className = 'col-actions';
             const actions = document.createElement('div');
             actions.className = 'data-table-actions';
-            for (const [label, handler] of [['修改默认账户', () => openForm(user)], ['修改分区', () => openPartitionEditor(user)], ['删除', () => removeUser(user)]]) {
+            for (const [label, handler] of [['修改默认账户', () => openForm(user)], ['删除', () => removeUser(user)]]) {
                 const button = document.createElement('button');
                 button.className = 'btn btn-secondary';
                 button.textContent = label;
@@ -63,8 +84,13 @@
         errorAt('slurmUserError');
         el('slurmUserCount').textContent = '加载中…';
         try {
-            const data = await request('/api/slurm/users');
+            const [data, partitionData] = await Promise.all([
+                request('/api/slurm/users'),
+                request('/api/slurm/partitions').catch(() => null),
+            ]);
             if (version !== loadVersion) return;
+            availablePartitions = (partitionData?.partitions || [])
+                .map((item) => item.name).filter(Boolean);
             users = data.users; render();
         } catch (error) {
             if (version !== loadVersion) return;
