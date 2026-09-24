@@ -107,7 +107,7 @@ endblock %} {% block head_extra %}
         .user-detail-item:last-child { border-bottom: 0; }
     }
     #usersTable {
-        min-width: 2120px;
+        min-width: 1960px;
         table-layout: fixed;
         border-collapse: separate;
         border-spacing: 0;
@@ -160,9 +160,8 @@ endblock %} {% block head_extra %}
     #usersTable th:nth-child(n+7):nth-child(-n+12) { width: 105px; }
     #usersTable th:nth-child(13) { width: 150px; }
     #usersTable th:nth-child(14) { width: 180px; }
-    #usersTable th:nth-child(15) { width: 160px; }
-    #usersTable th:nth-child(16) { width: 82px; }
-    #usersTable th:nth-child(17) { width: 184px; }
+    #usersTable th:nth-child(15) { width: 82px; }
+    #usersTable th:nth-child(16) { width: 184px; }
     #usersTable th:nth-child(3),
     #usersTable td:nth-child(3),
     #usersTable th:nth-child(4),
@@ -256,14 +255,13 @@ content %}
                     <th>卡时剩余 (h)</th>
                     <th>Shell</th>
                     <th>所属组</th>
-                    <th title="按当前集群的 Slurm 用户关联显示；全局关联表示未限定分区">允许的 Partition</th>
                     <th class="col-status">状态</th>
                     <th class="col-actions">操作</th>
                 </tr>
             </thead>
             <tbody id="usersTableBody">
                 <tr>
-                    <td colspan="17" class="text-center py-8 text-gray-500">
+                    <td colspan="16" class="text-center py-8 text-gray-500">
                         加载中…
                     </td>
                 </tr>
@@ -963,18 +961,12 @@ page_scripts %}
         document.getElementById("userNextPage").disabled = userPage >= totalPages;
     }
 
-    function formatAllowedPartitions(partitions) {
-        if (!Array.isArray(partitions)) return "未知";
-        if (partitions.includes("*")) return "全局关联";
-        return partitions.join(", ") || "—";
-    }
-
     async function loadUsers(page = userPage) {
         const tbody = document.getElementById("usersTableBody");
         const requestId = ++userLoadRequest;
         closeUserActionsMenu();
         tbody.innerHTML =
-            '<tr><td colspan="17" class="text-center py-8 text-gray-500">加载中…</td></tr>';
+            '<tr><td colspan="16" class="text-center py-8 text-gray-500">加载中…</td></tr>';
         const result = await fetchUsers({
             page,
             page_size: userPageSize,
@@ -988,7 +980,7 @@ page_scripts %}
 
         if (!users || users.length === 0) {
             tbody.innerHTML =
-                `<tr><td colspan="17" class="text-center py-8 text-gray-500">${userSearch ? "没有匹配的用户" : "暂无用户数据"}</td></tr>`;
+                `<tr><td colspan="16" class="text-center py-8 text-gray-500">${userSearch ? "没有匹配的用户" : "暂无用户数据"}</td></tr>`;
             loadedUsers = [];
             return;
         }
@@ -1028,7 +1020,6 @@ page_scripts %}
                 <td>${!user.has_tres_association ? "—" : user.gpu_remaining_minutes == null ? "无限" : `${(user.gpu_remaining_minutes / 60).toFixed(2)} h`}</td>
                 <td style="font-family: monospace; font-size: 12px;">${escapeHtml(user.shell)}</td>
                 <td>${user.groups && user.groups.length > 0 ? escapeHtml(user.groups.join(", ")) : "—"}</td>
-                <td title="${escapeHtml(formatAllowedPartitions(user.allowed_partitions))}">${escapeHtml(formatAllowedPartitions(user.allowed_partitions))}</td>
                 <td class="col-status">
                     ${
                         isDisabledShell(user.shell)

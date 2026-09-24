@@ -1,6 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Slurm 用户管理{% endblock %}
 {% block breadcrumb_title %}Slurm 用户管理{% endblock %}
+{% block head_extra %}
+<style>
+    #slurmUsersTable { min-width: 1180px; }
+    #slurmUsersTable .col-actions { width: 330px; min-width: 330px; }
+    .slurm-partition-list { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 18px; }
+    .slurm-partition-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid #e5e7eb; border-radius: 6px; }
+    .slurm-partition-note { color: #6b7280; font-size: 13px; line-height: 1.5; }
+</style>
+{% endblock %}
 {% block content %}
 <div class="flex justify-between items-center flex-wrap gap-3" style="margin-bottom:24px">
     <div><h2 style="font-size:28px;font-weight:700">Slurm 用户管理</h2>
@@ -16,21 +25,34 @@
     </div>
     <p id="slurmUserError" role="alert" style="color:#b91c1c" hidden></p>
     <div class="data-table-scroll" role="region" aria-label="Slurm 用户列表" tabindex="0">
-        <table class="table data-table data-table--medium has-actions" data-paginate="true">
-            <thead><tr><th>用户名</th><th>集群</th><th>默认账户</th><th>关联账户</th><th>Slurm 管理级别</th><th>关联数</th><th class="col-actions">操作</th></tr></thead>
+        <table class="table data-table data-table--medium has-actions" id="slurmUsersTable" data-paginate="true">
+            <thead><tr><th>用户名</th><th>集群</th><th>默认账户</th><th>关联账户</th><th>允许的分区</th><th>Slurm 管理级别</th><th>关联数</th><th class="col-actions">操作</th></tr></thead>
             <tbody id="slurmUsersBody"></tbody>
         </table>
     </div>
 </div>
 <div class="card" style="margin-top:20px">
     <h3 class="card-title">用户与关联</h3>
-    <p>创建时会将用户加入所选账户。分区、QOS 和额度请到 <a href="/cluster-users">Slurm 用户关联</a> 中管理。</p>
-    <p>修改入口：找到用户，在表格最右侧“操作”列点击“修改默认账户”，选择已关联账户后保存。</p>
+    <p>创建时会将用户加入所选账户。可在“修改分区”中按账户增删分区关联；QOS 和额度请到 <a href="/cluster-users">Slurm 用户关联</a> 中管理。</p>
+    <p>修改默认账户：找到用户，在表格最右侧“操作”列点击“修改默认账户”，选择已关联账户后保存。</p>
     <p>默认账户是 Slurm 用户属性；同一计费数据库服务多个集群时，修改可能影响该用户在其他集群的默认账户选择。</p>
     <p>删除会移除该用户在当前集群中的全部账户和分区关联，可能影响排队或运行中的作业。此处操作不会创建或删除 LDAP / 系统登录用户。</p>
 </div>
 {% endblock %}
 {% block modals %}
+<div id="slurmPartitionModal" class="modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="slurmPartitionTitle">
+    <div class="modal-content" style="max-width:600px">
+        <div class="modal-header"><h3 id="slurmPartitionTitle">修改允许的分区</h3><button type="button" class="modal-close" id="closeSlurmPartition" aria-label="关闭">&times;</button></div>
+        <div class="form-group"><label for="slurmPartitionAccount">关联账户</label><select id="slurmPartitionAccount"></select></div>
+        <p class="slurm-partition-note">此处显示 Slurm 用户关联的分区范围，分区自身的访问限制仍然生效。全局关联表示该账户未限定分区；同一账户有全局关联时，分区关联不会收紧权限。新增关联的 QoS 和额度可在“Slurm 用户关联”中调整。</p>
+        <div id="slurmPartitionList" class="slurm-partition-list" aria-live="polite"></div>
+        <form id="slurmPartitionForm">
+            <div class="form-group"><label for="slurmPartitionChoice">添加分区关联</label><select id="slurmPartitionChoice" required></select></div>
+            <p id="slurmPartitionError" role="alert" style="color:#b91c1c" hidden></p>
+            <div class="modal-footer"><button type="button" id="cancelSlurmPartition" class="btn btn-secondary">关闭</button><button type="submit" id="saveSlurmPartition" class="btn btn-primary">添加</button></div>
+        </form>
+    </div>
+</div>
 <div id="slurmUserModal" class="modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="slurmUserModalTitle">
     <div class="modal-content">
         <div class="modal-header"><h3 id="slurmUserModalTitle">创建 Slurm 用户</h3><button type="button" class="modal-close" id="closeSlurmUser" aria-label="关闭">&times;</button></div>

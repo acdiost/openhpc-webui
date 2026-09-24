@@ -1997,29 +1997,8 @@ async def get_users(
 
     admin_list = admin_mgr.get_admin_list()
     tres_limits = slurm_mgr.get_users_tres_limits()
-    allowed_partitions = {}
-    partitions_available = True
-    if users:
-        try:
-            slurm_users = slurm_mgr.list_slurm_users()
-        except RuntimeError:
-            partitions_available = False
-            slurm_users = []
-        for slurm_user in slurm_users:
-            associations = slurm_user.get("associations") or []
-            if any(not assoc.get("partition") for assoc in associations):
-                partitions = ["*"]
-            else:
-                partitions = sorted({
-                    assoc["partition"] for assoc in associations
-                    if assoc.get("partition")
-                })
-            allowed_partitions[slurm_user.get("username")] = partitions
     for u in users:
         username = u.get("username", "")
-        u["allowed_partitions"] = (
-            allowed_partitions.get(username, []) if partitions_available else None
-        )
         u["is_admin"] = username in admin_list
         user_limits = tres_limits.get(username)
         u["has_tres_association"] = user_limits is not None

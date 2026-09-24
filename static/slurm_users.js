@@ -1,6 +1,8 @@
 (() => {
     let users = [];
     let editing = null;
+    let partitionUsername = null;
+    let availablePartitions = [];
     let busy = false;
     let loadVersion = 0;
     const el = (id) => document.getElementById(id);
@@ -15,6 +17,11 @@
         if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : '操作失败，请检查输入或重新登录');
         return data;
     }
+    function allowedPartitions(user) {
+        const associations = user.associations || [];
+        if (associations.some((assoc) => !assoc.partition)) return '全局关联';
+        return [...new Set(associations.map((assoc) => assoc.partition).filter(Boolean))].sort().join(', ') || '—';
+    }
     function render() {
         const query = el('slurmUserSearch').value.trim().toLowerCase();
         const visible = users.filter((user) => user.username.toLowerCase().includes(query));
@@ -23,16 +30,18 @@
         body.replaceChildren();
         for (const user of visible) {
             const row = document.createElement('tr');
-            for (const value of [user.username, user.cluster, user.default_account || '—', user.accounts.join(', ') || '—', user.admin_level || 'None', user.associations.length]) {
+            const values = [user.username, user.cluster, user.default_account || '—', user.accounts.join(', ') || '—', allowedPartitions(user), user.admin_level || 'None', user.associations.length];
+            for (const [index, value] of values.entries()) {
                 const cell = document.createElement('td');
                 cell.textContent = value;
+                if (index === 4) cell.title = value;
                 row.append(cell);
             }
             const cell = document.createElement('td');
             cell.className = 'col-actions';
             const actions = document.createElement('div');
             actions.className = 'data-table-actions';
-            for (const [label, handler] of [['修改默认账户', () => openForm(user)], ['删除', () => removeUser(user)]]) {
+            for (const [label, handler] of [['修改默认账户', () => openForm(user)], ['修改分区', () => openPartitionEditor(user)], ['删除', () => removeUser(user)]]) {
                 const button = document.createElement('button');
                 button.className = 'btn btn-secondary';
                 button.textContent = label;
@@ -44,9 +53,10 @@
         }
         if (!visible.length) {
             const cell = document.createElement('td');
-            cell.colSpan = 7; cell.textContent = query ? '没有匹配的用户' : '当前集群暂无 Slurm 用户';
+            cell.colSpan = 8; cell.textContent = query ? '没有匹配的用户' : '当前集群暂无 Slurm 用户';
             const row = document.createElement('tr'); row.append(cell); body.append(row);
         }
+        if (partitionUsername && el('slurmPartitionModal').style.display === 'flex') renderPartitionEditor();
     }
     async function load() {
         const version = ++loadVersion;
@@ -65,8 +75,88 @@
     }
     function setBusy(value) {
         busy = value;
-        for (const id of ['saveSlurmUser', 'createSlurmUser', 'closeSlurmUser', 'cancelSlurmUser']) el(id).disabled = value;
+        for (const id of ['saveSlurmUser', 'createSlurmUser', 'closeSlurmUser', 'cancelSlurmUser', 'closeSlurmPartition', 'cancelSlurmPartition', 'slurmPartitionAccount', 'slurmPartitionChoice']) el(id).disabled = value;
+        el('saveSlurmPartition').disabled = value || !el('slurmPartitionChoice').value;
         el('slurmUsersBody').querySelectorAll('button').forEach((button) => { button.disabled = value; });
+        el('slurmPartitionList').querySelectorAll('button').forEach((button) => { button.disabled = value; });
+    }
+    function renderPartitionEditor() {
+        const user = users.find((item) => item.username === partitionUsername);
+        if (!user) { closePartitionEditor(true); return; }
+        const accountSelect = el('slurmPartitionAccount');
+        if (!user.accounts.includes(accountSelect.value)) {
+            accountSelect.replaceChildren();
+            for (const name of user.accounts) accountSelect.add(new Option(name, name));
+            accountSelect.value = user.accounts.includes(user.default_account) ? user.default_account : user.accounts[0];
+        }
+        const account = accountSelect.value;
+        const associations = user.associations.filter((item) => item.account === account);
+        const list = el('slurmPartitionList');
+        list.replaceChildren();
+        for (const assoc of associations) {
+            const item = document.createElement('div');
+            item.className = 'slurm-partition-item';
+            const label = document.createElement('span');
+            label.textContent = assoc.partition || '全局关联（不限制分区）';
+            const button = document.createElement('button');
+            button.type = 'button'; button.className = 'btn btn-secondary';
+            button.textContent = '移除'; button.disabled = busy;
+            button.addEventListener('click', () => removePartitionAssociation(account, assoc.partition || ''));
+            item.append(label, button); list.append(item);
+        }
+        if (!associations.length) {
+            const item = document.createElement('p');
+            item.textContent = '该账户暂无分区关联'; list.append(item);
+        }
+        const existing = new Set(associations.map((item) => item.partition || ''));
+        const choice = el('slurmPartitionChoice');
+        choice.replaceChildren();
+        choice.add(new Option('请选择分区', ''));
+        if (!existing.has('')) choice.add(new Option('全局关联（不限制分区）', '*'));
+        for (const partition of availablePartitions) {
+            if (!existing.has(partition)) choice.add(new Option(partition, partition));
+        }
+        el('saveSlurmPartition').disabled = busy || !choice.value;
+    }
+    async function openPartitionEditor(user) {
+        if (busy) return;
+        partitionUsername = user.username;
+        errorAt('slurmPartitionError');
+        el('slurmPartitionTitle').textContent = `修改允许的分区：${user.username}`;
+        const accountSelect = el('slurmPartitionAccount');
+        accountSelect.replaceChildren();
+        for (const account of user.accounts) accountSelect.add(new Option(account, account));
+        accountSelect.value = user.accounts.includes(user.default_account) ? user.default_account : user.accounts[0];
+        availablePartitions = [];
+        el('slurmPartitionModal').style.display = 'flex';
+        renderPartitionEditor();
+        accountSelect.focus();
+        try {
+            const data = await request('/api/slurm/partitions');
+            if (partitionUsername !== user.username) return;
+            availablePartitions = data.partitions.map((item) => item.name);
+            renderPartitionEditor();
+        } catch (error) { errorAt('slurmPartitionError', error.message); }
+    }
+    function closePartitionEditor(force = false) {
+        if (busy && !force) return;
+        el('slurmPartitionModal').style.display = 'none';
+        partitionUsername = null;
+    }
+    async function removePartitionAssociation(account, partition) {
+        if (busy || !partitionUsername) return;
+        const label = partition || '全局关联';
+        if (!confirm(`确定移除 ${partitionUsername}/${account} 的“${label}”关联？该关联上的 QoS 和额度也会被删除，可能影响作业。`)) return;
+        const username = partitionUsername;
+        errorAt('slurmPartitionError');
+        setBusy(true);
+        try {
+            const query = `?partition=${encodeURIComponent(partition)}`;
+            await request(`/api/slurm/associations/${encodeURIComponent(account)}/${encodeURIComponent(username)}${query}`, {method: 'DELETE'});
+            showToast('分区关联已移除', 'success');
+            await load();
+        } catch (error) { errorAt('slurmPartitionError', error.message); }
+        finally { setBusy(false); }
     }
     async function openForm(user = null) {
         if (busy) return;
@@ -125,6 +215,34 @@
     el('cancelSlurmUser').addEventListener('click', closeForm);
     el('refreshSlurmUsers').addEventListener('click', load);
     el('slurmUserSearch').addEventListener('input', render);
-    document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeForm(); });
+    el('slurmPartitionAccount').addEventListener('change', renderPartitionEditor);
+    el('slurmPartitionChoice').addEventListener('change', () => {
+        el('saveSlurmPartition').disabled = busy || !el('slurmPartitionChoice').value;
+    });
+    el('slurmPartitionForm').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (busy || !partitionUsername) return;
+        const account = el('slurmPartitionAccount').value;
+        const choice = el('slurmPartitionChoice').value;
+        if (!account || !choice) return;
+        const user = users.find((item) => item.username === partitionUsername);
+        const hasGlobal = user?.associations.some((item) => item.account === account && !item.partition);
+        if (choice !== '*' && hasGlobal && !confirm('该账户已有全局关联，新增分区关联不会收紧权限。仍要添加吗？')) return;
+        if (choice === '*' && user?.associations.some((item) => item.account === account && item.partition) && !confirm('新增全局关联后，该账户现有的分区限制将不再生效。仍要添加吗？')) return;
+        errorAt('slurmPartitionError');
+        setBusy(true);
+        try {
+            await request('/api/slurm/associations', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({username: partitionUsername, account, partition: choice === '*' ? null : choice}),
+            });
+            showToast('分区关联已添加', 'success');
+            await load();
+        } catch (error) { errorAt('slurmPartitionError', error.message); }
+        finally { setBusy(false); }
+    });
+    el('closeSlurmPartition').addEventListener('click', () => closePartitionEditor());
+    el('cancelSlurmPartition').addEventListener('click', () => closePartitionEditor());
+    document.addEventListener('keydown', (event) => { if (event.key === 'Escape') { closeForm(); closePartitionEditor(); } });
     load();
 })();

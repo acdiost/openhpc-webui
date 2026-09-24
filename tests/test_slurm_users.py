@@ -1,6 +1,7 @@
 import os
 import subprocess
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 os.environ.setdefault('SECRET_KEY', 'test-secret-key-0123456789abcdef')
@@ -8,6 +9,22 @@ os.environ.setdefault('SECRET_KEY', 'test-secret-key-0123456789abcdef')
 from fastapi.testclient import TestClient
 import openhpc_webui.application as main
 from openhpc_webui.services.slurm_manager import SlurmManager
+
+
+PROJECT_ROOT = Path(__file__).parents[1]
+
+
+class SlurmUserPartitionFrontendTests(unittest.TestCase):
+    def test_partition_column_and_editor_live_on_slurm_user_page(self):
+        slurm_page = (PROJECT_ROOT / 'templates/slurm_users.html').read_text(encoding='utf-8')
+        ldap_page = (PROJECT_ROOT / 'templates/users.html').read_text(encoding='utf-8')
+
+        self.assertIn('<th>允许的分区</th>', slurm_page)
+        self.assertIn('id="slurmPartitionModal"', slurm_page)
+        self.assertIn('id="slurmPartitionAccount"', slurm_page)
+        self.assertIn('id="slurmPartitionChoice"', slurm_page)
+        self.assertNotIn('允许的 Partition', ldap_page)
+
 
 
 @patch.dict(os.environ, {'SLURM_CLUSTER_NAME': 'cluster'})

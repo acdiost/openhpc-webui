@@ -16,45 +16,6 @@ ADMIN = {"username": "admin", "is_admin": True}
 
 
 class LDAPUserPaginationApiTests(unittest.TestCase):
-    def test_users_include_allowed_partitions_from_slurm_associations(self):
-        directory_users = [
-            {"username": "alice"},
-            {"username": "bob"},
-            {"username": "carol"},
-        ]
-        slurm_users = [
-            {"username": "alice", "associations": [
-                {"account": "research", "partition": "gpu"},
-                {"account": "other", "partition": "cpu"},
-                {"account": "research", "partition": "gpu"},
-            ]},
-            {"username": "bob", "associations": [
-                {"account": "research", "partition": "gpu"},
-                {"account": "other", "partition": ""},
-            ]},
-        ]
-        with patch.object(main.ldap_mgr, "list_users", return_value=directory_users), \
-            patch.object(main.admin_mgr, "get_admin_list", return_value=[]), \
-            patch.object(main.slurm_mgr, "get_users_tres_limits", return_value={}), \
-            patch.object(main.slurm_mgr, "list_slurm_users", return_value=slurm_users), \
-            patch.object(main, "quota_mgr", None):
-            result = asyncio.run(main.get_users(ADMIN, page=1, page_size=20))
-
-        by_name = {user["username"]: user for user in result["users"]}
-        self.assertEqual(by_name["alice"]["allowed_partitions"], ["cpu", "gpu"])
-        self.assertEqual(by_name["bob"]["allowed_partitions"], ["*"])
-        self.assertEqual(by_name["carol"]["allowed_partitions"], [])
-
-    def test_slurm_user_lookup_failure_does_not_hide_ldap_users(self):
-        with patch.object(main.ldap_mgr, "list_users", return_value=[{"username": "alice"}]), \
-            patch.object(main.admin_mgr, "get_admin_list", return_value=[]), \
-            patch.object(main.slurm_mgr, "get_users_tres_limits", return_value={}), \
-            patch.object(main.slurm_mgr, "list_slurm_users", side_effect=RuntimeError("unavailable")), \
-            patch.object(main, "quota_mgr", None):
-            result = asyncio.run(main.get_users(ADMIN, page=1, page_size=20))
-
-        self.assertIsNone(result["users"][0]["allowed_partitions"])
-
     def test_users_are_sorted_paginated_and_only_current_page_is_enriched(self):
         directory_users = [
             {"username": "zoe", "sn": "Zoe"},
@@ -119,11 +80,6 @@ class LDAPUserPaginationApiTests(unittest.TestCase):
 
 
 class LDAPUserPaginationFrontendTests(unittest.TestCase):
-    def test_users_page_displays_allowed_partition_column(self):
-        template = (PROJECT_ROOT / "templates/users.html").read_text(encoding="utf-8")
-        self.assertIn("允许的 Partition</th>", template)
-        self.assertIn('user.allowed_partitions', template)
-
     def test_users_page_has_server_side_search_and_pagination_controls(self):
         template = (PROJECT_ROOT / "templates/users.html").read_text(encoding="utf-8")
 
