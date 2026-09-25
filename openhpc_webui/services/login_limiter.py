@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from typing import Callable, Optional, Tuple
 
-from ..config import PROJECT_ROOT
+from ..config import ENV_FILE
 
 
 class LoginAttemptLimiter:
@@ -39,7 +39,7 @@ class LoginAttemptLimiter:
         self.db_path = Path(
             db_path
             or configured_path
-            or PROJECT_ROOT / ".runtime" / "login_attempts.sqlite3"
+            or ENV_FILE.parent / ".runtime" / "login_attempts.sqlite3"
         ).expanduser()
         self._lock = threading.Lock()
         self._initialize_database()

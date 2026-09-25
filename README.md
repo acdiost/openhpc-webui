@@ -32,7 +32,7 @@
 | 查看作业详情 | 是 | 是 |
 | 查看作业输出 | 任意作业 | 仅自己的作业 |
 | 取消作业 | 任意作业 | 仅自己的作业 |
-| 文件管理范围 | 默认进入个人 Home，可访问系统根目录 `/` | LDAP Home 目录（页面中映射为 `/`） |
+| 文件管理范围 | 默认进入个人 Home，可访问系统根目录 `/`（沿用门户进程权限） | LDAP Home 目录（页面中映射为 `/`），按同名 Linux 用户 UID/GID/附加组权限操作 |
 | Web 终端身份与目录 | 当前同名 Linux 系统用户及其 Home | 当前同名 Linux 系统用户及其 Home |
 | 修改自己的 LDAP 密码 | 是 | 是 |
 
@@ -162,6 +162,8 @@ uv run openhpc_webui
 `.env` 仍作为持久化与无人值守部署的兼容入口；已经提供有效 `SECRET_KEY` 的旧部署会被
 自动视为已安装，不会跳转到安装向导。认证模式、Session 密钥和 HTTPS Cookie 设置修改后
 需要重启服务。
+
+应用以启动目录的 `.env` 为统一读写配置文件，也可通过绝对路径 `OPENHPC_WEBUI_ENV_FILE` 指定位置；权限管理、终端设置和安装向导会写入同一个文件。升级到本版本后旧 Session 须重新登录；删除或重建 LDAP 用户后原登录会话失效。
 
 无人值守部署还可在 `.env` 中设置 `LDAP_CONNECT_TIMEOUT_SECONDS`（默认 5 秒）、
 `LDAP_RECEIVE_TIMEOUT_SECONDS`（默认 10 秒）、`SLURM_COMMAND_TIMEOUT_SECONDS`

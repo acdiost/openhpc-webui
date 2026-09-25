@@ -5,6 +5,9 @@
     let availablePartitions = [];
     let busy = false;
     let loadVersion = 0;
+    let partitionEditorVersion = 0;
+    let partitionCatalogVersion = 0;
+    let appliedPartitionCatalogVersion = 0;
     const el = (id) => document.getElementById(id);
     function errorAt(id, message = '') {
         el(id).textContent = message;
@@ -81,17 +84,22 @@
     }
     async function load() {
         const version = ++loadVersion;
+        const catalogVersion = ++partitionCatalogVersion;
+        let usersLoaded = false;
         errorAt('slurmUserError');
         el('slurmUserCount').textContent = '加载中…';
+        request('/api/slurm/partitions').then((data) => {
+            if (version !== loadVersion || catalogVersion < appliedPartitionCatalogVersion) return;
+            appliedPartitionCatalogVersion = catalogVersion;
+            availablePartitions = (data.partitions || []).map((item) => item.name).filter(Boolean);
+            if (usersLoaded) render();
+        }).catch(() => {}); // Partition discovery is optional; do not hold up the user list.
         try {
-            const [data, partitionData] = await Promise.all([
-                request('/api/slurm/users'),
-                request('/api/slurm/partitions').catch(() => null),
-            ]);
+            const data = await request('/api/slurm/users');
             if (version !== loadVersion) return;
-            availablePartitions = (partitionData?.partitions || [])
-                .map((item) => item.name).filter(Boolean);
-            users = data.users; render();
+            users = data.users;
+            usersLoaded = true;
+            render();
         } catch (error) {
             if (version !== loadVersion) return;
             users = []; el('slurmUsersBody').replaceChildren();
@@ -146,6 +154,9 @@
     }
     async function openPartitionEditor(user) {
         if (busy) return;
+        const editorVersion = ++partitionEditorVersion;
+        const version = loadVersion;
+        const catalogVersion = ++partitionCatalogVersion;
         partitionUsername = user.username;
         errorAt('slurmPartitionError');
         el('slurmPartitionTitle').textContent = `修改允许的分区：${user.username}`;
@@ -153,19 +164,26 @@
         accountSelect.replaceChildren();
         for (const account of user.accounts) accountSelect.add(new Option(account, account));
         accountSelect.value = user.accounts.includes(user.default_account) ? user.default_account : user.accounts[0];
-        availablePartitions = [];
         el('slurmPartitionModal').style.display = 'flex';
         renderPartitionEditor();
         accountSelect.focus();
         try {
             const data = await request('/api/slurm/partitions');
-            if (partitionUsername !== user.username) return;
-            availablePartitions = data.partitions.map((item) => item.name);
-            renderPartitionEditor();
-        } catch (error) { errorAt('slurmPartitionError', error.message); }
+            if (partitionEditorVersion !== editorVersion || version !== loadVersion || partitionUsername !== user.username) return;
+            if (catalogVersion >= appliedPartitionCatalogVersion) {
+                appliedPartitionCatalogVersion = catalogVersion;
+                availablePartitions = (data.partitions || []).map((item) => item.name).filter(Boolean);
+                render();
+            }
+        } catch (error) {
+            if (partitionEditorVersion === editorVersion && version === loadVersion && partitionUsername === user.username) {
+                errorAt('slurmPartitionError', error.message);
+            }
+        }
     }
     function closePartitionEditor(force = false) {
         if (busy && !force) return;
+        ++partitionEditorVersion;
         el('slurmPartitionModal').style.display = 'none';
         partitionUsername = null;
     }

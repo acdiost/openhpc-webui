@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = PACKAGE_ROOT.parent
+ENV_FILE = Path(os.getenv("OPENHPC_WEBUI_ENV_FILE", ".env")).expanduser().resolve()
 
 
 def _resource_dir(name: str) -> Path:
@@ -22,7 +23,7 @@ DEFAULT_SLURM_CONFIG_DIR = "/etc/slurm"
 _TRUE_VALUES = frozenset({"true", "1", "yes", "on"})
 _FALSE_VALUES = frozenset({"false", "0", "no", "off"})
 
-load_dotenv(PROJECT_ROOT / ".env")
+load_dotenv(ENV_FILE)
 
 
 def env_bool(name: str, default: bool) -> bool:

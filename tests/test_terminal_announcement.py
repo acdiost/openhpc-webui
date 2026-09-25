@@ -16,7 +16,7 @@ from openhpc_webui.services.terminal_announcement import (
 class TerminalAnnouncementTests(unittest.TestCase):
     def test_persists_announcement_and_applies_it_immediately(self):
         with tempfile.TemporaryDirectory() as temp_dir, patch.object(
-            terminal_announcement, "PROJECT_ROOT", Path(temp_dir)
+            terminal_announcement, "ENV_FILE", Path(temp_dir) / ".env"
         ), patch.dict(os.environ, {}, clear=True):
             result = save_config(
                 enabled=True,

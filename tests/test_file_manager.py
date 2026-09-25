@@ -1,6 +1,8 @@
 import io
 import os
+import pwd
 import tempfile
+import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -92,6 +94,41 @@ class FileManagerTests(unittest.TestCase):
         self.assertFalse((self.root / "large.bin").exists())
         self.assertEqual(list(self.root.glob(".upload-*")), [])
 
+    @unittest.skipIf(os.geteuid() == 0, "A root portal needs a real non-root account")
+    def test_rejected_worker_transfer_never_commits_partial_upload_or_edit(self):
+        worker = self.manager.for_user(self.user, self.ldap)
+        target = self.root / "existing.txt"
+        target.write_text("original", encoding="utf-8")
+
+        with self.assertRaisesRegex(FileManagerError, "超过大小限制"):
+            worker.upload("/", "large.bin", io.BytesIO(b"123456789"), self.root)
+        with self.assertRaisesRegex(FileManagerError, "超过大小限制"):
+            worker.write_text("/existing.txt", "X" * 17, self.root)
+
+        self.assertFalse((self.root / "large.bin").exists())
+        self.assertEqual(target.read_text(encoding="utf-8"), "original")
+        self.assertEqual(list(self.root.glob(".upload-*")), [])
+
+    @unittest.skipIf(os.geteuid() == 0, "A root portal needs a real non-root account")
+    def test_worker_reads_text_larger_than_one_megabyte(self):
+        manager = FileManager(max_edit_bytes=2 * 1024 * 1024)
+        worker = manager.for_user(self.user, self.ldap)
+        text = "a" * (1100 * 1024)
+        (self.root / "large.txt").write_text(text, encoding="utf-8")
+        self.assertEqual(worker.read_text("/large.txt", self.root)["content"], text)
+
+    @unittest.skipIf(os.geteuid() == 0, "POSIX root bypasses discretionary permissions")
+    def test_user_can_save_write_only_file_with_writable_parent(self):
+        worker = self.manager.for_user(self.user, self.ldap)
+        target = self.root / "write-only.txt"
+        target.write_text("before", encoding="utf-8")
+        target.chmod(0o200)
+        try:
+            worker.write_text("/write-only.txt", "after", self.root)
+        finally:
+            target.chmod(0o600)
+        self.assertEqual(target.read_text(encoding="utf-8"), "after")
+
     def test_hidden_entries_are_optional(self):
         (self.root / ".secret").write_text("hidden", encoding="utf-8")
         (self.root / "visible").write_text("shown", encoding="utf-8")
@@ -161,6 +198,141 @@ class FileManagerTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(FileManagerError, "不存在或不可访问"):
             self.manager.scope_root(self.user, missing_ldap)
+
+
+    def test_raced_parent_symlink_cannot_redirect_any_operation(self):
+        outside = Path(self.temporary.name) / "outside"
+        outside.mkdir()
+        (outside / "secret.txt").write_text("outside", encoding="utf-8")
+        operations = [
+            lambda: self.manager.list_directory("/dir", self.root),
+            lambda: self.manager.read_text("/dir/secret.txt", self.root),
+            lambda: self.manager.write_text("/dir/secret.txt", "changed", self.root),
+            lambda: self.manager.open_download("/dir/secret.txt", self.root).__enter__(),
+            lambda: self.manager.upload("/dir", "new.txt", io.BytesIO(b"new"), self.root),
+            lambda: self.manager.create_directory("/dir", "new", self.root),
+            lambda: self.manager.rename("/dir/secret.txt", "new.txt", self.root),
+            lambda: self.manager.delete("/dir/secret.txt", self.root),
+        ]
+        real_open = os.open
+        for operation in operations:
+            with self.subTest(operation=operation):
+                directory = self.root / "dir"
+                directory.mkdir()
+                (directory / "secret.txt").write_text("home", encoding="utf-8")
+                self.manager.resolve("/dir/secret.txt", self.root)
+                raced = False
+
+                def swap_before_open(path, flags, *args, **kwargs):
+                    nonlocal raced
+                    if path == "dir" and not raced:
+                        raced = True
+                        directory.rename(self.root / "original")
+                        directory.symlink_to(outside, target_is_directory=True)
+                    return real_open(path, flags, *args, **kwargs)
+
+                with patch("openhpc_webui.services.file_manager.os.open", side_effect=swap_before_open):
+                    with self.assertRaises(FileManagerError):
+                        operation()
+                self.assertTrue(raced)
+                self.assertEqual((outside / "secret.txt").read_text(encoding="utf-8"), "outside")
+                self.assertFalse((outside / "new.txt").exists())
+                self.assertFalse((outside / "new").exists())
+                directory.unlink()
+                (self.root / "original" / "secret.txt").unlink()
+                (self.root / "original").rmdir()
+
+    def test_download_stream_is_pinned_before_parent_is_replaced(self):
+        inside = self.root / "dir"
+        inside.mkdir()
+        (inside / "note.txt").write_bytes(b"original")
+        outside = Path(self.temporary.name) / "outside"
+        outside.mkdir()
+        (outside / "note.txt").write_bytes(b"escaped")
+        with self.manager.open_download("/dir/note.txt", self.root) as (source, name):
+            inside.rename(self.root / "moved")
+            inside.symlink_to(outside, target_is_directory=True)
+            self.assertEqual(source.read(), b"original")
+            self.assertEqual(name, "note.txt")
+
+    @unittest.skipIf(os.geteuid() == 0, "POSIX root bypasses discretionary permissions")
+    def test_worker_enforces_file_and_directory_permissions(self):
+        worker = self.manager.for_user(self.user, self.ldap)
+        protected = self.root / "protected.txt"
+        protected.write_text("private", encoding="utf-8")
+        folder = self.root / "locked"
+        folder.mkdir()
+        (folder / "child.txt").write_text("keep", encoding="utf-8")
+        protected.chmod(0)
+        folder.chmod(0)
+        try:
+            with self.assertRaises(FileAccessDenied):
+                worker.read_text("/protected.txt", self.root)
+            with self.assertRaises(FileAccessDenied):
+                with worker.open_download("/protected.txt", self.root):
+                    pass
+            for action in (
+                lambda: worker.list_directory("/locked", self.root),
+                lambda: worker.upload("/locked", "file", io.BytesIO(b"data"), self.root),
+                lambda: worker.create_directory("/locked", "new", self.root),
+                lambda: worker.rename("/locked/child.txt", "new.txt", self.root),
+                lambda: worker.delete("/locked/child.txt", self.root),
+                lambda: worker.write_text("/locked/child.txt", "altered", self.root),
+            ):
+                with self.assertRaises(FileAccessDenied):
+                    action()
+        finally:
+            protected.chmod(0o600)
+            folder.chmod(0o700)
+        self.assertEqual((folder / "child.txt").read_text(), "keep")
+
+    @unittest.skipIf(os.geteuid() == 0, "A root portal can switch identities")
+    def test_portal_cannot_use_its_own_identity_for_a_different_uid(self):
+        (self.root / "public.txt").write_text("visible to portal", encoding="utf-8")
+        other = SimpleNamespace(
+            get_user=lambda _: {
+                "uid": os.getuid() + 1,
+                "gid": os.getgid(),
+                "home": str(self.root),
+            }
+        )
+        worker = self.manager.for_user(self.user, other)
+        with self.assertRaises(FileAccessDenied):
+            worker.read_text("/public.txt", self.root)
+
+    @unittest.skipUnless(
+        sys.platform.startswith("linux") and os.geteuid() == 0,
+        "Requires a Linux portal running as root",
+    )
+    def test_root_portal_drops_to_linux_user_for_home_operations(self):
+        try:
+            identity = pwd.getpwnam("nobody")
+        except KeyError:
+            self.skipTest("System has no nobody account")
+        Path(self.temporary.name).chmod(0o755)
+        self.root.chmod(0o777)
+        protected = self.root / "root-only.txt"
+        protected.write_text("root secret", encoding="utf-8")
+        protected.chmod(0o600)
+        user = {"username": identity.pw_name, "is_admin": False}
+        ldap = SimpleNamespace(get_user=lambda _: {
+            "uid": identity.pw_uid,
+            "gid": identity.pw_gid,
+            "home": str(self.root),
+        })
+        worker = self.manager.for_user(user, ldap)
+
+        with self.assertRaises(FileAccessDenied):
+            worker.read_text("/root-only.txt", self.root)
+        with self.assertRaises(FileAccessDenied):
+            worker.write_text("/root-only.txt", "changed", self.root)
+        with self.assertRaises(FileAccessDenied):
+            with worker.open_download("/root-only.txt", self.root):
+                pass
+        worker.upload("/", "owned-by-user.txt", io.BytesIO(b"permitted"), self.root)
+        self.assertEqual((self.root / "owned-by-user.txt").stat().st_uid, identity.pw_uid)
+        self.assertEqual(protected.read_text(), "root secret")
+
 
 
 class FileApiTests(unittest.TestCase):
@@ -244,6 +416,39 @@ class FileApiTests(unittest.TestCase):
         self.assertEqual(opened.json()["content"], "hello")
         self.assertEqual(saved.status_code, 200)
         self.assertEqual((self.home / "hello.txt").read_text(encoding="utf-8"), "updated\n")
+
+    def test_download_returns_pinned_file_contents(self):
+        with patch.object(main.ldap_mgr, "get_user", side_effect=self.user_record), TestClient(
+            self.app
+        ) as client:
+            response = client.get("/api/files/download", params={"path": "/hello.txt"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"hello")
+        self.assertIn("attachment;", response.headers["content-disposition"])
+
+    @unittest.skipIf(os.geteuid() == 0, "POSIX root bypasses discretionary permissions")
+    def test_api_rejects_posix_denied_read_write_download_and_creation(self):
+        protected = self.home / "hello.txt"
+        protected.chmod(0)
+        self.home.chmod(0o500)
+        try:
+            with patch.object(main.ldap_mgr, "get_user", side_effect=self.user_record), TestClient(
+                self.app
+            ) as client:
+                read = client.get("/api/files/content", params={"path": "/hello.txt"})
+                download = client.get("/api/files/download", params={"path": "/hello.txt"})
+                write = client.put("/api/files/content", json={"path": "/hello.txt", "content": "evil"})
+                mkdir = client.post("/api/files/directory", json={"path": "/", "name": "new"})
+                upload = client.post("/api/files/upload", files={"upload": ("new.txt", b"evil")})
+        finally:
+            self.home.chmod(0o700)
+            protected.chmod(0o600)
+        self.assertEqual([read.status_code, download.status_code, write.status_code,
+                          mkdir.status_code, upload.status_code], [403] * 5)
+        self.assertEqual(protected.read_text(), "hello")
+        self.assertFalse((self.home / "new").exists())
+        self.assertFalse((self.home / "new.txt").exists())
 
     def test_file_page_uses_custom_dialog_and_editor(self):
         template = main.TEMPLATES_DIR.joinpath("files.html").read_text(encoding="utf-8")

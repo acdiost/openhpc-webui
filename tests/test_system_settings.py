@@ -1,4 +1,6 @@
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -25,7 +27,7 @@ class SystemSettingsTests(unittest.TestCase):
 
     def test_complete_setup_generates_secret_and_locks_installer(self):
         with tempfile.TemporaryDirectory() as temp_dir, patch.object(
-            system_settings, "PROJECT_ROOT", Path(temp_dir)
+            system_settings, "ENV_FILE", Path(temp_dir) / ".env"
         ), patch.dict(os.environ, {}, clear=True):
             result = system_settings.complete_setup(
                 {
@@ -70,7 +72,7 @@ class SystemSettingsTests(unittest.TestCase):
 
     def test_save_persists_values_atomically_and_preserves_omitted_secrets(self):
         with tempfile.TemporaryDirectory() as temp_dir, patch.object(
-            system_settings, "PROJECT_ROOT", Path(temp_dir)
+            system_settings, "ENV_FILE", Path(temp_dir) / ".env"
         ), patch.dict(
             os.environ,
             {
@@ -114,7 +116,7 @@ class SystemSettingsTests(unittest.TestCase):
 
     def test_save_can_replace_secrets_without_returning_them(self):
         with tempfile.TemporaryDirectory() as temp_dir, patch.object(
-            system_settings, "PROJECT_ROOT", Path(temp_dir)
+            system_settings, "ENV_FILE", Path(temp_dir) / ".env"
         ), patch.dict(os.environ, {}, clear=True):
             result = system_settings.save_config(
                 {
@@ -137,7 +139,7 @@ class SystemSettingsTests(unittest.TestCase):
             {"slurm_config_dir": "relative/path"},
         )
         with tempfile.TemporaryDirectory() as temp_dir, patch.object(
-            system_settings, "PROJECT_ROOT", Path(temp_dir)
+            system_settings, "ENV_FILE", Path(temp_dir) / ".env"
         ):
             for update in invalid_updates:
                 with self.subTest(update=update), self.assertRaises(
@@ -145,6 +147,37 @@ class SystemSettingsTests(unittest.TestCase):
                 ):
                     system_settings.save_config(update)
             self.assertFalse((Path(temp_dir) / ".env").exists())
+
+    def test_packaged_process_persists_to_working_directory_env(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_path = Path(temp_dir) / ".env"
+            env_path.write_text("LDAP_URI=ldap://old\n", encoding="utf-8")
+            environment = {
+                key: value for key, value in os.environ.items()
+                if key not in {"LDAP_URI", "OPENHPC_WEBUI_ENV_FILE"}
+            }
+            project = str(Path(__file__).resolve().parents[1])
+            environment["PYTHONPATH"] = os.pathsep.join(
+                filter(None, (project, environment.get("PYTHONPATH", "")))
+            )
+            saved = subprocess.run(
+                [sys.executable, "-c",
+                 "from openhpc_webui.config import ENV_FILE, PACKAGE_ROOT; "
+                 "from openhpc_webui.services.system_settings import save_config; "
+                 "assert ENV_FILE.parent != PACKAGE_ROOT.parent; "
+                 "save_config({'ldap_uri': 'ldaps://new'})"],
+                cwd=temp_dir, env=environment, capture_output=True, text=True,
+            )
+            self.assertEqual(saved.returncode, 0, saved.stderr)
+            restarted = subprocess.run(
+                [sys.executable, "-c",
+                 "import os; import openhpc_webui.config; "
+                 "print(os.getenv('LDAP_URI'))"],
+                cwd=temp_dir, env=environment, capture_output=True, text=True,
+            )
+            self.assertEqual(restarted.returncode, 0, restarted.stderr)
+            self.assertEqual(restarted.stdout.strip(), "ldaps://new")
+            self.assertIn('LDAP_URI="ldaps://new"', env_path.read_text())
 
 
 if __name__ == "__main__":

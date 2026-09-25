@@ -14,7 +14,7 @@ from functools import wraps
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Callable, NoReturn, Optional
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from fastapi import (
     APIRouter,
@@ -30,11 +30,11 @@ from fastapi import (
     status,
 )
 from fastapi.responses import (
-    FileResponse,
     HTMLResponse,
     JSONResponse,
     RedirectResponse,
     Response,
+    StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -441,6 +441,25 @@ async def custom_http_exception_handler(request: Request, exc: HTTPException):
 # ── 认证依赖 ─────────────────────────────────────────────────────────────────
 
 
+async def _account_auth_state(username: str) -> Optional[tuple[str, str]]:
+    try:
+        return await run_in_threadpool(ldap_mgr.get_user_auth_state, username)
+    except LDAPServiceUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="认证服务暂时不可用，请稍后重试",
+        ) from exc
+
+
+def _session_account_active(user: dict, auth_state: Optional[tuple[str, str]]) -> bool:
+    return bool(
+        auth_state
+        and not _is_disabled_login_shell(auth_state[0])
+        and user.get("_entry_uuid")
+        and user["_entry_uuid"] == auth_state[1]
+    )
+
+
 async def get_current_user(request: Request) -> dict:
     """
     检查用户是否已登录，并动态注入最新的 is_admin 状态。
@@ -459,19 +478,11 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未登录")
 
     username = user.get("username", "")
-    try:
-        current_shell = await run_in_threadpool(
-            ldap_mgr.get_user_login_shell, username
-        )
-    except LDAPServiceUnavailable as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="认证服务暂时不可用，请稍后重试",
-        ) from exc
-    if _is_disabled_login_shell(current_shell):
+    auth_state = await _account_auth_state(username)
+    if not _session_account_active(user, auth_state):
         request.session.clear()
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="账户已禁用"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="账户已失效，请重新登录"
         )
 
     # 每次请求动态刷新 is_admin（管理员变更立即生效，无需重新登录）
@@ -488,16 +499,8 @@ async def get_current_user_optional(request: Request) -> Optional[dict]:
         return user
     user = request.session.get("user")
     if user:
-        try:
-            current_shell = await run_in_threadpool(
-                ldap_mgr.get_user_login_shell, user.get("username", "")
-            )
-        except LDAPServiceUnavailable as exc:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="认证服务暂时不可用，请稍后重试",
-            ) from exc
-        if _is_disabled_login_shell(current_shell):
+        auth_state = await _account_auth_state(user.get("username", ""))
+        if not _session_account_active(user, auth_state):
             request.session.clear()
             return None
         user = dict(user)
@@ -682,18 +685,15 @@ async def login(request: Request, login_data: LoginRequest):
         )
     if not user_info:
         await _raise_login_failure(request, login_data.username, source)
-    login_shell = user_info.get("shell")
-    if login_shell is None:
-        login_shell = await run_in_threadpool(
-            ldap_mgr.get_user_login_shell,
-            login_data.username,
-        )
-    if _is_disabled_login_shell(login_shell):
+    if _is_disabled_login_shell(user_info.get("shell")):
+        await _raise_login_failure(request, login_data.username, source)
+    auth_state = await _account_auth_state(login_data.username)
+    if not auth_state or _is_disabled_login_shell(auth_state[0]):
         await _raise_login_failure(request, login_data.username, source)
     login_limiter.record_success(login_data.username, source)
     request.state.audit_result_detail = "authenticated"
     # is_admin 不写入 session，每次请求动态计算（保证权限变更即时生效）
-    request.session["user"] = user_info
+    request.session["user"] = {**user_info, "_entry_uuid": auth_state[1]}
     # 返回时附上当前 is_admin 状态供前端使用
     user_info = dict(user_info)
     user_info["is_admin"] = admin_mgr.is_admin(user_info.get("username", ""))
@@ -1653,9 +1653,13 @@ async def terminal_websocket(websocket: WebSocket):
     if not username:
         await websocket.close(code=4401, reason="未登录")
         return
-    current_shell = await run_in_threadpool(ldap_mgr.get_user_login_shell, username)
-    if _is_disabled_login_shell(current_shell):
-        await websocket.close(code=4403, reason="账户已禁用")
+    try:
+        auth_state = await run_in_threadpool(ldap_mgr.get_user_auth_state, username)
+    except LDAPServiceUnavailable:
+        await websocket.close(code=4503, reason="认证服务暂时不可用")
+        return
+    if not _session_account_active(user, auth_state):
+        await websocket.close(code=4403, reason="账户已失效")
         return
 
     await websocket.accept()
@@ -1755,6 +1759,22 @@ async def terminal_websocket(websocket: WebSocket):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+class _PinnedFileResponse(StreamingResponse):
+    """Close the pinned file/worker even when ASGI cancels before first read."""
+
+    def __init__(self, content, opener, **kwargs):
+        self._opener = opener
+        super().__init__(content, **kwargs)
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            await asyncio.shield(
+                run_in_threadpool(self._opener.__exit__, None, None, None)
+            )
+
+
 @router.get("/api/files")
 async def list_files(
     path: str = "/",
@@ -1765,8 +1785,9 @@ async def list_files(
 ):
     root = _file_scope(user)
     try:
+        manager = file_mgr.for_user(user, ldap_mgr)
         result = await run_in_threadpool(
-            file_mgr.list_directory,
+            manager.list_directory,
             path,
             root,
             show_hidden=show_hidden,
@@ -1787,7 +1808,8 @@ async def list_files(
 async def get_file_content(path: str, user: dict = Depends(get_current_user)):
     root = _file_scope(user)
     try:
-        return await run_in_threadpool(file_mgr.read_text, path, root)
+        manager = file_mgr.for_user(user, ldap_mgr)
+        return await run_in_threadpool(manager.read_text, path, root)
     except FileManagerError as exc:
         _raise_file_error(exc)
 
@@ -1798,7 +1820,8 @@ async def update_file_content(
 ):
     root = _file_scope(user)
     try:
-        await run_in_threadpool(file_mgr.write_text, payload.path, payload.content, root)
+        manager = file_mgr.for_user(user, ldap_mgr)
+        await run_in_threadpool(manager.write_text, payload.path, payload.content, root)
     except FileManagerError as exc:
         _raise_file_error(exc)
     return {"message": "文件保存成功", "path": payload.path}
@@ -1807,17 +1830,29 @@ async def update_file_content(
 @router.get("/api/files/download")
 async def download_file(path: str, user: dict = Depends(get_current_user)):
     root = _file_scope(user)
+
     try:
-        target = file_mgr.resolve(path, root)
-        if not target.is_file():
-            raise FileManagerError("目标路径不是文件")
+        manager = file_mgr.for_user(user, ldap_mgr)
+        opener = manager.open_download(path, root)
+        source, filename = await run_in_threadpool(opener.__enter__)
     except FileManagerError as exc:
         _raise_file_error(exc)
-    return FileResponse(
-        path=str(target),
-        filename=target.name,
+
+    async def body():
+        while True:
+            chunk = await run_in_threadpool(source.read, 1024 * 1024)
+            if not chunk:
+                break
+            yield chunk
+
+    return _PinnedFileResponse(
+        body(),
+        opener,
         media_type="application/octet-stream",
-        headers={"Cache-Control": "private, no-store"},
+        headers={
+            "Cache-Control": "private, no-store",
+            "Content-Disposition": f"attachment; filename*=utf-8''{quote(filename)}",
+        },
     )
 
 
@@ -1827,12 +1862,12 @@ async def create_file_directory(
 ):
     root = _file_scope(user)
     try:
+        manager = file_mgr.for_user(user, ldap_mgr)
         created = await run_in_threadpool(
-            file_mgr.create_directory,
+            manager.create_directory,
             payload.path,
             payload.name,
             root,
-            file_mgr.owner_for(user, ldap_mgr),
         )
     except FileManagerError as exc:
         _raise_file_error(exc)
@@ -1847,13 +1882,13 @@ async def upload_file(
 ):
     root = _file_scope(user)
     try:
+        manager = file_mgr.for_user(user, ldap_mgr)
         created = await run_in_threadpool(
-            file_mgr.upload,
+            manager.upload,
             path,
             upload.filename or "",
             upload.file,
             root,
-            file_mgr.owner_for(user, ldap_mgr),
         )
     except FileManagerError as exc:
         _raise_file_error(exc)
@@ -1868,8 +1903,9 @@ async def rename_file(
 ):
     root = _file_scope(user)
     try:
+        manager = file_mgr.for_user(user, ldap_mgr)
         renamed = await run_in_threadpool(
-            file_mgr.rename, payload.path, payload.new_name, root
+            manager.rename, payload.path, payload.new_name, root
         )
     except FileManagerError as exc:
         _raise_file_error(exc)
@@ -1880,7 +1916,8 @@ async def rename_file(
 async def delete_file(path: str, user: dict = Depends(get_current_user)):
     root = _file_scope(user)
     try:
-        await run_in_threadpool(file_mgr.delete, path, root)
+        manager = file_mgr.for_user(user, ldap_mgr)
+        await run_in_threadpool(manager.delete, path, root)
     except FileManagerError as exc:
         _raise_file_error(exc)
     return {"message": "删除成功"}
@@ -2186,6 +2223,8 @@ async def delete_user(username: str, user: dict = Depends(get_current_user)):
     """删除用户；LDAP 删除放在可补偿的外部变更之后。"""
     _require_admin(user)
     _require_ldap_identifier(username, "用户名")
+    if username == user.get("username"):
+        raise HTTPException(status_code=400, detail="不能删除自己的管理员账户")
 
     if not ldap_mgr.get_user(username):
         raise HTTPException(status_code=404, detail="用户不存在")
@@ -2236,6 +2275,8 @@ async def disable_user(username: str, user: dict = Depends(get_current_user)):
     _require_admin(user)
 
     _require_ldap_identifier(username, "用户名")
+    if username == user.get("username"):
+        raise HTTPException(status_code=400, detail="不能禁用自己的管理员账户")
 
     if not ldap_mgr.get_user(username):
         raise HTTPException(status_code=404, detail="用户不存在")
@@ -2278,6 +2319,8 @@ async def update_user(
 
     if user_data.is_admin is False and username == user.get("username"):
         raise HTTPException(status_code=400, detail="不能撤销自己的管理员权限")
+    if username == user.get("username") and _is_disabled_login_shell(user_data.shell):
+        raise HTTPException(status_code=400, detail="不能禁用自己的管理员账户")
 
     success = ldap_mgr.update_user(
         username=username,
@@ -2292,12 +2335,15 @@ async def update_user(
     if not success:
         raise HTTPException(status_code=500, detail="更新用户失败")
 
-    # 处理管理员权限变更
     if user_data.is_admin is not None:
-        if user_data.is_admin:
+        role_saved = (
             admin_mgr.add_admin(username)
-        else:
-            admin_mgr.remove_admin(username)
+            if user_data.is_admin else admin_mgr.remove_admin(username)
+        )
+        if not role_saved:
+            raise HTTPException(
+                status_code=500, detail="LDAP 信息已更新，但管理员权限保存失败"
+            )
 
     return {
         "message": f"用户 {username} 更新成功",

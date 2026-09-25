@@ -8,7 +8,7 @@ from fastapi import HTTPException
 os.environ.setdefault("SECRET_KEY", "test-secret-key-0123456789abcdef")
 
 import openhpc_webui.application as main
-from openhpc_webui.schemas import UserCreate
+from openhpc_webui.schemas import UserCreate, UserUpdate
 
 
 ADMIN = {"username": "admin", "is_admin": True}
@@ -141,6 +141,17 @@ class UserDeletionLifecycleTests(unittest.TestCase):
         lookup.start()
         self.addCleanup(lookup.stop)
 
+    def test_self_deletion_is_rejected_before_any_external_mutation(self):
+        with patch.object(main.slurm_mgr, "remove_user_account") as remove_slurm, patch.object(
+            main.admin_mgr, "remove_admin"
+        ) as remove_admin, patch.object(main.ldap_mgr, "delete_user") as delete_ldap:
+            with self.assertRaises(HTTPException) as context:
+                asyncio.run(main.delete_user("admin", ADMIN))
+        self.assertEqual(context.exception.status_code, 400)
+        remove_slurm.assert_not_called()
+        remove_admin.assert_not_called()
+        delete_ldap.assert_not_called()
+
     def test_missing_ldap_user_does_not_change_other_systems(self):
         with patch.object(main.ldap_mgr, "get_user", return_value=None), patch.object(
             main.slurm_mgr, "remove_user_account"
@@ -231,6 +242,36 @@ class UserDeletionLifecycleTests(unittest.TestCase):
                 asyncio.run(main.delete_user("alice", ADMIN))
 
         self.assertIn("人工处理", context.exception.detail)
+
+
+class UserUpdateLifecycleTests(unittest.TestCase):
+    def test_self_disable_and_disabled_shell_edit_are_rejected(self):
+        with patch.object(main.ldap_mgr, "update_user") as update_ldap, patch.object(
+            main.ldap_mgr, "get_user", return_value={"username": "admin"}
+        ):
+            with self.assertRaises(HTTPException) as disabled:
+                asyncio.run(main.disable_user("admin", ADMIN))
+            with self.assertRaises(HTTPException) as edited:
+                asyncio.run(
+                    main.update_user(
+                        "admin", UserUpdate(shell="/usr/sbin/nologin"), ADMIN
+                    )
+                )
+        self.assertEqual(disabled.exception.status_code, 400)
+        self.assertEqual(edited.exception.status_code, 400)
+        update_ldap.assert_not_called()
+
+    def test_role_write_failure_reports_partial_ldap_update(self):
+        with patch.object(
+            main.ldap_mgr, "get_user", return_value={"username": "alice"}
+        ), patch.object(main.ldap_mgr, "update_user", return_value=True) as ldap_edit, patch.object(
+            main.admin_mgr, "add_admin", return_value=False
+        ):
+            with self.assertRaises(HTTPException) as context:
+                asyncio.run(main.update_user("alice", UserUpdate(is_admin=True), ADMIN))
+        self.assertEqual(context.exception.status_code, 500)
+        self.assertIn("LDAP 信息已更新", context.exception.detail)
+        ldap_edit.assert_called_once()
 
 
 if __name__ == "__main__":

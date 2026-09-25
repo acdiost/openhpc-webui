@@ -1,6 +1,7 @@
 import asyncio
 import os
 import subprocess
+import threading
 import time
 import unittest
 from unittest.mock import MagicMock, patch
@@ -40,25 +41,36 @@ class IntegrationThreadpoolTests(unittest.TestCase):
         request.client.host = "192.0.2.10"
         request.session = {}
 
+        auth_started = threading.Event()
+        release_auth = threading.Event()
+        released_by_heartbeat = []
+
         def slow_authentication(_username, _password):
-            time.sleep(0.12)
+            auth_started.set()
+            released_by_heartbeat.append(release_auth.wait(1))
             return {"username": "alice", "shell": "/bin/bash"}
+
+        async def heartbeat():
+            await asyncio.to_thread(auth_started.wait, 1)
+            release_auth.set()
+
+        async def scenario():
+            await asyncio.gather(
+                main.login(request, LoginRequest(username="alice", password="secret")),
+                heartbeat(),
+            )
 
         with patch.object(
             main.auth_mgr,
             "authenticate_user",
             side_effect=slow_authentication,
+        ), patch.object(
+            main.ldap_mgr, "get_user_auth_state",
+            return_value=("/bin/bash", "uuid-alice")
         ), patch.object(main.admin_mgr, "is_admin", return_value=False):
-            delay = asyncio.run(
-                heartbeat_delay(
-                    main.login(
-                        request,
-                        LoginRequest(username="alice", password="secret"),
-                    )
-                )
-            )
+            asyncio.run(scenario())
 
-        self.assertLess(delay, 0.06)
+        self.assertEqual(released_by_heartbeat, [True])
 
     def test_slurm_api_route_does_not_block_the_event_loop(self):
         route = next(
@@ -90,14 +102,14 @@ class IntegrationThreadpoolTests(unittest.TestCase):
 
     def test_authentication_dependency_does_not_block_the_event_loop(self):
         request = MagicMock()
-        request.session = {"user": {"username": "alice"}}
+        request.session = {"user": {"username": "alice", "_entry_uuid": "uuid-alice"}}
 
-        def slow_shell(_username):
+        def slow_auth_state(_username):
             time.sleep(0.12)
-            return "/bin/bash"
+            return "/bin/bash", "uuid-alice"
 
         with patch.object(main, "AUTH_ENABLED", True), patch.object(
-            main.ldap_mgr, "get_user_login_shell", side_effect=slow_shell
+            main.ldap_mgr, "get_user_auth_state", side_effect=slow_auth_state
         ), patch.object(main.admin_mgr, "is_admin", return_value=False):
             delay = asyncio.run(heartbeat_delay(main.get_current_user(request)))
 
@@ -105,10 +117,10 @@ class IntegrationThreadpoolTests(unittest.TestCase):
 
     def test_authentication_timeout_is_exposed_as_service_unavailable(self):
         request = MagicMock()
-        request.session = {"user": {"username": "alice"}}
+        request.session = {"user": {"username": "alice", "_entry_uuid": "uuid-alice"}}
         with patch.object(main, "AUTH_ENABLED", True), patch.object(
             main.ldap_mgr,
-            "get_user_login_shell",
+            "get_user_auth_state",
             side_effect=LDAPServiceUnavailable("timed out"),
         ):
             with self.assertRaises(HTTPException) as context:

@@ -6,11 +6,9 @@ import os
 from typing import Optional, Dict
 from ldap3 import Server, Connection, ALL, SIMPLE
 from ldap3.core.exceptions import LDAPInvalidCredentialsResult
-from dotenv import load_dotenv
 from ..audit import structured_print as print
 from .integration_timeout import bounded_timeout_seconds
 
-load_dotenv()
 
 
 class AuthenticationServiceError(RuntimeError):

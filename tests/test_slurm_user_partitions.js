@@ -35,7 +35,7 @@ class Element {
     }
 }
 
-async function page(initialAssociations, partitionFailure = false) {
+async function page(initialAssociations, partitionFailure = false, responses = {}) {
     const elements = new Map();
     const calls = [];
     const user = {
@@ -57,6 +57,8 @@ async function page(initialAssociations, partitionFailure = false) {
         showToast() {},
         async fetch(url, options = {}) {
             calls.push({url, options});
+            const override = responses[url]?.shift();
+            if (override) return override;
             let data = {};
             if (url === '/api/slurm/users') data = {users: [JSON.parse(JSON.stringify(user))]};
             else if (url === '/api/slurm/partitions') {
@@ -131,4 +133,61 @@ test('global association can be added and removed with the exact selector', asyn
     await globalRow.children[1].fire('click');
     assert.equal(partitionLabel(), 'gpu');
     assert.ok(calls.some((call) => call.url.endsWith('/research/alice?partition=') && call.options.method === 'DELETE'));
+});
+
+test('renders users before the catalog resolves and updates the open editor when it arrives', async () => {
+    let resolveCatalog;
+    const catalog = new Promise((resolve) => { resolveCatalog = resolve; });
+    const {elements} = await page([{account: 'research', partition: ''}], false, {
+        '/api/slurm/partitions': [catalog, new Promise(() => {})],
+    });
+    const el = (id) => elements.get(id);
+    const row = () => el('slurmUsersBody').children[0];
+    const partitionLabel = () => row().children[2].children[0].children[0].textContent;
+    assert.equal(el('slurmUserCount').textContent, '1 / 1 个用户');
+    assert.equal(partitionLabel(), '全部分区（全局）');
+    row().children[2].children[0].children[1].fire('click');
+    assert.equal(el('slurmPartitionModal').style.display, 'flex');
+    assert.deepEqual(el('slurmPartitionChoice').options.map((option) => option.value), ['']);
+
+    resolveCatalog({ok: true, json: async () => ({partitions: [{name: 'cpu'}, {name: 'gpu'}]})});
+    await new Promise(setImmediate);
+    assert.equal(partitionLabel(), 'cpu, gpu（全局）');
+    assert.deepEqual(el('slurmPartitionChoice').options.map((option) => option.value), ['', 'cpu', 'gpu']);
+});
+
+test('an old partition response cannot replace a refreshed catalog', async () => {
+    let resolveOld;
+    const stale = new Promise((resolve) => { resolveOld = resolve; });
+    const catalog = {ok: true, json: async () => ({partitions: [{name: 'fresh'}]})};
+    const {elements} = await page([{account: 'research', partition: ''}], false, {
+        '/api/slurm/partitions': [stale, catalog],
+    });
+    const el = (id) => elements.get(id);
+    await el('refreshSlurmUsers').fire('click');
+    const label = () => el('slurmUsersBody').children[0].children[2].children[0].children[0].textContent;
+    assert.equal(label(), 'fresh（全局）');
+    resolveOld({ok: true, json: async () => ({partitions: [{name: 'stale'}]})});
+    await new Promise(setImmediate);
+    assert.equal(label(), 'fresh（全局）');
+});
+
+test('refresh keeps the open editor aligned and ignores its older catalog request', async () => {
+    let resolveEditor;
+    const staleEditor = new Promise((resolve) => { resolveEditor = resolve; });
+    const response = (name) => ({ok: true, json: async () => ({partitions: [{name}]})});
+    const {elements} = await page([{account: 'research', partition: ''}], false, {
+        '/api/slurm/partitions': [response('initial'), staleEditor, response('fresh')],
+    });
+    const el = (id) => elements.get(id);
+    const row = () => el('slurmUsersBody').children[0];
+    const label = () => row().children[2].children[0].children[0].textContent;
+    row().children[2].children[0].children[1].fire('click');
+    await el('refreshSlurmUsers').fire('click');
+    assert.equal(label(), 'fresh（全局）');
+    assert.deepEqual(el('slurmPartitionChoice').options.map((option) => option.value), ['', 'fresh']);
+    resolveEditor(response('stale'));
+    await new Promise(setImmediate);
+    assert.equal(label(), 'fresh（全局）');
+    assert.deepEqual(el('slurmPartitionChoice').options.map((option) => option.value), ['', 'fresh']);
 });

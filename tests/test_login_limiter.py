@@ -143,6 +143,9 @@ class LoginLockoutApiTests(unittest.TestCase):
             main.auth_mgr,
             "authenticate_user",
             side_effect=[None, None, None, None, success, None],
+        ), patch.object(
+            main.ldap_mgr, "get_user_auth_state",
+            return_value=("/bin/bash", "uuid-reset")
         ), patch.object(main.admin_mgr, "is_admin", return_value=False):
             for _ in range(4):
                 self.assertEqual(

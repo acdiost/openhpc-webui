@@ -50,6 +50,8 @@ sudo install -o root -g root -m 0600 /dev/null /srv/openhpc-webui/.env
 向导会配置 LDAP、Slurm 和首位管理员，自动生成 Session 密钥并锁定安装入口。完成后
 重启服务。首次配置期间不要将站点暴露给不受信任网络。
 
+应用从进程工作目录读取和保存 `.env`，不在虚拟环境的 `site-packages` 中创建配置。若需要将配置放在其他位置，设置绝对路径 `OPENHPC_WEBUI_ENV_FILE`，并使 systemd 的 `EnvironmentFile` 指向同一个文件；运行账户必须能在该目录中创建临时文件并原子替换配置。
+
 无人值守部署也可以直接创建 `/srv/openhpc-webui/.env`。示例中的占位值必须替换为
 实际配置；密码包含空格、`#` 等特殊字符时应使用引号：
 
@@ -152,6 +154,8 @@ sudo journalctl -u openhpc-webui -f
 
 `WorkingDirectory` 与 `EnvironmentFile` 中的 `.env` 路径保持一致，是为了让权限管理
 页面对 `ADMIN_USERS` 的在线修改可以持久化，并在服务重启后继续生效。
+
+普通用户的文件管理操作由独立进程以其 NSS/SSSD UID、主 GID 和附加组执行，既受 LDAP Home 边界限制，也必须满足 Linux 文件权限；LDAP 身份与本机用户不一致时会拒绝文件操作。安装新版本后原有会话需要重新登录；LDAP 用户删除或重建后旧会话不会重新获得该用户名的权限。
 
 Nginx 反向代理及 HTTPS 配置参见[生产部署指南](./DEPLOYMENT.md)。
 

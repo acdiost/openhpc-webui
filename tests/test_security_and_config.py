@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key-0123456789abcdef")
 
@@ -124,6 +124,36 @@ class SessionSecurityTests(unittest.TestCase):
             with self.assertRaises(AuthenticationServiceError):
                 AuthManager().authenticate_user("alice", "secret")
 
+    def test_ldap_account_state_distinguishes_absence_from_lookup_failure(self):
+        connection = Mock()
+        connection.search.return_value = False
+        connection.entries = []
+        connection.result = {"result": 32}
+        with patch.object(main.ldap_mgr, "connect", return_value=connection):
+            self.assertIsNone(main.ldap_mgr.get_user_auth_state("deleted"))
+        connection.result = {"result": 50}
+        with patch.object(main.ldap_mgr, "connect", return_value=connection):
+            with self.assertRaises(main.LDAPServiceUnavailable):
+                main.ldap_mgr.get_user_auth_state("alice")
+
+
+        connection.search.side_effect = OSError("connection reset")
+        with patch.object(main.ldap_mgr, "connect", return_value=connection):
+            with self.assertRaises(main.LDAPServiceUnavailable):
+                main.ldap_mgr.get_user_auth_state("alice")
+
+        connection.search.side_effect = None
+        connection.search.return_value = True
+        connection.entries = [SimpleNamespace(
+            entryUUID=SimpleNamespace(value="uuid-alice"),
+            loginShell=SimpleNamespace(value="/bin/bash"),
+        )]
+        with patch.object(main.ldap_mgr, "connect", return_value=connection):
+            self.assertEqual(
+                main.ldap_mgr.get_user_auth_state("alice"),
+                ("/bin/bash", "uuid-alice"),
+            )
+
     def test_authenticated_mode_rejects_short_secret(self):
         with patch.object(main, "AUTH_ENABLED", True), patch.dict(
             os.environ, {"SECRET_KEY": "too-short"}
@@ -146,7 +176,7 @@ class SessionSecurityTests(unittest.TestCase):
             "authenticate_user",
             return_value={"username": "alice", "cn": "Alice"},
         ), patch.object(
-            main.ldap_mgr, "get_user_login_shell", return_value="/bin/bash"
+            main.ldap_mgr, "get_user_auth_state", return_value=("/bin/bash", "uuid-alice")
         ), patch.object(main.admin_mgr, "is_admin", return_value=True):
             client = TestClient(main.app, base_url="http://testserver")
             response = client.post(
@@ -184,17 +214,78 @@ class SessionSecurityTests(unittest.TestCase):
 
     def test_existing_session_is_cleared_after_user_is_disabled(self):
         request = Mock()
-        request.session = {"user": {"username": "alice", "cn": "Alice"}}
+        request.session = {"user": {"username": "alice", "_entry_uuid": "uuid-alice"}}
         with patch.object(main, "AUTH_ENABLED", True), patch.object(
             main.ldap_mgr,
-            "get_user_login_shell",
-            return_value="/usr/sbin/nologin",
+            "get_user_auth_state",
+            return_value=("/usr/sbin/nologin", "uuid-alice"),
         ):
             with self.assertRaises(HTTPException) as context:
                 asyncio.run(main.get_current_user(request))
 
         self.assertEqual(context.exception.status_code, 401)
         self.assertEqual(request.session, {})
+
+    def test_deleted_or_recreated_account_invalidates_existing_session(self):
+        for auth_state in (None, ("/bin/bash", "uuid-recreated")):
+            with self.subTest(auth_state=auth_state):
+                request = Mock()
+                request.session = {
+                    "user": {"username": "alice", "_entry_uuid": "uuid-original"}
+                }
+                with patch.object(main, "AUTH_ENABLED", True), patch.object(
+                    main.ldap_mgr, "get_user_auth_state", return_value=auth_state
+                ):
+                    with self.assertRaises(HTTPException) as context:
+                        asyncio.run(main.get_current_user(request))
+                self.assertEqual(context.exception.status_code, 401)
+                self.assertEqual(request.session, {})
+
+    def test_optional_session_rejects_old_identity_without_admin_access(self):
+        request = Mock()
+        request.session = {"user": {"username": "alice", "_entry_uuid": "uuid-old"}}
+        with patch.object(main, "AUTH_ENABLED", True), patch.object(
+            main.ldap_mgr, "get_user_auth_state",
+            return_value=("/bin/bash", "uuid-new"),
+        ), patch.object(main.admin_mgr, "is_admin") as is_admin:
+            self.assertIsNone(asyncio.run(main.get_current_user_optional(request)))
+        self.assertEqual(request.session, {})
+        is_admin.assert_not_called()
+
+    def test_login_binds_session_to_ldap_entry_identity(self):
+        request = Mock()
+        request.session = {}
+        request.client.host = "192.0.2.15"
+        with patch.object(main.auth_mgr, "authenticate_user", return_value={
+            "username": "alice", "shell": "/bin/bash"
+        }), patch.object(
+            main.ldap_mgr, "get_user_auth_state",
+            return_value=("/bin/bash", "uuid-original"),
+        ), patch.object(main.admin_mgr, "is_admin", return_value=False):
+            response = asyncio.run(main.login(
+                request, main.LoginRequest(username="alice", password="secret")
+            ))
+        self.assertEqual(request.session["user"]["_entry_uuid"], "uuid-original")
+        self.assertNotIn("_entry_uuid", response["user"])
+
+    def test_terminal_websocket_rejects_recreated_identity_before_open(self):
+        websocket = Mock()
+        websocket.scope = {"session": {"user": {
+            "username": "alice", "_entry_uuid": "uuid-old"
+        }}}
+        websocket.session = websocket.scope["session"]
+        websocket.close = AsyncMock()
+        with patch.object(main, "AUTH_ENABLED", True), patch.object(
+            main, "settings", SimpleNamespace(terminal_enabled=True)
+        ), patch.object(
+            main, "_websocket_origin_is_valid", return_value=True
+        ), patch.object(
+            main.ldap_mgr, "get_user_auth_state",
+            return_value=("/bin/bash", "uuid-new"),
+        ), patch.object(main.terminal_mgr, "open") as open_terminal:
+            asyncio.run(main.terminal_websocket(websocket))
+        websocket.close.assert_awaited_once_with(code=4403, reason="账户已失效")
+        open_terminal.assert_not_called()
 
 
 class JobOutputSecurityTests(unittest.TestCase):

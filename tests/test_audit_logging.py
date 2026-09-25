@@ -1,10 +1,13 @@
 import io
 import json
 import logging
+import os
 import unittest
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+
+os.environ.setdefault("SECRET_KEY", "test-secret-key-0123456789abcdef")
 
 from openhpc_webui import application as main
 from openhpc_webui.audit import JsonFormatter, sanitize
@@ -59,6 +62,9 @@ class AuditLoggingTests(unittest.TestCase):
             main.auth_mgr,
             "authenticate_user",
             return_value={"username": "alice", "cn": "Alice", "shell": "/bin/bash"},
+        ), patch.object(
+            main.ldap_mgr, "get_user_auth_state",
+            return_value=("/bin/bash", "uuid-alice")
         ), patch.object(main.admin_mgr, "is_admin", return_value=False), self.assertLogs(
             audit_logger, level="INFO"
         ) as captured:

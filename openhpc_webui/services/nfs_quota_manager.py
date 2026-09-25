@@ -10,7 +10,8 @@ class NFSQuotaManager:
 
     def __init__(self) -> None:
         # 启用 quota 的文件系统挂载点，如 /、/home 或 /data。
-        self.quota_fs = os.getenv("NFS_QUOTA_FS", "").strip()
+        configured_fs = os.getenv("NFS_QUOTA_FS", "").strip()
+        self.quota_fs = os.path.realpath(configured_fs) if configured_fs else ""
         self._quota_ready: Optional[bool] = None
 
     def is_enabled(self) -> bool:
@@ -19,6 +20,9 @@ class NFSQuotaManager:
             return False
         if self._quota_ready is not None:
             return self._quota_ready
+        if not self._quota_filesystem_identifiers():
+            self._quota_ready = False
+            return False
 
         try:
             result = subprocess.run(
@@ -33,7 +37,9 @@ class NFSQuotaManager:
             self._quota_ready = False
             return False
 
-        self._quota_ready = result.returncode == 0
+        self._quota_ready = (
+            result.returncode == 0 and self._parse_quota_output(result.stdout) is not None
+        )
         if not self._quota_ready:
             detail = (result.stderr or result.stdout).strip()
             print(f"文件系统 {self.quota_fs} 未启用用户配额: {detail}")
@@ -151,18 +157,11 @@ class NFSQuotaManager:
         if not data_rows:
             return None
 
-        selected = None
-        for parts in data_rows:
-            filesystem = parts[0]
-            if self._filesystem_matches(filesystem):
-                selected = parts
-                break
-
-        # quota commonly prints the backing device rather than the mount
-        # point.  A single row is therefore the configured filesystem in the
-        # usual one-quota-filesystem deployment even if their names differ.
-        if selected is None and len(data_rows) == 1:
-            selected = data_rows[0]
+        identifiers = self._quota_filesystem_identifiers()
+        selected = next(
+            (parts for parts in data_rows if self._filesystem_matches(parts[0], identifiers)),
+            None,
+        )
 
         if not selected or len(selected) < 4:
             return None
@@ -188,16 +187,53 @@ class NFSQuotaManager:
     def _is_quota_number(value: str) -> bool:
         return bool(re.fullmatch(r"\d+[+*]?", value))
 
-    def _filesystem_matches(self, filesystem: str) -> bool:
+    @staticmethod
+    def _filesystem_matches(filesystem: str, identifiers: set) -> bool:
+        if filesystem in identifiers:
+            return True
+        return filesystem.startswith("/") and os.path.realpath(filesystem) in identifiers
+
+    def _quota_filesystem_identifiers(self) -> set:
+        """Resolve the configured path to its actual mount and backing source."""
         if not self.quota_fs:
-            return True
-        if filesystem == self.quota_fs:
-            return True
-        if filesystem.endswith(self.quota_fs):
-            return True
-        if self.quota_fs.endswith(filesystem):
-            return True
-        return False
+            return set()
+        selected = None
+        try:
+            with open("/proc/self/mountinfo", "r", encoding="utf-8") as mounts:
+                for line in mounts:
+                    before, separator, after = line.partition(" - ")
+                    if not separator:
+                        continue
+                    fields, source_fields = before.split(), after.split()
+                    if len(fields) < 5 or len(source_fields) < 2:
+                        continue
+                    mountpoint = re.sub(
+                        r"\\([0-7]{3})",
+                        lambda match: chr(int(match.group(1), 8)),
+                        fields[4],
+                    )
+                    mountpoint = os.path.realpath(mountpoint)
+                    if self.quota_fs != mountpoint and not self.quota_fs.startswith(
+                        mountpoint.rstrip("/") + "/"
+                    ):
+                        continue
+                    if selected is None or len(mountpoint) >= len(selected[0]):
+                        source = re.sub(
+                            r"\\([0-7]{3})",
+                            lambda match: chr(int(match.group(1), 8)),
+                            source_fields[1],
+                        )
+                        selected = (mountpoint, source)
+        except OSError as exc:
+            print(f"读取文件系统挂载映射失败: {exc}")
+            return set()
+        if selected is None:
+            return set()
+        mountpoint, source = selected
+        identifiers = {mountpoint, source}
+        if source.startswith("/"):
+            identifiers.add(os.path.realpath(source))
+        return identifiers
 
     @staticmethod
     def _kb_to_gb(value_kb: int) -> float:

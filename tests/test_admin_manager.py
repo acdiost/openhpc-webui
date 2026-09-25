@@ -18,7 +18,7 @@ class AdminManagerPersistenceTests(unittest.TestCase):
             with patch.dict(
                 os.environ, {"ADMIN_USERS": "debug"}, clear=False
             ), patch.object(
-                admin_manager, "_find_env_file", return_value=str(env_path)
+                admin_manager, "ENV_FILE", env_path
             ), patch(
                 "openhpc_webui.services.admin_manager.os.replace",
                 side_effect=OSError("read only"),
@@ -44,7 +44,7 @@ class AdminManagerPersistenceTests(unittest.TestCase):
             with patch.dict(
                 os.environ, {"ADMIN_USERS": "debug"}, clear=False
             ), patch.object(
-                admin_manager, "_find_env_file", return_value=str(env_path)
+                admin_manager, "ENV_FILE", env_path
             ), patch(
                 "openhpc_webui.services.admin_manager.os.replace",
                 side_effect=observe_replace,

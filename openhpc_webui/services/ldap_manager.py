@@ -6,12 +6,9 @@ import os
 import hashlib
 import base64
 from typing import List, Dict, Optional
-from dotenv import load_dotenv
 from ..audit import log_current_exception, structured_print as print
 from .integration_timeout import bounded_timeout_seconds
 
-# Load environment variables
-load_dotenv()
 
 
 class LDAPServiceUnavailable(RuntimeError):
@@ -201,33 +198,46 @@ class LDAPManager:
         users = self.list_users(f"(uid={escape_filter_chars(username)})")
         return users[0] if users else None
 
-    def get_user_login_shell(self, username: str) -> Optional[str]:
-        """轻量读取用户 loginShell；查询失败或用户不存在时返回 None。"""
+    def get_user_auth_state(self, username: str) -> Optional[tuple[str, str]]:
+        """Read an account's shell and immutable LDAP identity in one search.
+
+        A missing account returns None; lookup failures must not impersonate
+        absence or allow an existing session to continue.
+        """
         conn = self.connect()
         if not conn:
-            return None
+            raise LDAPServiceUnavailable("LDAP service unavailable")
 
         try:
             user_dn = f"uid={escape_rdn(username)},ou=People,{self.base_dn}"
-            success = conn.search(
+            found = conn.search(
                 search_base=user_dn,
                 search_filter="(objectClass=posixAccount)",
                 search_scope=BASE,
-                attributes=["loginShell"],
+                attributes=["loginShell", "entryUUID"],
             )
-            if not success or not conn.entries:
+            if not found:
+                result = conn.result
+                if not isinstance(result, dict) or result.get("result") not in (0, 32):
+                    raise LDAPServiceUnavailable("LDAP account lookup failed")
+            if not conn.entries:
                 return None
             entry = conn.entries[0]
-            if not hasattr(entry, "loginShell") or not entry.loginShell:
-                return ""
-            return str(entry.loginShell.value or "")
+            entry_uuid = (
+                str(entry.entryUUID.value or "").strip()
+                if hasattr(entry, "entryUUID") else ""
+            )
+            if not entry_uuid:
+                raise LDAPServiceUnavailable("LDAP entryUUID unavailable")
+            shell = (
+                str(entry.loginShell.value or "")
+                if hasattr(entry, "loginShell") and entry.loginShell else ""
+            )
+            return shell, entry_uuid
         except LDAPServiceUnavailable:
             raise
-        except LDAPException as e:
-            raise LDAPServiceUnavailable("LDAP service unavailable") from e
-        except Exception as e:
-            print(f"查询用户登录 Shell 失败: {e}")
-            return None
+        except Exception as exc:
+            raise LDAPServiceUnavailable("LDAP service unavailable") from exc
         finally:
             conn.unbind()
 

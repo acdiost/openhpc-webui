@@ -9,7 +9,7 @@ import tempfile
 from dataclasses import dataclass
 from typing import Any, Dict
 
-from ..config import PROJECT_ROOT, env_bool
+from ..config import ENV_FILE, env_bool
 
 
 _ENV_KEYS = {
@@ -107,7 +107,7 @@ def save_config(
 
 
 def _write_env(values: Dict[str, str]) -> None:
-    env_path = PROJECT_ROOT / ".env"
+    env_path = ENV_FILE
     try:
         content = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
         remaining = dict(values)

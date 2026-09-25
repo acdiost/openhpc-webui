@@ -1,5 +1,6 @@
 import re
 import os
+import stat
 import subprocess
 import tempfile
 from typing import List, Dict, Optional
@@ -128,8 +129,9 @@ class NodeConfigManager:
 
             config_path = Path(self.config_file)
             config_existed = config_path.exists()
+            original_bytes = config_path.read_bytes() if config_existed else None
+            original_mode = stat.S_IMODE(config_path.stat().st_mode) if config_existed else None
             original_lines = self._read_config_lines() if config_existed else []
-
             # 构建配置行并原子写入
             config_line = self._build_config_line(name, cpus, **kwargs)
             updated_lines = list(original_lines)
@@ -143,16 +145,7 @@ class NodeConfigManager:
             if self._reconfigure_slurm():
                 return True
 
-            rollback_succeeded = False
-            if config_existed:
-                rollback_succeeded = self._replace_config_lines(original_lines)
-            else:
-                try:
-                    config_path.unlink(missing_ok=True)
-                    rollback_succeeded = True
-                except OSError as exc:
-                    print(f"删除新增节点配置文件失败: {exc}")
-            if rollback_succeeded:
+            if self._restore_config(original_bytes, original_mode):
                 print(f"添加节点 {name} 后重载失败，已回滚配置文件")
             else:
                 print(f"严重警告: 添加节点 {name} 后重载和配置回滚均失败")
@@ -273,21 +266,22 @@ class NodeConfigManager:
             body = body.rstrip() + " #" + comment
         return body + ending
 
-    def _replace_config_lines(self, lines: List[str]) -> bool:
-        """原子替换配置文件内容。"""
+    def _replace_config_lines(self, lines, mode=None) -> bool:
+        """原子替换配置文件内容，保留原始字节与权限供回滚使用。"""
         temp_path = None
         try:
             config_path = Path(self.config_file)
-            mode = config_path.stat().st_mode if config_path.exists() else 0o644
+            if mode is None:
+                mode = stat.S_IMODE(config_path.stat().st_mode) if config_path.exists() else 0o644
+            content = lines if isinstance(lines, bytes) else "".join(lines).encode("utf-8")
             with tempfile.NamedTemporaryFile(
-                "w",
-                encoding="utf-8",
+                "wb",
                 dir=str(config_path.parent),
                 prefix=f".{config_path.name}.",
                 delete=False,
             ) as temp_file:
                 temp_path = temp_file.name
-                temp_file.writelines(lines)
+                temp_file.write(content)
                 temp_file.flush()
                 os.fsync(temp_file.fileno())
             os.chmod(temp_path, mode)
@@ -300,16 +294,35 @@ class NodeConfigManager:
             if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)
 
-    def _write_config_lines(self, lines: List[str]) -> bool:
-        """原子写回配置文件，并保留未修改的原始行。"""
-        if not self._replace_config_lines(lines):
+    def _restore_config(self, original_bytes: Optional[bytes], original_mode: Optional[int]) -> bool:
+        if original_bytes is not None:
+            return self._replace_config_lines(original_bytes, mode=original_mode)
+        try:
+            Path(self.config_file).unlink(missing_ok=True)
+            return True
+        except OSError as exc:
+            print(f"删除新增节点配置文件失败: {exc}")
             return False
 
-        print(f"节点配置文件已更新: {self.config_file}")
-        if not self._reconfigure_slurm():
-            print("警告: 配置文件已更新，但 Slurm 未能自动重新加载配置")
-            print("提示: 可以手动运行 'scontrol reconfigure' 或重启 slurmctld 服务")
-        return True
+    def _write_config_lines(self, lines: List[str]) -> bool:
+        """写回文件并重载；重载失败则恢复原文件。"""
+        config_path = Path(self.config_file)
+        try:
+            original_bytes = config_path.read_bytes()
+            original_mode = stat.S_IMODE(config_path.stat().st_mode)
+        except OSError as exc:
+            print(f"读取原节点配置文件失败: {exc}")
+            return False
+        if not self._replace_config_lines(lines):
+            return False
+        if self._reconfigure_slurm():
+            print(f"节点配置文件已更新: {self.config_file}")
+            return True
+        if self._restore_config(original_bytes, original_mode):
+            print("节点配置重载失败，已回滚配置文件")
+        else:
+            print("严重警告: 节点配置重载和配置回滚均失败")
+        return False
 
     def _reconfigure_slurm(self) -> bool:
         """重新加载 Slurm 配置"""

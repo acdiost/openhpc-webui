@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from ..config import PROJECT_ROOT
+from ..config import ENV_FILE
 
 
 _PROVIDERS = {
@@ -440,7 +440,7 @@ def build_config(
 
 
 def _write_env(values: Dict[str, str]) -> None:
-    env_path = PROJECT_ROOT / ".env"
+    env_path = ENV_FILE
     try:
         content = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
         lines = content.splitlines()

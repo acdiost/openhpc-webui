@@ -1,4 +1,5 @@
 import asyncio
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -64,6 +65,40 @@ class NodeConfigTests(unittest.TestCase):
         ))
         self.assertEqual(self.manager.get_node('g50r061')['state'], 'UNKNOWN')
         self.assertIn('State=UNKNOWN # State=DOWN', self.path.read_text())
+
+    def test_update_and_delete_restore_exact_file_and_mode_on_reload_failure(self):
+        original = b'# untouched\r\nNodeName=g50r061 CPUs=128\r\n'
+        for action in ("update", "delete"):
+            with self.subTest(action=action):
+                self.path.write_bytes(original)
+                self.path.chmod(0o640)
+                attempted = []
+
+                def reject_reload():
+                    attempted.append(self.path.read_bytes())
+                    return False
+
+                self.manager._reconfigure_slurm = reject_reload
+                if action == "update":
+                    result = self.manager.update_node("g50r061", cpus=64)
+                else:
+                    result = self.manager.delete_node("g50r061")
+                self.assertFalse(result)
+                self.assertNotEqual(attempted, [original])
+                self.assertEqual(self.path.read_bytes(), original)
+                self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o640)
+
+    def test_add_failure_restores_existing_mode_or_removes_new_file(self):
+        self.manager._reconfigure_slurm = Mock(return_value=False)
+        self.path.write_bytes(b'# original\r\n')
+        self.path.chmod(0o600)
+        self.assertFalse(self.manager.add_node('new', 4))
+        self.assertEqual(self.path.read_bytes(), b'# original\r\n')
+        self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
+
+        self.path.unlink()
+        self.assertFalse(self.manager.add_node('new', 4))
+        self.assertFalse(self.path.exists())
 
     def test_models_reject_config_injection(self):
         for model in (NodeCreate, NodeUpdate):

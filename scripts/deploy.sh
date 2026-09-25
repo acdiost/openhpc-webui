@@ -70,6 +70,10 @@ http {
 
     sendfile on;
     keepalive_timeout 65;
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        ""      close;
+    }
 
     include /etc/nginx/conf.d/*.conf;
 }
@@ -85,6 +89,8 @@ cat > "${DEPLOY_DIR}/default.conf" <<EOF
 server {
     listen 443 ssl;
     server_name ${SERVER_IP} ${SERVER_NAME};
+    # Keep above the default FILE_UPLOAD_MAX_MB=1024 for multipart overhead.
+    client_max_body_size 1025m;
 
     ssl_certificate /etc/nginx/certs/openhpc_webui.crt;
     ssl_certificate_key /etc/nginx/certs/openhpc_webui.key;
@@ -97,6 +103,8 @@ server {
         proxy_pass ${BACKEND};
 
         proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$connection_upgrade;
 
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -104,7 +112,8 @@ server {
         proxy_set_header X-Forwarded-Proto https;
 
         proxy_connect_timeout 10s;
-        proxy_read_timeout 120s;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
     }
 }
 EOF

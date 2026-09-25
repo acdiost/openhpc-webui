@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict
 from urllib.parse import urlsplit
 
-from ..config import PROJECT_ROOT
+from ..config import ENV_FILE
 
 
 class SystemSettingsError(ValueError):
@@ -205,7 +205,7 @@ def _validate_update(update: Dict[str, Any]) -> Dict[str, str]:
 
 
 def _write_env(values: Dict[str, str]) -> None:
-    env_path = PROJECT_ROOT / ".env"
+    env_path = ENV_FILE
     content = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
     remaining = dict(values)
     output = []

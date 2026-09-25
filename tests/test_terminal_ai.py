@@ -95,7 +95,7 @@ class TerminalAICommandTests(unittest.TestCase):
 class TerminalAIConfigTests(unittest.TestCase):
     def test_admin_can_create_update_and_delete_managed_endpoints(self):
         with tempfile.TemporaryDirectory() as temp_dir, patch.object(
-            terminal_ai, "PROJECT_ROOT", Path(temp_dir)
+            terminal_ai, "ENV_FILE", Path(temp_dir) / ".env"
         ), patch.dict(os.environ, {"TERMINAL_AI_ENDPOINTS": "[]"}, clear=False):
             created = terminal_ai.create_managed_endpoint(
                 name="内部 Qwen",
@@ -121,7 +121,7 @@ class TerminalAIConfigTests(unittest.TestCase):
 
     def test_managed_endpoint_registry_rejects_duplicates_and_unknown_ids(self):
         with tempfile.TemporaryDirectory() as temp_dir, patch.object(
-            terminal_ai, "PROJECT_ROOT", Path(temp_dir)
+            terminal_ai, "ENV_FILE", Path(temp_dir) / ".env"
         ), patch.dict(os.environ, {"TERMINAL_AI_ENDPOINTS": "[]"}, clear=False):
             terminal_ai.create_managed_endpoint(
                 name="OpenAI",
@@ -157,7 +157,7 @@ class TerminalAIConfigTests(unittest.TestCase):
 
     def test_persists_quoted_settings_without_returning_key(self):
         with tempfile.TemporaryDirectory() as temp_dir, patch.object(
-            terminal_ai, "PROJECT_ROOT", Path(temp_dir)
+            terminal_ai, "ENV_FILE", Path(temp_dir) / ".env"
         ), patch.dict(os.environ, {}, clear=False):
             result = save_config(
                 enabled=True,

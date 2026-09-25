@@ -8,6 +8,7 @@ import re
 import tempfile
 import threading
 from typing import List
+from ..config import ENV_FILE
 from ..audit import structured_print as print
 
 
@@ -108,24 +109,6 @@ def _dedupe(items: List[str]) -> List[str]:
     return result
 
 
-def _find_env_file() -> str:
-    """
-    查找 .env 文件路径。
-    优先查找当前工作目录，其次查找本模块所在目录。
-
-    Returns:
-        .env 文件的绝对路径（不保证文件一定存在）
-    """
-    # 1. 当前工作目录
-    cwd_env = os.path.join(os.getcwd(), ".env")
-    if os.path.exists(cwd_env):
-        return cwd_env
-
-    # 2. 本模块所在目录
-    module_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(module_dir, ".env")
-
-
 def _write_admin_list(admins: List[str]) -> bool:
     """
     原子写回管理员列表，并在持久化成功后更新当前进程权限。
@@ -146,7 +129,7 @@ def _write_admin_list(admins: List[str]) -> bool:
     with _admin_update_lock:
         unique_admins = _dedupe(admins)
         admin_str = ",".join(unique_admins)
-        env_path = os.path.abspath(_find_env_file())
+        env_path = str(ENV_FILE)
         env_dir = os.path.dirname(env_path)
         temp_path = ""
 
