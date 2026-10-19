@@ -9,7 +9,7 @@
 部署主机应满足：
 
 - Python 3.9 或更高版本，并已安装 `uv`、Git、OpenSSH 客户端和 Supervisor。
-- 能访问 LDAP 服务以及 Slurm 控制端。
+- 身份后端二选一：本机 PAM `login` 策略和系统账户工具可用，或能够访问 OpenLDAP；同时能访问 Slurm 控制端。
 - 已安装 `sinfo`、`squeue`、`sacct`、`scontrol`、`sacctmgr`、`scancel`；启用存储配额时还需 `quota`、`setquota`。
 - Slurm 配置包含项目管理的 `/etc/slurm/partition.conf` 和 `/etc/slurm/node.conf`；可通过 `SLURM_CONFIG_DIR` 覆盖目录。
 - 防火墙只向受控网络开放 Nginx 的 80/443 端口，不开放 6827。
@@ -19,6 +19,7 @@
 ```bash
 python3 --version
 uv --version
+command -v useradd usermod userdel groupadd groupmod groupdel gpasswd chpasswd
 command -v ssh-keygen sinfo squeue sacct scontrol sacctmgr scancel
 ```
 
@@ -43,7 +44,9 @@ exit
 ## 3. 完成安装向导（推荐）
 
 先保留 `SECRET_KEY=`，启动 Supervisor 和 Nginx 后从受控管理网络访问站点。系统会自动
-跳转到 `/setup`，依次填写 LDAP、Slurm 和首位管理员。向导会生成 Session 密钥、写入
+跳转到 `/setup`，选择本机系统账户或 LDAP，随后填写 Slurm 和首位管理员。系统账户模式下，
+首位管理员必须是已经存在且可通过 PAM 登录的本机账户；LDAP 模式下填写目录连接和 Bind
+配置，首位管理员应是可登录的 LDAP 用户。向导会生成 Session 密钥、写入
 `.env` 并锁定自身；完成后重启服务。
 
 安装入口在配置完成后不可再次使用。为避免首装配置被抢占，首次启动期间不要向不受信任
@@ -57,13 +60,9 @@ exit
 AUTHORIZED=True
 SECRET_KEY=<至少 32 字符的独立随机值>
 SESSION_HTTPS_ONLY=True
-
-LDAP_URI=ldap://ldap.internal.example
-LDAP_PORT=389
-LDAP_USE_SSL=False
-LDAP_BASE_DN=dc=example,dc=com
-LDAP_DEFAULT_BIND_DN=cn=admin,dc=example,dc=com
-LDAP_DEFAULT_AUTHTOK=<LDAP 管理密码>
+IDENTITY_BACKEND=system
+SYSTEM_USER_MIN_UID=1000
+SYSTEM_ACCOUNT_COMMAND_TIMEOUT_SECONDS=30
 
 ADMIN_USERS=admin
 SLURM_DEFAULT_ACCOUNT=dawn
@@ -90,7 +89,7 @@ openssl rand -hex 32
 
 `.env` 需要由运行用户读取和写入，因为安装向导、系统设置和权限管理页面都会持久化配置。
 
-启动目录中的 `.env` 是安装向导、系统设置、终端设置和管理员权限的统一持久化文件；也可设置绝对路径 `OPENHPC_WEBUI_ENV_FILE` 指向其他可写文件。与 Supervisor 的服务环境保持同一文件，不要将凭据写入 Python 安装目录。更新版本后旧的登录会话需重新登录，LDAP 用户删除或重建也会使原会话失效。
+启动目录中的 `.env` 是安装向导、系统设置、终端设置和管理员权限的统一持久化文件；也可设置绝对路径 `OPENHPC_WEBUI_ENV_FILE` 指向其他可写文件。与 Supervisor 的服务环境保持同一文件，不要将凭据写入 Python 安装目录。身份用户删除后，其现有登录会话会失效。
 
 不要在日志、工单或 Shell 历史中输出整个 `.env`。
 
@@ -98,7 +97,7 @@ openssl rand -hex 32
 账户和 Association 的读取、创建、修改及删除都会使用该值限定集群；配置错误时相关操作会失败，
 不会退化为跨集群修改。
 
-文件管理中，普通用户的页面根目录固定映射到 LDAP `homeDirectory`；每次文件操作都在独立进程中以该用户的 NSS/SSSD UID、主 GID 和附加组执行，路径访问受 Home 范围及 Linux 文件权限共同限制。部署主机必须能唯一解析该用户且 LDAP UID/GID 与本机身份一致；无法降权时操作会被拒绝。管理员首次进入自己的 NSS/SSSD Home，但访问范围仍映射到系统 `/`，并沿用门户进程权限。要让管理员真正以 root 权限访问所有路径，Supervisor 必须按仓库默认配置使用 `user=root`；如果改为专用运行账户，管理员页面会提示权限受限。在线编辑仅接受大小不超过 `FILE_EDIT_MAX_KB` 的 UTF-8 普通文本。由于管理员可修改和删除系统路径，只应向受信任的运维人员授予管理员权限，并确保审计日志被集中留存。
+文件管理中，普通用户的页面根目录固定映射到身份后端记录的 Home；每次文件操作都在独立进程中以 NSS 解析出的 UID、主 GID 和附加组执行，路径访问受 Home 范围及 Linux 文件权限共同限制。LDAP 模式必须确保目录 UID/GID 与 NSS/SSSD 解析一致。管理员首次进入自己的系统 Home，但访问范围仍映射到系统 `/`，并沿用门户进程权限。系统账户模式下的用户、组、密码和 SSH 公钥管理需要 root 权限，因此 Supervisor 应按仓库默认配置使用 `user=root`。在线编辑仅接受大小不超过 `FILE_EDIT_MAX_KB` 的 UTF-8 普通文本。只应向受信任的运维人员授予管理员权限，并确保审计日志被集中留存。
 
 ## 4. 校验 Slurm 集成
 
@@ -280,7 +279,7 @@ curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:6827/login
 curl -fsS -o /dev/null -w '%{http_code}\n' https://hpc.example.edu/login
 ```
 
-两个请求都应返回 `200`。随后使用 LDAP 普通用户和管理员用户分别验证：登录、权限隔离、用户与组查询、作业查询。生产变更前还应备份并验证分区、节点、账户和配额操作。
+两个请求都应返回 `200`。随后使用当前身份后端中的普通用户和管理员用户分别验证：登录认证、权限隔离、用户与组查询、作业查询。系统账户模式还应验证 PAM；LDAP 模式应验证目录连接、Bind 权限及 NSS/SSSD 解析。生产变更前还应备份并验证分区、节点、账户和配额操作。
 
 ## 8. 日常运维
 
@@ -346,9 +345,22 @@ sudo supervisorctl status openhpc_webui
 - HTTPS 部署确认 `SESSION_HTTPS_ONLY=True`，且 Nginx 传递了 `X-Forwarded-Proto`。
 - 修改 `.env` 后重启应用；通过权限管理页面修改 `ADMIN_USERS`，或通过系统设置页面修改终端 AI 配置，不需要重启。
 
-### LDAP 连接失败
+### 系统账户或 PAM 认证失败
 
-从应用主机使用 `.env` 中相同的 URI、Bind DN 和 Base DN 执行 `ldapsearch`。不要把密码直接写在命令行参数中，使用 `-W` 交互输入。
+先确认 `.env` 中为 `IDENTITY_BACKEND=system`，再检查账户、Shell 和 PAM 日志：
+
+```bash
+getent passwd <用户名>
+id <用户名>
+passwd -S <用户名>
+journalctl -u openhpc_webui --since "10 minutes ago"
+```
+
+账户必须存在、未锁定，并使用可登录 Shell。确认系统存在 `/etc/pam.d/login` 和 PAM 运行库；不要把密码放入命令行、日志或工单。
+
+### LDAP 认证失败
+
+先确认 `.env` 中为 `IDENTITY_BACKEND=ldap`，再检查 `LDAP_URI`、`LDAP_BASE_DN`、Bind DN、网络和证书配置。管理用户与组还要求 Bind 账户具有相应目录写权限；Web 终端和文件管理要求登录用户能够通过 NSS/SSSD 解析为唯一的本机 UID/GID。不要在日志或工单中粘贴 Bind 密码。
 
 ### Slurm 页面无数据或管理操作失败
 

@@ -28,15 +28,13 @@ class SystemSettingsTests(unittest.TestCase):
     def test_complete_setup_generates_secret_and_locks_installer(self):
         with tempfile.TemporaryDirectory() as temp_dir, patch.object(
             system_settings, "ENV_FILE", Path(temp_dir) / ".env"
-        ), patch.dict(os.environ, {}, clear=True):
+        ), patch.dict(os.environ, {}, clear=True), patch(
+            "pwd.getpwnam", return_value=object()
+        ):
             result = system_settings.complete_setup(
                 {
-                    "ldap_uri": "ldap://ldap.internal",
-                    "ldap_base_dn": "dc=example,dc=com",
-                    "ldap_bind_dn": "cn=admin,dc=example,dc=com",
-                    "ldap_bind_password": "bind-password",
-                    "ldap_port": 389,
-                    "ldap_use_ssl": False,
+                    "identity_backend": "system",
+                    "ldap_bind_password": "must-not-be-saved",
                     "slurm_cluster_name": "cluster",
                     "slurm_default_account": "research",
                     "slurm_config_dir": "/etc/slurm",
@@ -48,9 +46,77 @@ class SystemSettingsTests(unittest.TestCase):
 
             self.assertFalse(system_settings.setup_required())
             self.assertEqual(os.environ["ADMIN_USERS"], "admin")
+            self.assertEqual(os.environ["IDENTITY_BACKEND"], "system")
             self.assertGreaterEqual(len(os.environ["SECRET_KEY"]), 32)
             self.assertIn('SETUP_COMPLETED="True"', content)
-            self.assertNotIn("bind-password", str(result))
+            self.assertIn('IDENTITY_BACKEND="system"', content)
+            self.assertNotIn("must-not-be-saved", content)
+
+    def test_complete_setup_rejects_a_missing_system_admin(self):
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(
+            system_settings, "ENV_FILE", Path(temp_dir) / ".env"
+        ), patch.dict(os.environ, {}, clear=True), patch(
+            "pwd.getpwnam", side_effect=KeyError("missing")
+        ):
+            with self.assertRaisesRegex(
+                system_settings.SystemSettingsError, "本机系统账户"
+            ):
+                system_settings.complete_setup(
+                    {
+                        "slurm_cluster_name": "cluster",
+                        "identity_backend": "system",
+                        "slurm_default_account": "research",
+                        "slurm_config_dir": "/etc/slurm",
+                        "admin_username": "missing",
+                        "session_https_only": False,
+                    }
+                )
+
+    def test_complete_setup_can_select_ldap_without_a_local_admin_account(self):
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(
+            system_settings, "ENV_FILE", Path(temp_dir) / ".env"
+        ), patch.dict(os.environ, {}, clear=True), patch(
+            "pwd.getpwnam", side_effect=AssertionError("must not query local account")
+        ):
+            result = system_settings.complete_setup(
+                {
+                    "identity_backend": "ldap",
+                    "ldap_uri": "ldaps://ldap.internal",
+                    "ldap_base_dn": "dc=example,dc=com",
+                    "ldap_bind_dn": "cn=admin,dc=example,dc=com",
+                    "ldap_bind_password": "bind-password",
+                    "ldap_port": 636,
+                    "ldap_use_ssl": True,
+                    "slurm_cluster_name": "cluster",
+                    "slurm_default_account": "research",
+                    "slurm_config_dir": "/etc/slurm",
+                    "admin_username": "ldap-admin",
+                    "session_https_only": True,
+                }
+            )
+            content = (Path(temp_dir) / ".env").read_text(encoding="utf-8")
+
+        self.assertEqual(result["config"]["identity_backend"], "ldap")
+        self.assertIn('IDENTITY_BACKEND="ldap"', content)
+        self.assertIn('LDAP_URI="ldaps://ldap.internal"', content)
+        self.assertNotIn("bind-password", str(result))
+
+    def test_complete_setup_requires_ldap_credentials_only_for_ldap(self):
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(
+            system_settings, "ENV_FILE", Path(temp_dir) / ".env"
+        ), patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(
+                system_settings.SystemSettingsError, "LDAP"
+            ):
+                system_settings.complete_setup(
+                    {
+                        "identity_backend": "ldap",
+                        "slurm_cluster_name": "cluster",
+                        "slurm_default_account": "research",
+                        "slurm_config_dir": "/etc/slurm",
+                        "admin_username": "admin",
+                    }
+                )
 
     def test_public_settings_never_expose_secrets(self):
         with patch.dict(

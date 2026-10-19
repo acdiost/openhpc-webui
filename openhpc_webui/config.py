@@ -22,6 +22,7 @@ TEMPLATES_DIR = _resource_dir("templates")
 DEFAULT_SLURM_CONFIG_DIR = "/etc/slurm"
 _TRUE_VALUES = frozenset({"true", "1", "yes", "on"})
 _FALSE_VALUES = frozenset({"false", "0", "no", "off"})
+_IDENTITY_BACKENDS = frozenset({"ldap", "system"})
 
 load_dotenv(ENV_FILE)
 
@@ -47,6 +48,15 @@ def env_positive_int(name: str, default: int) -> int:
     except ValueError:
         return default
     return value if value > 0 else default
+
+
+def identity_backend() -> str:
+    """Return the configured identity backend or reject unsafe typos."""
+    value = os.getenv("IDENTITY_BACKEND", "ldap").strip().lower()
+    if value not in _IDENTITY_BACKENDS:
+        allowed = ", ".join(sorted(_IDENTITY_BACKENDS))
+        raise ValueError(f"IDENTITY_BACKEND must be one of: {allowed}")
+    return value
 
 
 def slurm_config_file(filename: str) -> str:

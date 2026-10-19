@@ -64,7 +64,7 @@
                 <span class="account-role{% if user.get('is_admin') %} is-admin{% endif %}">
                     {{ '系统管理员' if user.get('is_admin') else '普通用户' }}
                 </span>
-                <p class="account-profile-note">账户资料由 LDAP 统一维护。如需修改姓名或其他身份信息，请联系系统管理员。</p>
+                <p class="account-profile-note">账户资料由当前身份后端维护。如需修改姓名或其他身份信息，请联系系统管理员。</p>
 
                 {% if user.get('is_admin') %}
                 <a class="account-admin-link" href="/settings">
@@ -90,7 +90,7 @@
                 </span>
                 <div>
                     <h3 id="password-title">修改密码</h3>
-                    <p>更新 LDAP 登录密码，保存后将用于后续登录及关联服务认证。</p>
+                    <p>更新身份登录密码，保存后将用于后续登录及关联服务认证。</p>
                 </div>
             </div>
             <form id="changePasswordForm" class="account-form" onsubmit="handleChangePassword(event)">

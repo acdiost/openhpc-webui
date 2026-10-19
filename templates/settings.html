@@ -94,7 +94,7 @@
         <div class="settings-card-body">
             <form id="systemSettingsForm" class="settings-form" onsubmit="saveSystemSettings(event)">
                 <div class="settings-system-groups">
-                    <div class="settings-system-group">
+                    <div class="settings-system-group"{% if identity_backend == 'system' %} style="display:none"{% endif %}>
                         <h4>LDAP 目录服务</h4>
                         <div class="form-group"><label for="ldap_uri">LDAP 地址</label><input id="ldap_uri" maxlength="2048" placeholder="ldap://localhost"></div>
                         <div class="settings-fields">

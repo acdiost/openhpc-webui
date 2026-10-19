@@ -2,7 +2,7 @@
 
 import re
 
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -12,14 +12,14 @@ _LDAP_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
 
 def validate_ldap_identifier(value: str) -> str:
-    """Validate an LDAP uid/cn accepted by the management API."""
+    """Validate a POSIX/LDAP account identifier accepted by the API."""
     if not _LDAP_IDENTIFIER_PATTERN.fullmatch(value):
-        raise ValueError("LDAP 标识符只能包含字母、数字、点、下划线和连字符")
+        raise ValueError("账户标识符只能包含字母、数字、点、下划线和连字符")
     return value
 
 
 class UserContactFields(BaseModel):
-    """Optional LDAP contact attributes shared by create and update payloads."""
+    """Optional account contact attributes shared by create and update payloads."""
 
     phone: Optional[str] = Field(None, max_length=64)
     email: Optional[str] = Field(None, max_length=254)
@@ -289,10 +289,11 @@ class SystemSettingsUpdate(BaseModel):
 
 class SetupRequest(BaseModel):
     setup_token: str = Field(..., min_length=32, max_length=256)
-    ldap_uri: str = Field(..., min_length=1, max_length=2048)
-    ldap_base_dn: str = Field(..., min_length=1, max_length=1024)
-    ldap_bind_dn: str = Field(..., min_length=1, max_length=1024)
-    ldap_bind_password: str = Field(..., min_length=1, max_length=4096)
+    identity_backend: Literal["system", "ldap"] = "system"
+    ldap_uri: Optional[str] = Field(None, max_length=2048)
+    ldap_base_dn: Optional[str] = Field(None, max_length=1024)
+    ldap_bind_dn: Optional[str] = Field(None, max_length=1024)
+    ldap_bind_password: Optional[str] = Field(None, max_length=4096)
     ldap_port: int = Field(389, ge=1, le=65535)
     ldap_use_ssl: bool = False
     slurm_cluster_name: str = Field(..., min_length=1, max_length=64)

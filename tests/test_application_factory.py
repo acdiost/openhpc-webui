@@ -1,10 +1,12 @@
 import os
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key-0123456789abcdef")
 
 from openhpc_webui import __version__
 from openhpc_webui.application import app, create_app, templates
+from openhpc_webui import application as main
 from openhpc_webui.config import STATIC_DIR, TEMPLATES_DIR
 
 
@@ -38,6 +40,11 @@ class ApplicationFactoryTests(unittest.TestCase):
     def test_template_version_matches_package_version(self):
         self.assertEqual(__version__, "0.3.1")
         self.assertEqual(templates.env.globals["app_version"], __version__)
+
+    def test_unknown_identity_backend_fails_closed(self):
+        with patch.dict(os.environ, {"IDENTITY_BACKEND": "typo"}):
+            with self.assertRaisesRegex(ValueError, "IDENTITY_BACKEND"):
+                main._build_identity_manager()
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ title %}组管理{% endblock %} {% block breadcrumb_title %}组管理{% endblock
 
 <!-- 页面标题行 -->
 <div class="flex justify-between items-center" style="margin-bottom: 24px">
-    <h2 style="font-size: 28px; font-weight: 700">LDAP 组管理</h2>
+    <h2 style="font-size: 28px; font-weight: 700">组管理</h2>
     <button class="btn btn-primary" onclick="showCreateGroupModal()">
         + 创建组
     </button>
@@ -51,8 +51,8 @@ title %}组管理{% endblock %} {% block breadcrumb_title %}组管理{% endblock
         <span aria-hidden="true" style="margin-right: 8px">ⓘ</span>组管理说明
     </h3>
     <ul style="list-style: disc; margin-left: 24px; color: #1e40af; font-size: 14px; line-height: 1.8">
-        <li>点击“创建组”新增 LDAP 用户组，GID 需保持唯一</li>
-        <li>编辑组可维护组描述和成员列表，成员变更会同步到 LDAP</li>
+        <li>点击“创建组”新增身份用户组，GID 需保持唯一</li>
+        <li>成员变更会同步到当前身份后端</li>
         <li>删除组前请先确认没有用户或业务依赖该组，删除操作无法撤销</li>
     </ul>
 </div>
@@ -91,7 +91,7 @@ modals %}
                     min="1000"
                 />
             </div>
-            <div class="form-group">
+            <div class="form-group"{% if identity_backend == 'system' %} style="display:none"{% endif %}>
                 <label for="create_group_description">描述</label>
                 <textarea
                     id="create_group_description"
@@ -150,7 +150,7 @@ modals %}
                     name="gid"
                 />
             </div>
-            <div class="form-group">
+            <div class="form-group"{% if identity_backend == 'system' %} style="display:none"{% endif %}>
                 <label for="edit_group_description">描述</label>
                 <textarea
                     id="edit_group_description"

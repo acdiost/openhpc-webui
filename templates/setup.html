@@ -32,12 +32,19 @@
         .setup-field input:focus { outline: none; border-color: #dc3023; box-shadow: 0 0 0 3px rgba(220,48,35,.1); }
         .setup-check { display: flex; align-items: center; gap: 8px; color: #4b5563; font-size: 13px; }
         .setup-note { padding: 14px 16px; border: 1px solid #bfdbfe; border-radius: 8px; background: #eff6ff; color: #1e40af; font-size: 13px; line-height: 1.55; }
+        .setup-choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 22px; }
+        .setup-choice { display: flex; padding: 16px; align-items: flex-start; gap: 11px; border: 1px solid #d1d5db; border-radius: 9px; cursor: pointer; }
+        .setup-choice:has(input:checked) { border-color: #dc3023; background: #fff7f6; box-shadow: 0 0 0 2px rgba(220,48,35,.08); }
+        .setup-choice input { width: 16px; height: 16px; margin-top: 3px; accent-color: #dc3023; }
+        .setup-choice strong { display: block; margin-bottom: 4px; color: #111827; font-size: 14px; }
+        .setup-choice span { display: block; color: #6b7280; font-size: 12px; line-height: 1.5; }
+        .setup-options[hidden] { display: none; }
         .setup-actions { display: flex; margin-top: 28px; justify-content: space-between; gap: 12px; }
         .setup-button { min-height: 42px; padding: 0 18px; border: 1px solid #d1d5db; border-radius: 7px; background: #fff; color: #374151; font: inherit; font-weight: 650; cursor: pointer; }
         .setup-button.primary { border-color: #dc3023; background: #dc3023; color: #fff; }
         .setup-button:disabled { opacity: .55; cursor: wait; }
         .setup-error { display: none; margin-top: 18px; padding: 12px 14px; border-radius: 7px; background: #fef2f2; color: #b91c1c; font-size: 13px; }
-        @media (max-width: 680px) { .setup-shell { padding: 20px 0; } .setup-body { padding: 25px 20px; } .setup-grid { grid-template-columns: 1fr; } .setup-field.full { grid-column: auto; } .setup-progress-item { padding: 14px 6px; font-size: 12px; } }
+        @media (max-width: 680px) { .setup-shell { padding: 20px 0; } .setup-body { padding: 25px 20px; } .setup-grid, .setup-choice-grid { grid-template-columns: 1fr; } .setup-field.full { grid-column: auto; } .setup-progress-item { padding: 14px 6px; font-size: 12px; } }
     </style>
 </head>
 <body>
@@ -48,23 +55,38 @@
     </div>
     <section class="setup-card">
         <div class="setup-progress" aria-label="安装进度">
-            <div class="setup-progress-item active" data-progress="1">1. LDAP 服务</div>
+            <div class="setup-progress-item active" data-progress="1">1. 身份集成</div>
             <div class="setup-progress-item" data-progress="2">2. Slurm 集群</div>
             <div class="setup-progress-item" data-progress="3">3. 管理与安全</div>
         </div>
         <form id="setupForm" class="setup-body">
             <input id="setup_token" type="hidden" value="{{ setup_token }}">
             <div class="setup-step active" data-step="1">
-                <h2>连接 LDAP</h2>
-                <p class="setup-lead">填写门户用于查询和管理用户目录的服务连接信息。</p>
-                <div class="setup-grid">
-                    <div class="setup-field full"><label for="setup_ldap_uri">LDAP 地址</label><input id="setup_ldap_uri" required value="ldap://localhost" placeholder="ldap://ldap.example.edu"></div>
-                    <div class="setup-field"><label for="setup_ldap_base_dn">Base DN</label><input id="setup_ldap_base_dn" required placeholder="dc=example,dc=edu"></div>
-                    <div class="setup-field"><label for="setup_ldap_port">端口</label><input id="setup_ldap_port" type="number" min="1" max="65535" required value="389"></div>
-                    <div class="setup-field"><label for="setup_ldap_bind_dn">管理 Bind DN</label><input id="setup_ldap_bind_dn" required placeholder="cn=admin,dc=example,dc=edu"></div>
-                    <div class="setup-field"><label for="setup_ldap_bind_password">Bind 密码</label><input id="setup_ldap_bind_password" type="password" autocomplete="new-password" required></div>
+                <h2>选择身份集成方式</h2>
+                <p class="setup-lead">根据部署规模选择本机 Linux 账户，或连接已有 LDAP 目录服务。</p>
+                <div class="setup-choice-grid">
+                    <label class="setup-choice">
+                        <input type="radio" name="identity_backend" value="system" checked>
+                        <span><strong>本机系统账户</strong>适合单节点部署，通过 NSS 读取用户和组，并使用 PAM 验证密码。</span>
+                    </label>
+                    <label class="setup-choice">
+                        <input type="radio" name="identity_backend" value="ldap">
+                        <span><strong>LDAP 目录服务</strong>连接已有 OpenLDAP，集中管理用户、组和登录认证。</span>
+                    </label>
                 </div>
-                <label class="setup-check"><input id="setup_ldap_use_ssl" type="checkbox"> 使用 LDAPS 加密连接</label>
+                <div id="setup_system_options" class="setup-options">
+                    <div class="setup-note">WebUI 需要以 root 身份运行，才能创建、修改或删除系统账户，以及安全写入用户的 SSH 公钥。首位管理员必须是本机已存在的可登录账户。</div>
+                </div>
+                <div id="setup_ldap_options" class="setup-options" hidden>
+                    <div class="setup-grid">
+                        <div class="setup-field full"><label for="setup_ldap_uri">LDAP 地址</label><input id="setup_ldap_uri" value="ldap://localhost" placeholder="ldap://ldap.example.edu"></div>
+                        <div class="setup-field"><label for="setup_ldap_base_dn">Base DN</label><input id="setup_ldap_base_dn" placeholder="dc=example,dc=edu"></div>
+                        <div class="setup-field"><label for="setup_ldap_port">端口</label><input id="setup_ldap_port" type="number" min="1" max="65535" value="389"></div>
+                        <div class="setup-field"><label for="setup_ldap_bind_dn">管理 Bind DN</label><input id="setup_ldap_bind_dn" placeholder="cn=admin,dc=example,dc=edu"></div>
+                        <div class="setup-field"><label for="setup_ldap_bind_password">Bind 密码</label><input id="setup_ldap_bind_password" type="password" autocomplete="new-password"></div>
+                    </div>
+                    <label class="setup-check"><input id="setup_ldap_use_ssl" type="checkbox"> 使用 LDAPS 加密连接</label>
+                </div>
             </div>
             <div class="setup-step" data-step="2">
                 <h2>连接 Slurm</h2>
@@ -78,10 +100,10 @@
             </div>
             <div class="setup-step" data-step="3">
                 <h2>管理员与安全</h2>
-                <p class="setup-lead">指定首位 LDAP 管理员。Session 密钥将由系统自动生成，不会显示在浏览器中。</p>
-                <div class="setup-field"><label for="setup_admin_username">管理员 LDAP 用户名</label><input id="setup_admin_username" required maxlength="64" placeholder="admin"></div>
+                <p id="setup_admin_lead" class="setup-lead">指定首位本机系统管理员。Session 密钥将由系统自动生成，不会显示在浏览器中。</p>
+                <div class="setup-field"><label id="setup_admin_label" for="setup_admin_username">管理员系统用户名</label><input id="setup_admin_username" required maxlength="64" placeholder="admin"></div>
                 <label class="setup-check"><input id="setup_session_https_only" type="checkbox"> 仅通过 HTTPS 发送 Session Cookie（已配置 HTTPS 反向代理时启用）</label>
-                <div class="setup-note" style="margin-top:20px">完成后安装向导会自动锁定。请重启 OpenHPC WebUI，再使用上面的 LDAP 管理员账户登录。</div>
+                <div id="setup_finish_note" class="setup-note" style="margin-top:20px">完成后安装向导会自动锁定。请重启 OpenHPC WebUI，再使用上面的系统账户和密码登录。</div>
             </div>
             <div id="setupError" class="setup-error" role="alert"></div>
             <div class="setup-actions">
@@ -100,6 +122,32 @@
     const nextButton = document.getElementById("setupNext");
     const submitButton = document.getElementById("setupSubmit");
     const errorBox = document.getElementById("setupError");
+    const ldapFields = ["setup_ldap_uri", "setup_ldap_base_dn", "setup_ldap_bind_dn", "setup_ldap_bind_password"]
+        .map((id) => document.getElementById(id));
+
+    function selectedIdentityBackend() {
+        return document.querySelector('input[name="identity_backend"]:checked').value;
+    }
+
+    function updateIdentityBackend() {
+        const ldapSelected = selectedIdentityBackend() === "ldap";
+        document.getElementById("setup_system_options").hidden = ldapSelected;
+        document.getElementById("setup_ldap_options").hidden = !ldapSelected;
+        ldapFields.forEach((field) => { field.required = ldapSelected; });
+        if (!ldapSelected) document.getElementById("setup_ldap_bind_password").value = "";
+        document.getElementById("setup_admin_lead").textContent = ldapSelected
+            ? "指定首位 LDAP 管理员。Session 密钥将由系统自动生成，不会显示在浏览器中。"
+            : "指定首位本机系统管理员。Session 密钥将由系统自动生成，不会显示在浏览器中。";
+        document.getElementById("setup_admin_label").textContent = ldapSelected ? "管理员 LDAP 用户名" : "管理员系统用户名";
+        document.getElementById("setup_finish_note").textContent = ldapSelected
+            ? "完成后安装向导会自动锁定。请重启 OpenHPC WebUI，再使用上面的 LDAP 账户登录。"
+            : "完成后安装向导会自动锁定。请重启 OpenHPC WebUI，再使用上面的系统账户和密码登录。";
+    }
+
+    document.querySelectorAll('input[name="identity_backend"]').forEach((input) => {
+        input.addEventListener("change", updateIdentityBackend);
+    });
+    updateIdentityBackend();
 
     function showStep(step) {
         setupStep = step;
@@ -126,23 +174,28 @@
         submitButton.disabled = true;
         errorBox.style.display = "none";
         try {
+            const identityBackend = selectedIdentityBackend();
+            const payload = {
+                setup_token: document.getElementById("setup_token").value,
+                identity_backend: identityBackend,
+                slurm_cluster_name: document.getElementById("setup_slurm_cluster_name").value,
+                slurm_default_account: document.getElementById("setup_slurm_default_account").value,
+                slurm_config_dir: document.getElementById("setup_slurm_config_dir").value,
+                admin_username: document.getElementById("setup_admin_username").value,
+                session_https_only: document.getElementById("setup_session_https_only").checked,
+            };
+            if (identityBackend === "ldap") Object.assign(payload, {
+                ldap_uri: document.getElementById("setup_ldap_uri").value,
+                ldap_base_dn: document.getElementById("setup_ldap_base_dn").value,
+                ldap_bind_dn: document.getElementById("setup_ldap_bind_dn").value,
+                ldap_bind_password: document.getElementById("setup_ldap_bind_password").value,
+                ldap_port: Number(document.getElementById("setup_ldap_port").value),
+                ldap_use_ssl: document.getElementById("setup_ldap_use_ssl").checked,
+            });
             const response = await fetch("/api/setup", {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({
-                    setup_token: document.getElementById("setup_token").value,
-                    ldap_uri: document.getElementById("setup_ldap_uri").value,
-                    ldap_base_dn: document.getElementById("setup_ldap_base_dn").value,
-                    ldap_bind_dn: document.getElementById("setup_ldap_bind_dn").value,
-                    ldap_bind_password: document.getElementById("setup_ldap_bind_password").value,
-                    ldap_port: Number(document.getElementById("setup_ldap_port").value),
-                    ldap_use_ssl: document.getElementById("setup_ldap_use_ssl").checked,
-                    slurm_cluster_name: document.getElementById("setup_slurm_cluster_name").value,
-                    slurm_default_account: document.getElementById("setup_slurm_default_account").value,
-                    slurm_config_dir: document.getElementById("setup_slurm_config_dir").value,
-                    admin_username: document.getElementById("setup_admin_username").value,
-                    session_https_only: document.getElementById("setup_session_https_only").checked,
-                }),
+                body: JSON.stringify(payload),
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.detail || "安装配置保存失败");

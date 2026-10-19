@@ -205,7 +205,7 @@ content %}
 
 <!-- 页面标题行 -->
 <div class="flex justify-between items-center" style="margin-bottom: 24px">
-    <h2 style="font-size: 28px; font-weight: 700">LDAP 用户管理</h2>
+    <h2 style="font-size: 28px; font-weight: 700">用户管理</h2>
     <button class="btn btn-primary" onclick="showCreateUserModal()">
         + 创建用户
     </button>
@@ -292,20 +292,20 @@ content %}
         <span aria-hidden="true" style="margin-right: 8px">ⓘ</span>用户管理说明
     </h3>
     <ul style="list-style: disc; margin-left: 24px; color: #1e40af; font-size: 14px; line-height: 1.8">
-        <li>点击“创建用户”新增 LDAP 用户，用户名和 UID 创建后不建议随意修改</li>
+        <li>点击“创建用户”新增身份用户，用户名和 UID 创建后不建议随意修改</li>
         <li>可在操作菜单中编辑资料、调整存储/核时/卡时配额或重置密码</li>
         <li>勾选管理员权限后立即生效；撤销自己的管理员权限会被系统阻止</li>
         <li>删除用户前请确认其作业和数据已处理，删除操作无法撤销</li>
     </ul>
 </div>
 
-<!-- LDAP 连接状态卡片 -->
+<!-- 身份后端状态卡片 -->
 <div class="card">
-    <h3 class="card-title">LDAP 连接状态</h3>
+    <h3 class="card-title">身份服务状态</h3>
     <div class="flex items-center gap-2" id="ldapStatusRow">
         <span class="badge badge-success">检测中…</span>
         <span style="color: #6b7280; font-size: 14px"
-            >正在连接 LDAP 服务器…</span
+            >正在检查身份服务…</span
         >
     </div>
 </div>
@@ -1050,10 +1050,13 @@ page_scripts %}
         try {
             const status = await fetchLDAPStatus();
             if (status.status === "connected") {
+                const detail = status.backend === "system"
+                    ? `后端: 本机 Linux / PAM`
+                    : `服务器: ${escapeHtml(status.server)} &nbsp;|&nbsp; Bind DN: ${escapeHtml(status.bind_dn || "—")}`;
                 row.innerHTML = `
                     <span class="badge badge-success">已连接</span>
                     <span style="color: #6b7280; font-size: 14px;">
-                        服务器: ${escapeHtml(status.server)} &nbsp;|&nbsp; Bind DN: ${escapeHtml(status.bind_dn)}
+                        ${detail}
                     </span>`;
             } else {
                 row.innerHTML = `
@@ -1065,7 +1068,7 @@ page_scripts %}
         } catch (e) {
             row.innerHTML = `
                 <span class="badge badge-error">检测失败</span>
-                <span style="color: #6b7280; font-size: 14px;">无法获取 LDAP 状态</span>`;
+                <span style="color: #6b7280; font-size: 14px;">无法获取身份服务状态</span>`;
         }
     }
 

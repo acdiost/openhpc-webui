@@ -118,7 +118,7 @@ class TerminalManager:
         try:
             record = pwd.getpwnam(username)
         except KeyError as exc:
-            raise TerminalError("当前 LDAP 用户尚未同步为系统账户") from exc
+            raise TerminalError("当前用户没有可用的系统账户") from exc
 
         try:
             canonical_record = pwd.getpwuid(record.pw_uid)

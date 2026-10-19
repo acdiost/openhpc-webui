@@ -15,8 +15,15 @@ class SetupFrontendTests(unittest.TestCase):
         self.assertIn('data-step="2"', template)
         self.assertIn('data-step="3"', template)
         self.assertIn('/api/setup', template)
+        self.assertIn("选择身份集成方式", template)
+        self.assertIn('name="identity_backend"', template)
+        self.assertIn('value="system"', template)
+        self.assertIn('value="ldap"', template)
+        self.assertIn('id="setup_system_options"', template)
+        self.assertIn('id="setup_ldap_options"', template)
         self.assertIn('id="setup_ldap_bind_password"', template)
-        self.assertIn('type="password"', template)
+        self.assertIn('id="setup_ldap_uri"', template)
+        self.assertIn("updateIdentityBackend", template)
 
 
 if __name__ == "__main__":

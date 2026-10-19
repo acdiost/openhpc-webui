@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import pwd
 import re
 import secrets
 import tempfile
@@ -26,6 +27,7 @@ _LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 
 _DEFAULTS: Dict[str, str] = {
     "SETUP_COMPLETED": "False",
+    "IDENTITY_BACKEND": "ldap",
     "LDAP_DEFAULT_BIND_DN": "",
     "LDAP_DEFAULT_AUTHTOK_TYPE": "password",
     "LDAP_DEFAULT_AUTHTOK": "",
@@ -111,6 +113,7 @@ def _as_int(key: str) -> int:
 def public_config() -> Dict[str, Any]:
     """Return editable configuration without ever returning stored secrets."""
     return {
+        "identity_backend": _value("IDENTITY_BACKEND"),
         "ldap": {
             "uri": _value("LDAP_URI"),
             "base_dn": _value("LDAP_BASE_DN"),
@@ -275,12 +278,10 @@ def setup_required() -> bool:
 
 def complete_setup(update: Dict[str, Any]) -> Dict[str, Any]:
     """Persist the initial configuration and permanently lock the installer."""
+    backend = str(update.get("identity_backend", "system")).strip().lower()
+    if backend not in {"system", "ldap"}:
+        raise SystemSettingsError("身份集成方式无效")
     required = {
-        "ldap_uri",
-        "ldap_base_dn",
-        "ldap_bind_dn",
-        "ldap_bind_password",
-        "ldap_port",
         "slurm_cluster_name",
         "slurm_default_account",
         "slurm_config_dir",
@@ -292,8 +293,31 @@ def complete_setup(update: Dict[str, Any]) -> Dict[str, Any]:
     admin_username = _clean_text("admin_username", update["admin_username"], max_length=64)
     if not _NAME_PATTERN.fullmatch(admin_username):
         raise SystemSettingsError("管理员用户名格式无效")
+    if backend == "system":
+        try:
+            pwd.getpwnam(admin_username)
+        except KeyError as exc:
+            raise SystemSettingsError("管理员必须是已存在的本机系统账户") from exc
+    else:
+        ldap_required = {
+            "ldap_uri",
+            "ldap_base_dn",
+            "ldap_bind_dn",
+            "ldap_bind_password",
+        }
+        ldap_missing = sorted(
+            field for field in ldap_required
+            if not str(update.get(field, "")).strip()
+        )
+        if ldap_missing:
+            raise SystemSettingsError("LDAP 集成需要完整的连接与 Bind 配置")
 
-    settings_update = {key: value for key, value in update.items() if key != "admin_username"}
+    settings_update = {
+        key: value
+        for key, value in update.items()
+        if key not in {"admin_username", "identity_backend"}
+        and (backend == "ldap" or not key.startswith("ldap_"))
+    }
     changed = _validate_update(settings_update)
     with _WRITE_LOCK:
         if not setup_required():
@@ -303,6 +327,7 @@ def complete_setup(update: Dict[str, Any]) -> Dict[str, Any]:
         values.update(
             {
                 "ADMIN_USERS": admin_username,
+                "IDENTITY_BACKEND": backend,
                 "AUTHORIZED": "True",
                 "SECRET_KEY": secrets.token_urlsafe(48),
                 "SETUP_COMPLETED": "True",

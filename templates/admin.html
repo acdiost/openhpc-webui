@@ -98,7 +98,7 @@ GET /admin 仅管理员可访问
                 <li>访问所有管理页面（用户、组、分区、节点）</li>
                 <li>查看并取消任意用户的作业</li>
                 <li>管理系统权限（添加/移除管理员）</li>
-                <li>修改 LDAP 用户和 Slurm 配置</li>
+                <li>修改身份用户和 Slurm 配置</li>
             </ul>
         </div>
         <div>
@@ -169,7 +169,7 @@ GET /admin 仅管理员可访问
                 <input
                     type="text"
                     id="newAdminUsername"
-                    placeholder="输入 LDAP 用户名…"
+                    placeholder="输入用户名…"
                     style="
                         width: 100%;
                         padding: 9px 12px;
@@ -236,7 +236,7 @@ GET /admin 仅管理员可访问
                 onclick="loadLdapUsersForSuggest()"
                 style="font-size: 13px"
             >
-                从 LDAP 加载用户列表
+                从身份目录加载用户列表
             </button>
         </div>
     </div>
@@ -303,7 +303,7 @@ GET /admin 仅管理员可访问
                 <tr>
                     <th class="col-number" style="width: 48px">#</th>
                     <th>用户名</th>
-                    <th class="col-status">在 LDAP 中存在</th>
+                    <th class="col-status">在身份目录中存在</th>
                     <th class="col-status">当前会话</th>
                     <th class="col-actions">操作</th>
                 </tr>
@@ -477,13 +477,13 @@ page_scripts %}
             ldapUsers = (data.users || [])
                 .map((u) => u.username)
                 .filter(Boolean);
-            showToast(`已加载 ${ldapUsers.length} 个 LDAP 用户`, "success");
+            showToast(`已加载 ${ldapUsers.length} 个身份用户`, "success");
             // 触发一次补全显示
             filterSuggestions(
                 document.getElementById("newAdminUsername").value,
             );
         } catch (e) {
-            showToast("加载 LDAP 用户列表失败", "error");
+            showToast("加载身份用户列表失败", "error");
         }
     }
 

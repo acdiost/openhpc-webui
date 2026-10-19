@@ -558,7 +558,7 @@ def _worker():
         if os.geteuid() == 0:
             identity = pwd.getpwnam(username)
             if identity.pw_uid != uid or identity.pw_gid != gid or uid == 0:
-                raise FileAccessDenied("用户系统身份与 LDAP 记录不一致")
+                raise FileAccessDenied("用户系统身份与账户记录不一致")
             os.setgroups(os.getgrouplist(username, gid))
             os.setgid(gid)
             os.setuid(uid)
@@ -569,7 +569,7 @@ def _worker():
             if local.pw_gid != gid or not set(os.getgroups()).issubset(
                 os.getgrouplist(local.pw_name, gid)
             ):
-                raise FileAccessDenied("用户系统身份与 LDAP 记录不一致")
+                raise FileAccessDenied("用户系统身份与账户记录不一致")
         manager = FileManager(int(upload_limit), int(edit_limit))
         root = Path(root)
         args = json.loads(raw_args)

@@ -1,6 +1,6 @@
 # openhpc_webui
 
-`openhpc_webui` 是面向高校、科研机构和企业智算中心的轻量级中文管理门户。项目将 OpenLDAP 身份管理、Slurm 账户与关联、分区和节点配置、作业状态及输出查看集中到同一个 Web 界面，适合内网和离线环境。
+`openhpc_webui` 是面向高校、科研机构和企业智算中心的轻量级中文管理门户。安装时可选择本机 Linux 用户/PAM 或 OpenLDAP 作为身份后端，并将 Slurm 账户与关联、分区和节点配置、作业状态及输出查看集中到同一个 Web 界面，适合内网和离线环境。
 
 当前版本：`0.3.1`
 
@@ -8,9 +8,9 @@
 
 | 模块 | 主要能力 |
 | --- | --- |
-| 系统总览 | LDAP 用户数、活动作业、空闲节点、近期作业和分区状态 |
-| 用户管理 | LDAP 用户增删改、禁用、SSH 密钥、存储配额、核时/卡时和作业报表 |
-| 组管理 | LDAP 组创建、编辑、删除及成员信息查看 |
+| 系统总览 | 身份用户数、活动作业、空闲节点、近期作业和分区状态 |
+| 用户管理 | 身份用户增删改、禁用、SSH 密钥、存储配额、核时/卡时和作业报表 |
+| 组管理 | 用户组创建、编辑、删除及成员信息查看 |
 | 账户管理 | Slurm 账户创建、编辑和删除 |
 | Slurm 用户管理 | 当前集群用户列表、创建、默认账户修改及移除全部关联 |
 | Slurm 用户关联 | Slurm Association、QOS、默认 QOS、分区和 TRES Minutes 管理 |
@@ -32,9 +32,9 @@
 | 查看作业详情 | 是 | 是 |
 | 查看作业输出 | 任意作业 | 仅自己的作业 |
 | 取消作业 | 任意作业 | 仅自己的作业 |
-| 文件管理范围 | 默认进入个人 Home，可访问系统根目录 `/`（沿用门户进程权限） | LDAP Home 目录（页面中映射为 `/`），按同名 Linux 用户 UID/GID/附加组权限操作 |
+| 文件管理范围 | 默认进入个人 Home，可访问系统根目录 `/`（沿用门户进程权限） | 系统 Home 目录（页面中映射为 `/`），按 Linux 用户 UID/GID/附加组权限操作 |
 | Web 终端身份与目录 | 当前同名 Linux 系统用户及其 Home | 当前同名 Linux 系统用户及其 Home |
-| 修改自己的 LDAP 密码 | 是 | 是 |
+| 修改自己的系统密码 | 是 | 是 |
 
 管理员由 `ADMIN_USERS` 配置，也可以在权限管理页面在线维护。普通用户访问管理员页面时会被重定向到作业页面。
 
@@ -60,7 +60,7 @@
 
 - Python 3.9+
 - FastAPI、Jinja2 和 Uvicorn
-- ldap3 / OpenLDAP
+- Linux NSS/PAM 或 ldap3 / OpenLDAP
 - Slurm CLI：`sinfo`、`squeue`、`sacct`、`scontrol`、`sacctmgr`、`scancel`
 - uv 依赖与环境管理
 - Tailwind CSS CLI 4.x（仅在修改模板或前端脚本中的工具类后重新构建）
@@ -76,7 +76,7 @@ openhpc-webui/
 │   ├── cli.py              # 命令行入口
 │   ├── core/               # 配置、认证和公共能力
 │   ├── models/             # 请求与响应模型
-│   └── services/           # LDAP、Slurm 和系统集成
+│   └── services/           # 系统身份、Slurm 和其他集成
 ├── templates/              # Jinja2 页面模板
 ├── static/                 # 离线 CSS、JavaScript 和图标
 ├── tests/                  # 自动化测试
@@ -89,7 +89,7 @@ openhpc-webui/
 
 运行门户的主机需要：
 
-- 能够访问 OpenLDAP 服务；
+- 使用系统账户后端时，本机已配置 PAM `login` 服务以及 `useradd`、`usermod`、`userdel`、`groupadd` 等账户工具；使用 LDAP 后端时，主机能够访问 OpenLDAP；
 - 安装 Slurm 客户端命令，并能连接 Slurm 控制端；
 - 对节点和分区配置文件具有业务所需的读写权限；
 - 使用 NFS 配额时安装并配置 `quota` / `setquota`；
@@ -116,8 +116,8 @@ uv sync
 uv run uvicorn openhpc_webui.application:app --reload --port 6827
 ```
 
-浏览器访问 `http://127.0.0.1:6827`，首次启动会自动进入安装向导，依次配置 LDAP、
-Slurm 和首位管理员，并自动生成 Session 密钥。也可以使用项目命令启动监听在
+浏览器访问 `http://127.0.0.1:6827`，首次启动会自动进入安装向导，选择系统账户或 LDAP、
+配置 Slurm 和首位管理员，并自动生成 Session 密钥。也可以使用项目命令启动监听在
 `0.0.0.0:6827` 的服务：
 
 ```bash
@@ -134,10 +134,8 @@ uv run openhpc_webui
 
 | 配置项 | 用途 |
 | --- | --- |
-| `LDAP_URI` | LDAP 服务地址 |
-| `LDAP_BASE_DN` | LDAP Base DN |
-| `LDAP_DEFAULT_BIND_DN` | 管理 Bind DN |
-| `LDAP_DEFAULT_AUTHTOK` | 管理 Bind 密码 |
+| `IDENTITY_BACKEND` | 身份后端；安装向导可选择 `system` 或 `ldap` |
+| `SYSTEM_USER_MIN_UID` | 用户管理页面显示的最低 UID，默认 `1000` |
 | `SECRET_KEY` | Session 签名密钥，生产环境不少于 32 个随机字符 |
 | `AUTHORIZED` | 是否启用登录认证，生产环境必须为 `True` |
 | `ADMIN_USERS` | 管理员用户名，多个值使用英文逗号分隔 |
@@ -155,7 +153,7 @@ uv run openhpc_webui
 | `TERMINAL_AI_MODEL` | 服务端可用的模型名称 |
 | `TERMINAL_AI_API_KEY` | 模型服务密钥；本地服务可按实际鉴权配置留空 |
 | `TERMINAL_AI_TIMEOUT_SECONDS` | 单次模型请求超时，范围 5–300 秒，默认 60 秒 |
-| `SLURM_DEFAULT_ACCOUNT` | 创建 LDAP 用户时使用的默认 Slurm 账户 |
+| `SLURM_DEFAULT_ACCOUNT` | 创建身份用户时使用的默认 Slurm 账户 |
 | `SLURM_CLUSTER_NAME` | WebUI 管理的 Slurm `ClusterName`，必须显式配置且与本机配置一致 |
 | `SLURM_CONFIG_DIR` | 节点与分区配置文件目录，默认 `/etc/slurm` |
 
@@ -163,10 +161,10 @@ uv run openhpc_webui
 自动视为已安装，不会跳转到安装向导。认证模式、Session 密钥和 HTTPS Cookie 设置修改后
 需要重启服务。
 
-应用以启动目录的 `.env` 为统一读写配置文件，也可通过绝对路径 `OPENHPC_WEBUI_ENV_FILE` 指定位置；权限管理、终端设置和安装向导会写入同一个文件。升级到本版本后旧 Session 须重新登录；删除或重建 LDAP 用户后原登录会话失效。
+应用以启动目录的 `.env` 为统一读写配置文件，也可通过绝对路径 `OPENHPC_WEBUI_ENV_FILE` 指定位置；权限管理、终端设置和安装向导会写入同一个文件。删除身份用户会使其现有登录会话失效。
 
-无人值守部署还可在 `.env` 中设置 `LDAP_CONNECT_TIMEOUT_SECONDS`（默认 5 秒）、
-`LDAP_RECEIVE_TIMEOUT_SECONDS`（默认 10 秒）、`SLURM_COMMAND_TIMEOUT_SECONDS`
+无人值守部署还可在 `.env` 中设置 `SYSTEM_ACCOUNT_COMMAND_TIMEOUT_SECONDS`（默认 30 秒）、
+`SLURM_COMMAND_TIMEOUT_SECONDS`
 （默认 15 秒）和 `SSH_KEYGEN_TIMEOUT_SECONDS`（默认 30 秒）。这些值限制在 1–300 秒，
 用于防止后端服务或 CLI 卡住请求线程；修改后需要重启服务。
 
@@ -206,8 +204,8 @@ Tailwind 构建入口为 `tailwind.css`，只扫描 `templates/` 和 `static/*.j
 
 - 仅在受控内网开放门户，并使用防火墙限制来源。
 - 生产环境启用 HTTPS，并将 `SESSION_HTTPS_ONLY` 设为 `True`。
-- 不要提交 `.env`、LDAP 管理密码、Session 密钥或真实用户数据。
-- 仅授予运行账户完成 LDAP、Slurm 和配置文件操作所需的最小权限。
+- 不要提交 `.env`、Session 密钥、历史 LDAP 凭据或真实用户数据。
+- 单节点系统账户管理需要 root；只在受控主机运行，并限制门户网络入口和管理员名单。
 - 定期审计管理员列表、Slurm 操作和应用日志。
 
-本项目是集群管理辅助工具，不替代 Slurm、LDAP、监控平台或审计系统本身。
+本项目是集群管理辅助工具，不替代 Slurm、Linux 身份系统、监控平台或审计系统本身。

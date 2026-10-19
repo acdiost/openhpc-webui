@@ -21,12 +21,7 @@ class SetupRouteTests(unittest.TestCase):
     def test_setup_submission_requires_token_from_setup_session(self):
         payload = {
             "setup_token": "x" * 32,
-            "ldap_uri": "ldap://localhost",
-            "ldap_base_dn": "dc=example,dc=com",
-            "ldap_bind_dn": "cn=admin,dc=example,dc=com",
-            "ldap_bind_password": "password",
-            "ldap_port": 389,
-            "ldap_use_ssl": False,
+            "identity_backend": "system",
             "slurm_cluster_name": "cluster",
             "slurm_default_account": "research",
             "slurm_config_dir": "/etc/slurm",
@@ -39,7 +34,24 @@ class SetupRouteTests(unittest.TestCase):
             response = client.post("/api/setup", json=payload)
 
         self.assertEqual(response.status_code, 403)
-        self.assertNotIn("password", response.text)
+        self.assertNotIn("secret", response.text.lower())
+
+    def test_setup_schema_rejects_an_unknown_identity_backend(self):
+        payload = {
+            "setup_token": "x" * 32,
+            "identity_backend": "unknown",
+            "slurm_cluster_name": "cluster",
+            "slurm_default_account": "research",
+            "slurm_config_dir": "/etc/slurm",
+            "admin_username": "admin",
+            "session_https_only": False,
+        }
+        with patch.object(main, "setup_required", return_value=True):
+            client = TestClient(main.create_app())
+            client.get("/setup")
+            response = client.post("/api/setup", json=payload)
+
+        self.assertEqual(response.status_code, 422)
 
     def test_installed_application_locks_setup_page(self):
         with patch.object(main, "setup_required", return_value=False):

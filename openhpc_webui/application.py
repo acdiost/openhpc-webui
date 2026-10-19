@@ -43,7 +43,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from . import __version__
 from .audit import AuditMiddleware, log_event, sanitize
-from .config import STATIC_DIR, TEMPLATES_DIR, Settings, settings
+from .config import STATIC_DIR, TEMPLATES_DIR, Settings, identity_backend, settings
 from .schemas import (
     AccountCreate,
     AccountUpdate,
@@ -85,6 +85,7 @@ from .services.auth_manager import AuthenticationServiceError, AuthManager
 from .services.csv_export import render_spreadsheet_safe_csv
 from .services.file_manager import FileAccessDenied, FileManager, FileManagerError
 from .services.ldap_manager import LDAPManager, LDAPServiceUnavailable
+from .services.system_account_manager import SystemAccountManager
 from .services.login_limiter import LoginAttemptLimiter
 from .services.upload_guard import UploadPolicy, UploadRequestGuard
 from .services.integration_timeout import bounded_timeout_seconds
@@ -162,6 +163,14 @@ def _require_ldap_identifier(value: str, label: str) -> None:
         raise HTTPException(status_code=400, detail=f"{label}格式无效") from exc
 
 
+def _identity_user_label() -> str:
+    return "系统用户" if identity_backend() == "system" else "LDAP 用户"
+
+
+def _identity_profile_label() -> str:
+    return "系统用户信息" if identity_backend() == "system" else "LDAP 信息"
+
+
 def _upload_policy() -> UploadPolicy:
     return UploadPolicy(
         max_body_bytes=(
@@ -236,12 +245,18 @@ router = IntegrationAPIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.globals["app_version"] = __version__
 templates.env.globals["terminal_enabled"] = settings.terminal_enabled and AUTH_ENABLED
+templates.env.globals["identity_backend"] = identity_backend()
 templates.env.globals["terminal_script_version"] = str(
     (STATIC_DIR / "terminal.js").stat().st_mtime_ns
 )
 
 # Initialize managers
-ldap_mgr = LDAPManager()
+def _build_identity_manager():
+    backend = identity_backend()
+    return SystemAccountManager() if backend == "system" else LDAPManager()
+
+
+ldap_mgr = _build_identity_manager()
 slurm_mgr = SlurmManager()
 auth_mgr = AuthManager()
 quota_mgr = NFSQuotaManager()
@@ -272,7 +287,7 @@ def _reload_runtime_configuration() -> None:
     global settings, ldap_mgr, slurm_mgr, auth_mgr, quota_mgr
     global file_mgr, login_limiter, terminal_mgr
     settings = Settings.from_env()
-    ldap_mgr = LDAPManager()
+    ldap_mgr = _build_identity_manager()
     slurm_mgr = SlurmManager()
     auth_mgr = AuthManager()
     quota_mgr = NFSQuotaManager()
@@ -290,6 +305,7 @@ def _reload_runtime_configuration() -> None:
     templates.env.globals["terminal_enabled"] = (
         settings.terminal_enabled and AUTH_ENABLED
     )
+    templates.env.globals["identity_backend"] = identity_backend()
 
 
 def _pick_fields(value: Optional[dict], fields: tuple[str, ...]) -> Optional[dict]:
@@ -2129,7 +2145,7 @@ def _rollback_created_user(
         )
     _record_user_compensation(
         failures,
-        "LDAP 用户",
+        _identity_user_label(),
         lambda: ldap_mgr.delete_user(username),
     )
     return failures
@@ -2165,7 +2181,7 @@ async def create_user(user_data: UserCreate, user: dict = Depends(get_current_us
         raise HTTPException(status_code=503, detail="NFS quota 未配置或未启用")
 
     ldap_created = _run_user_lifecycle_step(
-        "创建 LDAP 用户",
+        f"创建{_identity_user_label()}",
         lambda: ldap_mgr.create_user(
             username=user_data.username,
             uid=user_data.uid,
@@ -2235,7 +2251,7 @@ async def delete_user(username: str, user: dict = Depends(get_current_user)):
     ):
         raise HTTPException(
             status_code=500,
-            detail="移除 Slurm 账户失败，LDAP 用户未删除",
+            detail=f"移除 Slurm 账户失败，{_identity_user_label()}未删除",
         )
 
     if was_admin and not _run_user_lifecycle_step(
@@ -2250,7 +2266,7 @@ async def delete_user(username: str, user: dict = Depends(get_current_user)):
         _raise_user_lifecycle_failure("撤销管理员权限失败", failures)
 
     if not _run_user_lifecycle_step(
-        "删除 LDAP 用户", lambda: ldap_mgr.delete_user(username)
+        f"删除{_identity_user_label()}", lambda: ldap_mgr.delete_user(username)
     ):
         failures = []
         if was_admin:
@@ -2264,7 +2280,7 @@ async def delete_user(username: str, user: dict = Depends(get_current_user)):
             "Slurm 账户",
             lambda: slurm_mgr.add_user_account(username),
         )
-        _raise_user_lifecycle_failure("删除 LDAP 用户失败", failures)
+        _raise_user_lifecycle_failure(f"删除{_identity_user_label()}失败", failures)
 
     return {"message": f"用户 {username} 已删除"}
 
@@ -2342,7 +2358,8 @@ async def update_user(
         )
         if not role_saved:
             raise HTTPException(
-                status_code=500, detail="LDAP 信息已更新，但管理员权限保存失败"
+                status_code=500,
+                detail=f"{_identity_profile_label()}已更新，但管理员权限保存失败",
             )
 
     return {
@@ -2389,7 +2406,7 @@ async def reset_user_ssh_key(username: str, user: dict = Depends(get_current_use
 
     success = ldap_mgr.set_ssh_public_key(username, public_key)
     if not success:
-        raise HTTPException(status_code=500, detail="写入 LDAP 失败")
+        raise HTTPException(status_code=500, detail="写入 SSH 公钥失败")
 
     filename = f"{username}_id_{key_type}"
     return Response(
