@@ -439,8 +439,12 @@ class SlurmManager:
             partition: 过滤分区名称
         """
         try:
-            # 使用 squeue 获取作业队列
-            cmd = ['squeue', '-o', '%i|%j|%u|%P|%T|%D|%C|%M|%S|%N|%Q']
+            # Expand arrays so every row targets one task, never a display-only
+            # expression such as 3738_[3-101%2] or the entire parent array.
+            cmd = [
+                'squeue', '--array', '-o',
+                '%i|%j|%u|%P|%T|%D|%C|%M|%S|%N|%Q',
+            ]
             result = _run_slurm_command(
                 cmd,
                 capture_output=True,

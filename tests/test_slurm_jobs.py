@@ -9,6 +9,41 @@ class SlurmJobListTests(unittest.TestCase):
         self.manager = SlurmManager.__new__(SlurmManager)
 
     @patch("openhpc_webui.services.slurm_manager.subprocess.run")
+    def test_array_jobs_are_requested_as_individual_actionable_tasks(self, run):
+        # Without --array Slurm returns a display ID such as 3738_[3-101%2].
+        run.return_value = Mock(stdout=(
+            "header\n"
+            "3738_3|train|alice|cpu|PENDING|1|4|0:00|Unknown||100\n"
+            "3738_4|train|alice|cpu|PENDING|1|4|0:00|Unknown||100\n"
+        ))
+
+        jobs = self.manager.list_jobs()
+
+        self.assertIn("--array", run.call_args.args[0])
+        self.assertEqual([job["job_id"] for job in jobs], ["3738_3", "3738_4"])
+        for job in jobs:
+            self.assertTrue(self.manager.is_valid_job_id(job["job_id"]))
+
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
+    def test_array_task_actions_preserve_the_selected_task(self, run):
+        run.return_value = Mock(stdout=(
+            "JobId=3741 ArrayJobId=3738 ArrayTaskId=3 "
+            "UserId=alice(1001) Priority=100 JobState=PENDING"
+        ))
+
+        detail = self.manager.get_job_detail("3738_3")
+        self.assertEqual(detail["UserId"], "alice(1001)")
+        self.assertEqual(run.call_args.args[0], [
+            "scontrol", "show", "job", "3738_3",
+        ])
+        self.assertTrue(self.manager.update_job_priority("3738_3", 500))
+        self.assertEqual(run.call_args.args[0], [
+            "scontrol", "update", "JobId=3738_3", "Priority=500",
+        ])
+        self.assertTrue(self.manager.cancel_job("3738_3"))
+        self.assertEqual(run.call_args.args[0], ["scancel", "3738_3"])
+
+    @patch("openhpc_webui.services.slurm_manager.subprocess.run")
     def test_active_jobs_include_allocated_cpu_count(self, run):
         run.return_value = Mock(
             stdout="header\n123|train|alice|cpu|RUNNING|2|16|01:00|2026-08-15T10:00:00|node01\n"

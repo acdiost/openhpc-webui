@@ -85,6 +85,17 @@ class JobPriorityApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
         self.update.assert_not_called()
 
+    def test_array_task_priority_update_targets_only_the_requested_task(self):
+        self.detail.return_value = {
+            "JobId": "3741", "UserId": "alice(1001)", "Priority": "100",
+        }
+        response = self.client.patch(
+            "/api/slurm/jobs/3738_3/priority", json={"priority": 500},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.detail.assert_called_with("3738_3")
+        self.update.assert_called_once_with("3738_3", 500)
+
     def test_audit_snapshot_includes_priority(self):
         request = Request({
             "type": "http", "method": "PATCH",
