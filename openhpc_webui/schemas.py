@@ -11,6 +11,11 @@ _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _LDAP_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
 
+class JobPriorityUpdate(BaseModel):
+    # UINT32_MAX is Slurm's NO_VAL sentinel, not an explicit priority update.
+    priority: int = Field(..., strict=True, ge=0, le=4294967294)
+
+
 def validate_ldap_identifier(value: str) -> str:
     """Validate a POSIX/LDAP account identifier accepted by the API."""
     if not _LDAP_IDENTIFIER_PATTERN.fullmatch(value):

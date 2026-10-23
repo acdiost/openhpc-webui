@@ -131,6 +131,7 @@ content %}
                     <th>用户</th>
                     <th>分区</th>
                     <th class="col-status">状态</th>
+                    <th class="col-number" title="数值越大，调度优先级越高；0 表示挂起">优先级</th>
                     <th>节点</th>
                     <th class="col-number">节点数</th>
                     <th class="col-number">核心数</th>
@@ -141,7 +142,7 @@ content %}
             </thead>
             <tbody id="activeJobsTableBody">
                 <tr>
-                    <td colspan="11" style="text-align: center; color: #6b7280">
+                    <td colspan="12" style="text-align: center; color: #6b7280">
                         加载中…
                     </td>
                 </tr>
@@ -186,6 +187,7 @@ content %}
     <ul style="list-style: disc; margin-left: 24px; color: #1e40af; font-size: 14px; line-height: 1.8">
         <li>使用分区、状态和作业归属筛选器快速定位目标作业，点击“刷新队列”获取最新状态</li>
         <li>运行中或排队中的作业可在操作列取消，取消后通常无法恢复</li>
+        <li>优先级数值越大，调度优先级越高；管理员可点击“调整优先级”修改，0 表示挂起</li>
         <li>点击“监控”可查看资源趋势图，指标每 5 秒更新并在当前浏览器中保留最近 2 小时</li>
         <li>作业状态由 Slurm 调度器维护，完成记录会保留在“最近完成的作业”中</li>
     </ul>
@@ -274,7 +276,7 @@ page_scripts %}
             );
             if (jobs.length === 0) {
                 tbody.innerHTML =
-                    '<tr><td colspan="11" style="text-align:center;color:#6b7280;">暂无活动作业</td></tr>';
+                    '<tr><td colspan="12" style="text-align:center;color:#6b7280;">暂无活动作业</td></tr>';
                 return;
             }
 
@@ -305,6 +307,8 @@ page_scripts %}
                 stateCell.className = "col-status";
                 stateCell.appendChild(stateBadge);
                 row.appendChild(stateCell);
+                const priorityCell = appendTextCell(row, job.priority ?? "—");
+                priorityCell.classList.add("col-number");
                 appendTextCell(row, job.nodelist || "—");
                 const nodeCountCell = appendTextCell(row, job.nodes);
                 nodeCountCell.classList.add("col-number");
@@ -336,6 +340,12 @@ page_scripts %}
                 }
                 actionGroup.appendChild(detailButton);
                 actionGroup.appendChild(monitorButton);
+                if (__USER__.isAdmin) {
+                    actionGroup.appendChild(createActionButton(
+                        "调整优先级",
+                        () => showJobPriority(job.job_id),
+                    ));
+                }
                 const cancelButton = createActionButton(
                     "取消",
                     () => cancelJob(job.job_id),
@@ -350,7 +360,7 @@ page_scripts %}
         } catch (e) {
             console.error("[jobs] 活动作业加载失败:", e);
             tbody.innerHTML =
-                '<tr><td colspan="11" style="text-align:center;color:#dc3023;">加载失败，请检查 Slurm 服务</td></tr>';
+                '<tr><td colspan="12" style="text-align:center;color:#dc3023;">加载失败，请检查 Slurm 服务</td></tr>';
         }
     }
 
@@ -423,6 +433,66 @@ page_scripts %}
         }
     }
 
+    async function showJobPriority(jobId) {
+        if (!__USER__.isAdmin) return;
+        try {
+            const res = await fetch(`/api/slurm/jobs/${encodeURIComponent(jobId)}`);
+            const job = await res.json();
+            if (!res.ok) throw new Error(job.detail || "获取优先级失败");
+            const modalId = showModal(`调整优先级 — 作业 ${jobId}`, `
+                <form data-priority-form>
+                    <p style="margin-bottom:12px;">当前优先级：<strong data-current-priority></strong></p>
+                    <label style="display:block;margin-bottom:8px;">
+                        新优先级
+                        <input name="priority" aria-label="新优先级" type="number"
+                               min="0" max="4294967294" step="1" required
+                               style="display:block;width:100%;padding:8px;margin-top:6px;border:1px solid #d1d5db;border-radius:6px;">
+                    </label>
+                    <p style="font-size:13px;margin-bottom:16px;">
+                        请输入 0–4294967294 的整数。数值越大，调度优先级越高，实际启动仍受资源和调度策略限制。
+                        设为 0 会挂起作业，阻止调度；手动设置后优先级将固定，不再由优先级插件自动调整。
+                    </p>
+                    <button type="submit" class="btn btn-primary">保存优先级</button>
+                </form>`);
+            const modal = document.getElementById(modalId);
+            const form = modal.querySelector("[data-priority-form]");
+            const input = form.elements.priority;
+            modal.querySelector("[data-current-priority]").textContent = job.Priority ?? "—";
+            input.value = job.Priority ?? "";
+            input.focus();
+            form.addEventListener("submit", async (event) => {
+                event.preventDefault();
+                if (!form.reportValidity()) return;
+                const priority = Number(input.value);
+                if (!Number.isInteger(priority) || priority < 0 || priority > 4294967294) {
+                    showToast("请输入 0–4294967294 的整数", "error");
+                    return;
+                }
+                const button = form.querySelector('button[type="submit"]');
+                if (button.disabled) return;
+                button.disabled = true;
+                try {
+                    const response = await fetch(`/api/slurm/jobs/${encodeURIComponent(jobId)}/priority`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ priority }),
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.detail || "调整优先级失败");
+                    closeModal(modalId);
+                    showToast(data.message, "success");
+                    loadActiveJobs();
+                } catch (error) {
+                    showToast(error.message || "调整优先级失败", "error");
+                } finally {
+                    button.disabled = false;
+                }
+            });
+        } catch (error) {
+            showToast(error.message || "获取优先级失败", "error");
+        }
+    }
+
     /* ── 作业详情弹窗 ──────────────────────────────────────── */
     async function showJobDetail(jobId) {
         try {
@@ -440,6 +510,7 @@ page_scripts %}
                     <div style="margin-bottom:12px;"><strong>用户:</strong>     ${safe(job.UserId)}</div>
                     <div style="margin-bottom:12px;"><strong>分区:</strong>     ${safe(job.Partition)}</div>
                     <div style="margin-bottom:12px;"><strong>状态:</strong>     ${safe(job.JobState)}</div>
+                    <div style="margin-bottom:12px;"><strong>优先级:</strong>   ${safe(job.Priority ?? "N/A")}</div>
                     <div style="margin-bottom:12px;"><strong>节点:</strong>     ${safe(job.NodeList)}</div>
                     <div style="margin-bottom:12px;"><strong>节点数:</strong>   ${safe(job.NumNodes)}</div>
                     <div style="margin-bottom:12px;"><strong>CPU数:</strong>    ${safe(job.NumCPUs)}</div>

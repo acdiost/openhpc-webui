@@ -440,7 +440,7 @@ class SlurmManager:
         """
         try:
             # 使用 squeue 获取作业队列
-            cmd = ['squeue', '-o', '%i|%j|%u|%P|%T|%D|%C|%M|%S|%N']
+            cmd = ['squeue', '-o', '%i|%j|%u|%P|%T|%D|%C|%M|%S|%N|%Q']
             result = _run_slurm_command(
                 cmd,
                 capture_output=True,
@@ -476,6 +476,11 @@ class SlurmManager:
                         'alloc_cpus': self._safe_int(parts[6]),
                         'time': parts[7],
                         'start_time': parts[8],
+                        'priority': (
+                            self._safe_int(parts[10])
+                            if len(parts) > 10 and parts[10].strip().isdigit()
+                            else None
+                        ),
                         'nodelist': self._normalize_null(parts[9]) if len(parts) > 9 else None
                     }
                     jobs.append(job)
@@ -516,6 +521,7 @@ class SlurmManager:
                 'GroupId': r'GroupId=(\S+)',
                 'Partition': r'Partition=(\S+)',
                 'JobState': r'JobState=(\S+)',
+                'Priority': r'\bPriority=(\d+)',
                 'RunTime': r'RunTime=(\S+)',
                 'TimeLimit': r'TimeLimit=(\S+)',
                 'SubmitTime': r'SubmitTime=([^\s]+\s+[^\s]+)',
@@ -740,6 +746,28 @@ class SlurmManager:
             "steps": steps,
         })
         return response
+
+    def update_job_priority(self, job_id: str, priority: int) -> bool:
+        """Set a fixed job priority; zero holds the job in the queue."""
+        if (
+            not self.is_valid_job_id(job_id)
+            or type(priority) is not int
+            or not 0 <= priority <= 4294967294
+        ):
+            return False
+        try:
+            _run_slurm_command(
+                ['scontrol', 'update', f'JobId={job_id}', f'Priority={priority}'],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return True
+        except SlurmServiceUnavailable:
+            raise
+        except Exception as exc:
+            print(f"调整作业优先级失败: {exc}")
+            return False
 
     def cancel_job(self, job_id: str) -> bool:
         """取消作业

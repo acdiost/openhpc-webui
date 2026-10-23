@@ -45,6 +45,7 @@ from . import __version__
 from .audit import AuditMiddleware, log_event, sanitize
 from .config import STATIC_DIR, TEMPLATES_DIR, Settings, identity_backend, settings
 from .schemas import (
+    JobPriorityUpdate,
     AccountCreate,
     AccountUpdate,
     AccountTRESMinutesUpdate,
@@ -413,9 +414,12 @@ def _audit_snapshot_sync(request: Request, body: dict):
             ("name", "state", "reason", "cpus", "memory", "gres"),
         )
 
-    match = re.fullmatch(r"/api/slurm/jobs/([^/]+)", path)
+    match = re.fullmatch(r"/api/slurm/jobs/([^/]+)(?:/priority)?", path)
     if match:
-        return _pick_fields(slurm_mgr.get_job_detail(match.group(1)), ("JobId", "JobState", "UserId", "Partition"))
+        return _pick_fields(
+            slurm_mgr.get_job_detail(match.group(1)),
+            ("JobId", "JobState", "UserId", "Partition", "Priority"),
+        )
 
     match = re.fullmatch(r"/api/slurm/users/([^/]+)/credit", path)
     if match:
@@ -3032,6 +3036,23 @@ async def get_job_resource_usage(job_id: str, user: dict = Depends(get_current_u
     if not usage:
         raise HTTPException(status_code=404, detail="作业不存在")
     return usage
+
+
+@router.patch("/api/slurm/jobs/{job_id}/priority")
+async def update_job_priority(
+    job_id: str,
+    data: JobPriorityUpdate,
+    user: dict = Depends(get_current_user),
+):
+    """管理员调整作业的固定调度优先级。"""
+    _require_admin(user)
+    _get_authorized_job(job_id, user)
+    if not slurm_mgr.update_job_priority(job_id, data.priority):
+        raise HTTPException(
+            status_code=500,
+            detail="调整优先级失败，请检查作业状态及 Slurm 命令权限",
+        )
+    return {"message": f"作业 {job_id} 优先级已调整为 {data.priority}"}
 
 
 @router.delete("/api/slurm/jobs/{job_id}")

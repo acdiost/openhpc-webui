@@ -170,6 +170,8 @@ def _specific_action(path: str, method: str) -> str:
         return "revoke_admin"
     if re.fullmatch(r"/api/slurm/jobs/[^/]+", path) and method == "DELETE":
         return "cancel_job"
+    if re.fullmatch(r"/api/slurm/jobs/[^/]+/priority", path) and method == "PATCH":
+        return "update_job_priority"
     suffix_actions = {
         "/login": "login",
         "/logout": "logout",
