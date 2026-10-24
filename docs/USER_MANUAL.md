@@ -1,6 +1,6 @@
 # OpenHPC WebUI 用户使用手册
 
-本文档适用于 `openhpc_webui 0.3.1`，介绍管理员和普通用户能够看到的页面、常用操作及注意事项。部署、服务管理和命令行排障请查看[技术指南](./TECHNICAL_GUIDE.md)和[生产部署指南](./DEPLOYMENT.md)。
+本文档适用于 `openhpc_webui 0.4.0`，介绍管理员和普通用户能够看到的页面、常用操作及注意事项。部署、服务管理和命令行排障请查看[技术指南](./TECHNICAL_GUIDE.md)和[生产部署指南](./DEPLOYMENT.md)。
 
 ## 目录
 
@@ -486,8 +486,8 @@ NodeName=g50r061 NodeAddr=172.90.50.6 CPUs=128 Boards=1 SocketsPerBoard=4 CoresP
 | GRES | GPU 等通用资源 |
 | Drain | 节点停止接收新作业的排空状态 |
 
-文档版本：`0.3.1`
+文档版本：`0.4.0`
 
 最后更新：`2026-10-19`
 
-适用系统：`openhpc_webui 0.3.1`
+适用系统：`openhpc_webui 0.4.0`

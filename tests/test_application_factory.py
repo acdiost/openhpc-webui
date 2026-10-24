@@ -38,7 +38,7 @@ class ApplicationFactoryTests(unittest.TestCase):
         self.assertTrue(TEMPLATES_DIR.is_dir())
 
     def test_template_version_matches_package_version(self):
-        self.assertEqual(__version__, "0.3.1")
+        self.assertEqual(__version__, "0.4.0")
         self.assertEqual(templates.env.globals["app_version"], __version__)
 
     def test_unknown_identity_backend_fails_closed(self):
