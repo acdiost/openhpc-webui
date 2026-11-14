@@ -59,13 +59,14 @@
     .terminal-dots span:first-child { background:#ef4444; }
     .terminal-dots span:nth-child(2) { background:#f59e0b; }
     .terminal-dots span:last-child { background:#22c55e; }
-    #terminal { height:clamp(420px, calc(100vh - 245px), 760px); padding:12px 10px; }
+    .terminal-body { height:clamp(420px, calc(100vh - 245px), 760px); padding:12px 10px; }
+    #terminal { height:100%; }
     #terminal .xterm { height:100%; }
     #terminal .xterm-viewport { scrollbar-color:#4b5563 #0f141b; }
     .terminal-help { margin-top:12px; color:#6b7280; font-size:12px; line-height:1.6; }
     .terminal-card.is-minimized { position:fixed; right:20px; bottom:20px; z-index:1050; width:min(380px, calc(100vw - 40px)); border-color:#364152; box-shadow:0 18px 45px rgba(15,20,27,.32); }
     .terminal-card.is-minimized .terminal-bar { border-bottom:0; }
-    .terminal-card.is-minimized .terminal-dots, .terminal-card.is-minimized .terminal-ai-model-control, .terminal-card.is-minimized #terminal { display:none !important; }
+    .terminal-card.is-minimized .terminal-dots, .terminal-card.is-minimized .terminal-ai-model-control, .terminal-card.is-minimized .terminal-body { display:none !important; }
     .terminal-leave-body { padding:20px; color:#4b5563; font-size:14px; line-height:1.7; }
     .terminal-leave-body strong { color:#111827; }
     .terminal-risk-list { margin:10px 0 0 20px; padding:0; }
@@ -87,7 +88,7 @@
         .terminal-ai-config-grid { grid-template-columns:1fr; gap:0; }
         #terminalAIConfigDialog .modal-footer { padding:12px 18px; }
         #terminalAIConfigDialog .modal-footer .btn { flex:1; }
-        #terminal { height:calc(100vh - 330px); min-height:360px; }
+        .terminal-body { height:calc(100vh - 330px); min-height:360px; }
     }
 </style>
 {% endblock %}
@@ -149,7 +150,9 @@
             </button>
         </div>
     </div>
-    <div id="terminal" aria-label="交互式终端"></div>
+    <div class="terminal-body">
+        <div id="terminal" aria-label="交互式终端"></div>
+    </div>
 </div>
 <p class="terminal-help">“AI 配置”可为当前连接启用并配置自己的 OpenAI 兼容服务。API Key 默认只保存在当前服务端会话内，用户也可选择使用 AES-GCM 加密保存在本地浏览器并在下次连接时自动恢复。当前模型显示在标题栏步数旁；切换配置或模型会开始新对话并关闭自动批准。AI 会按“执行一步 → 分析结果 → 建议下一步”循环完成目标，默认上限 10 步。默认每一步按 Ctrl+Enter 确认，高危操作始终强制人工确认。输入 <code>!</code> 加命令可强制按 Shell 命令执行。复制/粘贴：Ctrl/⌘+Shift+C / V。</p>
 {% endblock %}
