@@ -80,6 +80,7 @@
             <svg class="file-button-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 11l9-8 9 8M5 10v10h14V10M9 20v-6h6v6"/></svg>
             家目录
         </button>
+        <button id="refreshButton" class="btn btn-secondary" type="button" onclick="loadFiles(currentPath, pageCursor)" title="刷新当前目录">刷新</button>
         <div class="file-path">
             <input id="pathInput" type="text" value="/" aria-label="当前路径" onkeydown="if(event.key==='Enter') loadFiles(this.value, 0)" />
             <button class="btn btn-secondary" type="button" onclick="loadFiles(document.getElementById('pathInput').value, 0)">
@@ -125,6 +126,12 @@
                 </div>
                 <div id="fileEditorField" class="file-dialog-field" style="display:none">
                     <label id="fileEditorLabel" for="fileEditor">文件内容</label>
+                    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px">
+                        <button id="fileAutoRefreshButton" class="btn btn-secondary file-toggle" type="button" aria-pressed="false" onclick="toggleEditorRefresh()" disabled>启动自动刷新</button>
+                        <label for="fileRefreshInterval" style="display:inline;margin:0">刷新间隔（秒）</label>
+                        <input id="fileRefreshInterval" type="number" min="1" max="86400" step="1" value="3" style="width:96px" onchange="changeEditorRefreshInterval()" />
+                    </div>
+                    <div id="fileRefreshStatus" class="file-meta" style="margin-bottom:8px" role="status" aria-live="polite"></div>
                     <div class="file-editor-shell">
                         <div id="fileLineNumbers" class="file-line-numbers" aria-hidden="true"><pre>1</pre></div>
                         <textarea id="fileEditor" class="file-editor" spellcheck="false" wrap="off" oninput="scheduleLineNumbers()" onscroll="updateLineNumbers()"></textarea>
@@ -167,6 +174,10 @@
     let editorOriginalContent = "";
     let lineNumberFrame = null;
     let editorLineCount = 1;
+    let editorRefreshTimer = null;
+    let editorRefreshInterval = 3000;
+    let editorRefreshSession = null;
+    let editorPath = null;
 
     function fileIcon(directory, symlink) {
         if (directory) return `<svg class="file-icon folder" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7a2 2 0 012-2h5l2 2h7a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>`;
@@ -239,9 +250,10 @@
     async function loadFiles(path=currentPath, cursor=0) {
         const wrap = document.getElementById("fileTableWrap");
         wrap.classList.add("file-loading");
+        document.getElementById("refreshButton").disabled = true;
         try {
             const params = new URLSearchParams({path:path || "/", show_hidden:String(showHidden), cursor:String(cursor), limit:String(pageLimit)});
-            const data = await api(`/api/files?${params}`);
+            const data = await api(`/api/files?${params}`, {cache:"no-store"});
             currentPath = data.path;
             parentPath = data.parent;
             homePath = data.home_path || "/";
@@ -262,7 +274,10 @@
         } catch (error) {
             showToast(error.message, "error");
             document.getElementById("pathInput").value = currentPath;
-        } finally { wrap.classList.remove("file-loading"); }
+        } finally {
+            wrap.classList.remove("file-loading");
+            document.getElementById("refreshButton").disabled = false;
+        }
     }
 
     function goUp() { if (parentPath) loadFiles(parentPath, 0); }
@@ -280,6 +295,8 @@
     }
 
     function openFileDialog(options) {
+        stopEditorRefresh();
+        editorPath = null;
         const generation = ++dialogGeneration;
         const dialog = document.getElementById("fileDialog");
         const content = document.getElementById("fileDialogContent");
@@ -299,6 +316,9 @@
         dialogLoading = Boolean(options.loading);
         dialogSaving = false;
         editorOriginalContent = options.editorValue || "";
+        document.getElementById("fileAutoRefreshButton").disabled = Boolean(options.loading);
+        document.getElementById("fileRefreshInterval").value = editorRefreshInterval / 1000;
+        updateEditorRefreshStatus();
         document.getElementById("fileNameLabel").textContent = options.label || "名称";
         submit.textContent = options.confirmText || "确定";
         submit.classList.toggle("btn-danger", Boolean(options.danger));
@@ -328,6 +348,8 @@
 
     function forceCloseFileDialog() {
         dialogGeneration += 1;
+        stopEditorRefresh();
+        editorPath = null;
         document.getElementById("fileDialog").style.display = "none";
         document.getElementById("unsavedDialog").style.display = "none";
         dialogSubmitHandler = null;
@@ -407,10 +429,89 @@
         }});
     }
 
+    function stopEditorRefresh() {
+        clearTimeout(editorRefreshTimer);
+        editorRefreshTimer = null;
+        editorRefreshSession = null;
+        updateEditorRefreshStatus();
+    }
+
+    function updateEditorRefreshStatus() {
+        const enabled = editorRefreshSession !== null;
+        const button = document.getElementById("fileAutoRefreshButton");
+        button.textContent = enabled ? "停止自动刷新" : "启动自动刷新";
+        button.setAttribute("aria-pressed", String(enabled));
+        const dirty = document.getElementById("fileEditor").value !== editorOriginalContent;
+        document.getElementById("fileRefreshStatus").textContent = !enabled
+            ? "自动刷新未启动"
+            : dirty ? "自动刷新已暂停：存在未保存的修改"
+            : `自动刷新：每 ${editorRefreshInterval / 1000} 秒更新文件内容`;
+    }
+
+    function changeEditorRefreshInterval() {
+        const input = document.getElementById("fileRefreshInterval");
+        const seconds = Number(input.value);
+        if (!Number.isInteger(seconds) || seconds < 1 || seconds > 86400) {
+            showToast("刷新间隔请输入 1 至 86400 的整数秒", "error");
+            input.value = editorRefreshInterval / 1000;
+            return false;
+        }
+        editorRefreshInterval = seconds * 1000;
+        if (editorRefreshSession) {
+            clearTimeout(editorRefreshTimer);
+            editorRefreshSession = {path:editorPath, generation:dialogGeneration};
+            scheduleEditorRefresh(editorRefreshSession);
+        }
+        updateEditorRefreshStatus();
+        return true;
+    }
+
+    function toggleEditorRefresh() {
+        if (editorRefreshSession) {
+            stopEditorRefresh();
+            return;
+        }
+        if (dialogMode !== "editor" || dialogLoading || dialogSaving || !editorPath) return;
+        if (!changeEditorRefreshInterval()) return;
+        editorRefreshSession = {path:editorPath, generation:dialogGeneration};
+        scheduleEditorRefresh(editorRefreshSession);
+        updateEditorRefreshStatus();
+    }
+
+    function scheduleEditorRefresh(session) {
+        editorRefreshTimer = setTimeout(async () => {
+            editorRefreshTimer = null;
+            if (session !== editorRefreshSession || session.generation !== dialogGeneration) return;
+            const editor = document.getElementById("fileEditor");
+            try {
+                if (document.hidden || dialogLoading || dialogSaving || editor.value !== editorOriginalContent) return;
+                const data = await api(`/api/files/content?path=${encodeURIComponent(session.path)}`, {cache:"no-store"});
+                if (session !== editorRefreshSession || session.generation !== dialogGeneration || dialogSaving || editor.value !== editorOriginalContent) return;
+                if (data.content !== editorOriginalContent) {
+                    const {selectionStart, selectionEnd, selectionDirection, scrollTop, scrollLeft} = editor;
+                    editor.value = data.content;
+                    editorOriginalContent = data.content;
+                    editor.setSelectionRange(selectionStart, selectionEnd, selectionDirection);
+                    editor.scrollTop = scrollTop;
+                    editor.scrollLeft = scrollLeft;
+                    scheduleLineNumbers();
+                }
+                document.getElementById("fileDialogMessage").textContent = `UTF-8 文本 · ${formatSize(data.size)} · 最大可编辑 ${formatSize(data.max_bytes)}`;
+                updateEditorRefreshStatus();
+            } catch (error) {
+                if (session === editorRefreshSession && session.generation === dialogGeneration) {
+                    document.getElementById("fileRefreshStatus").textContent = `自动刷新失败：${error.message}`;
+                }
+            } finally {
+                if (session === editorRefreshSession && session.generation === dialogGeneration) scheduleEditorRefresh(session);
+            }
+        }, editorRefreshInterval);
+    }
+
     async function openEditor(entry) {
         const generation = openFileDialog({title:`编辑 ${entry.name}`, message:"正在读取文件…", editor:true, editorValue:"", confirmText:"保存", loading:true});
         try {
-            const data = await api(`/api/files/content?path=${encodeURIComponent(entry.path)}`);
+            const data = await api(`/api/files/content?path=${encodeURIComponent(entry.path)}`, {cache:"no-store"});
             if (generation !== dialogGeneration) return;
             document.getElementById("fileDialogMessage").textContent = `UTF-8 文本 · ${formatSize(data.size)} · 最大可编辑 ${formatSize(data.max_bytes)}`;
             const editor = document.getElementById("fileEditor");
@@ -423,6 +524,9 @@
             editorOriginalContent = data.content;
             dialogLoading = false;
             submit.disabled = false;
+            editorPath = entry.path;
+            document.getElementById("fileAutoRefreshButton").disabled = false;
+            updateEditorRefreshStatus();
             dialogSubmitHandler = async ({content}) => {
                 const result = await api("/api/files/content", {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify({path:entry.path, content})});
                 showToast(result.message, "success");
@@ -447,6 +551,7 @@
 
     function scheduleLineNumbers() {
         if (lineNumberFrame !== null) cancelAnimationFrame(lineNumberFrame);
+        if (dialogMode === "editor" && !dialogLoading) updateEditorRefreshStatus();
         lineNumberFrame = requestAnimationFrame(() => {
             lineNumberFrame = null;
             const editor = document.getElementById("fileEditor");
