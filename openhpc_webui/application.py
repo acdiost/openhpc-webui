@@ -1817,7 +1817,9 @@ async def list_files(
     except FileManagerError as exc:
         _raise_file_error(exc)
     result["scope"] = "root" if user.get("is_admin") else "home"
-    result["root_access"] = bool(user.get("is_admin") and os.geteuid() == 0)
+    result["root_access"] = bool(
+        user.get("is_admin") and manager is file_mgr and os.geteuid() == 0
+    )
     result["upload_max_mb"] = settings.file_upload_max_mb
     result["edit_max_kb"] = settings.file_edit_max_kb
     result["home_path"] = _file_home_path(user)

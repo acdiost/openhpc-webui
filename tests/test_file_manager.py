@@ -46,6 +46,69 @@ class FileManagerTests(unittest.TestCase):
             Path("/"),
         )
 
+    @unittest.skipIf(os.geteuid() == 0, "A root portal needs a real non-root account")
+    def test_admin_operations_use_dropped_admin_identity(self):
+        manager = FileManager(max_upload_bytes=8, max_edit_bytes=16)
+        admin = {"username": pwd.getpwuid(os.getuid()).pw_name, "is_admin": True}
+        ldap = SimpleNamespace(
+            get_user=lambda username: {
+                "username": username,
+                "home": str(self.root),
+                "uid": os.getuid(),
+                "gid": os.getgid(),
+            }
+        )
+        worker = manager.for_user(admin, ldap)
+        worker.upload("/", "upload.txt", io.BytesIO(b"hello"), self.root)
+        uploaded = self.root / "upload.txt"
+        self.assertEqual(uploaded.read_bytes(), b"hello")
+        info = uploaded.stat()
+        self.assertEqual((info.st_uid, info.st_gid), (os.getuid(), os.getgid()))
+        protected = self.root / "protected"
+        protected.mkdir(mode=0o500)
+        with self.assertRaises(FileAccessDenied):
+            worker.upload("/protected", "denied.txt", io.BytesIO(b"hello"), self.root)
+
+    def test_admin_requires_usable_system_identity(self):
+        manager = FileManager()
+        admin = {"username": "missingadmin", "is_admin": True}
+        for record in (None, {}, {"uid": "", "gid": ""},
+                       {"uid": -1, "gid": 1000}, {"uid": 1000, "gid": -1}):
+            with self.subTest(record=record):
+                ldap = SimpleNamespace(get_user=lambda _, record=record: record)
+                with self.assertRaises(FileAccessDenied):
+                    manager.for_user(admin, ldap)
+
+    def test_only_verified_root_admin_can_use_portal_identity(self):
+        admin = {"username": "root", "is_admin": True}
+        ldap = SimpleNamespace(get_user=lambda _: {"uid": 0, "gid": 0})
+        identity = SimpleNamespace(pw_uid=0, pw_gid=0)
+        with patch("openhpc_webui.services.file_manager.os.geteuid", return_value=0), \
+                patch("openhpc_webui.services.file_manager.pwd.getpwnam", return_value=identity):
+            self.assertIs(self.manager.for_user(admin, ldap), self.manager)
+            with self.assertRaises(FileAccessDenied):
+                self.manager.for_user({**admin, "is_admin": False}, ldap)
+
+    def test_unverified_root_identity_is_rejected(self):
+        ldap = SimpleNamespace(get_user=lambda _: {"uid": 0, "gid": 0})
+        for identity in (None, SimpleNamespace(pw_uid=1000, pw_gid=0),
+                         SimpleNamespace(pw_uid=0, pw_gid=1000)):
+            lookup = (
+                {"side_effect": KeyError("admin")}
+                if identity is None else {"return_value": identity}
+            )
+            with self.subTest(identity=identity), \
+                    patch("openhpc_webui.services.file_manager.os.geteuid", return_value=0), \
+                    patch("openhpc_webui.services.file_manager.pwd.getpwnam", **lookup):
+                with self.assertRaises(FileAccessDenied):
+                    self.manager.for_user({"username": "admin", "is_admin": True}, ldap)
+
+    def test_root_admin_cannot_use_nonroot_portal_identity(self):
+        ldap = SimpleNamespace(get_user=lambda _: {"uid": 0, "gid": 0})
+        with patch("openhpc_webui.services.file_manager.os.geteuid", return_value=1000):
+            with self.assertRaises(FileAccessDenied):
+                self.manager.for_user({"username": "root", "is_admin": True}, ldap)
+
     def test_dot_dot_cannot_escape_home(self):
         with self.assertRaises(FileAccessDenied):
             self.manager.resolve("/../../etc", self.root)
@@ -314,23 +377,29 @@ class FileManagerTests(unittest.TestCase):
         protected = self.root / "root-only.txt"
         protected.write_text("root secret", encoding="utf-8")
         protected.chmod(0o600)
-        user = {"username": identity.pw_name, "is_admin": False}
         ldap = SimpleNamespace(get_user=lambda _: {
             "uid": identity.pw_uid,
             "gid": identity.pw_gid,
             "home": str(self.root),
         })
-        worker = self.manager.for_user(user, ldap)
-
-        with self.assertRaises(FileAccessDenied):
-            worker.read_text("/root-only.txt", self.root)
-        with self.assertRaises(FileAccessDenied):
-            worker.write_text("/root-only.txt", "changed", self.root)
-        with self.assertRaises(FileAccessDenied):
-            with worker.open_download("/root-only.txt", self.root):
-                pass
-        worker.upload("/", "owned-by-user.txt", io.BytesIO(b"permitted"), self.root)
-        self.assertEqual((self.root / "owned-by-user.txt").stat().st_uid, identity.pw_uid)
+        for is_admin in (False, True):
+            with self.subTest(is_admin=is_admin):
+                user = {"username": identity.pw_name, "is_admin": is_admin}
+                root = self.manager.scope_root(user, ldap)
+                path = str(self.root) if is_admin else "/"
+                worker = self.manager.for_user(user, ldap)
+                protected_path = path.rstrip("/") + "/root-only.txt"
+                with self.assertRaises(FileAccessDenied):
+                    worker.read_text(protected_path, root)
+                with self.assertRaises(FileAccessDenied):
+                    worker.write_text(protected_path, "changed", root)
+                with self.assertRaises(FileAccessDenied):
+                    with worker.open_download(protected_path, root):
+                        pass
+                filename = f"owned-by-user-{is_admin}.txt"
+                worker.upload(path, filename, io.BytesIO(b"permitted"), root)
+                info = (self.root / filename).stat()
+                self.assertEqual((info.st_uid, info.st_gid), (identity.pw_uid, identity.pw_gid))
         self.assertEqual(protected.read_text(), "root secret")
 
 
@@ -371,12 +440,17 @@ class FileApiTests(unittest.TestCase):
         self.assertEqual(denied.status_code, 403)
 
     def test_admin_starts_in_own_system_home_but_keeps_root_scope(self):
+        identity = pwd.getpwuid(os.getuid())
         self.app.dependency_overrides[main.get_current_user] = lambda: {
-            "username": "alice",
+            "username": identity.pw_name,
             "is_admin": True,
         }
-        system_record = SimpleNamespace(pw_dir=str(self.home))
-        with patch.object(main.pwd, "getpwnam", return_value=system_record), TestClient(
+        system_record = SimpleNamespace(
+            pw_dir=str(self.home), pw_uid=identity.pw_uid, pw_gid=identity.pw_gid,
+        )
+        with patch.object(main.ldap_mgr, "get_user", side_effect=self.user_record), \
+                patch.object(main.pwd, "getpwnam", return_value=system_record), \
+                patch.object(main.os, "geteuid", return_value=0), TestClient(
             self.app
         ) as client:
             page = client.get("/files")
@@ -386,21 +460,44 @@ class FileApiTests(unittest.TestCase):
         self.assertIn(f'loadFiles("{self.home}", 0)', page.text)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["scope"], "root")
+        self.assertEqual(response.json()["root_access"], identity.pw_uid == 0)
         self.assertEqual(response.json()["home_path"], str(self.home))
         self.assertEqual(response.json()["path"], str(self.home))
 
-    def test_upload_api_writes_beneath_home(self):
-        with patch.object(main.ldap_mgr, "get_user", side_effect=self.user_record), TestClient(
-            self.app
-        ) as client:
+    def test_admin_upload_rejects_missing_identity_without_creating_file(self):
+        self.app.dependency_overrides[main.get_current_user] = lambda: {
+            "username": "missingadmin", "is_admin": True,
+        }
+        with patch.object(main.ldap_mgr, "get_user", return_value=None), \
+                TestClient(self.app) as client:
             response = client.post(
-                "/api/files/upload",
-                params={"path": "/"},
-                files={"upload": ("upload.txt", b"uploaded", "text/plain")},
+                "/api/files/upload", params={"path": str(self.home)},
+                files={"upload": ("denied.txt", b"data", "text/plain")},
             )
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse((self.home / "denied.txt").exists())
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual((self.home / "upload.txt").read_bytes(), b"uploaded")
+    def test_upload_api_writes_beneath_home(self):
+        identity = pwd.getpwuid(os.getuid())
+        for is_admin in (False, True):
+            with self.subTest(is_admin=is_admin):
+                self.app.dependency_overrides[main.get_current_user] = lambda: {
+                    "username": identity.pw_name, "is_admin": is_admin,
+                }
+                filename = f"upload-{is_admin}.txt"
+                with patch.object(main.ldap_mgr, "get_user", side_effect=self.user_record), \
+                        TestClient(self.app) as client:
+                    response = client.post(
+                        "/api/files/upload",
+                        params={"path": str(self.home) if is_admin else "/"},
+                        files={"upload": (filename, b"uploaded", "text/plain")},
+                    )
+                self.assertEqual(response.status_code, 200)
+                uploaded = self.home / filename
+                self.assertEqual(uploaded.read_bytes(), b"uploaded")
+                info = uploaded.stat()
+                self.assertEqual((info.st_uid, info.st_gid),
+                                 (identity.pw_uid, identity.pw_gid))
 
     def test_content_api_reads_and_updates_text_file(self):
         with patch.object(main.ldap_mgr, "get_user", side_effect=self.user_record), TestClient(

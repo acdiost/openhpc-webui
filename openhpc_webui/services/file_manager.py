@@ -55,17 +55,32 @@ class FileManager:
         return root
 
     def for_user(self, user: dict, ldap_manager):
-        """Admins retain the portal identity; everyone else uses a fresh OS process."""
-        if user.get("is_admin"):
-            return self
+        """Run operations in the caller's credential context.
+
+        Admins keep the system-root scope, but are executed through the same
+        dropped-credential worker as regular users, so uploads, edits, and
+        ownership stay bound to the admin's own system identity instead of the
+        portal process (root). A verified root admin retains the root context.
+        """
         username = str(user.get("username") or "").strip()
         record = ldap_manager.get_user(username) if username else None
         try:
             uid, gid = int(record["uid"]), int(record["gid"])
         except (TypeError, ValueError, KeyError) as exc:
             raise FileAccessDenied("用户缺少有效的系统 UID/GID") from exc
-        if uid < 0 or gid < 0 or (os.geteuid() == 0 and uid == 0):
+        if uid < 0 or gid < 0:
             raise FileAccessDenied("用户缺少有效的系统 UID/GID")
+        if uid == 0:
+            if not user.get("is_admin") or os.geteuid() != 0:
+                raise FileAccessDenied("文件服务无法使用该用户身份")
+            try:
+                identity = pwd.getpwnam(username)
+            except KeyError as exc:
+                raise FileAccessDenied("用户系统身份不存在") from exc
+            if (identity.pw_uid, identity.pw_gid) != (uid, gid):
+                raise FileAccessDenied("用户系统身份与账户记录不一致")
+            # Only a verified root administrator may retain the root portal identity.
+            return self
         return _UserFiles(self, username, uid, gid)
 
     @staticmethod
