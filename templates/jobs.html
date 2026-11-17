@@ -131,6 +131,7 @@ content %}
                     <th>用户</th>
                     <th>分区</th>
                     <th class="col-status">状态</th>
+                    <th>Reason</th>
                     <th class="col-number" title="数值越大，调度优先级越高；0 表示挂起">优先级</th>
                     <th>节点</th>
                     <th class="col-number">节点数</th>
@@ -142,7 +143,7 @@ content %}
             </thead>
             <tbody id="activeJobsTableBody">
                 <tr>
-                    <td colspan="12" style="text-align: center; color: #6b7280">
+                    <td colspan="13" style="text-align: center; color: #6b7280">
                         加载中…
                     </td>
                 </tr>
@@ -276,7 +277,7 @@ page_scripts %}
             );
             if (jobs.length === 0) {
                 tbody.innerHTML =
-                    '<tr><td colspan="12" style="text-align:center;color:#6b7280;">暂无活动作业</td></tr>';
+                    '<tr><td colspan="13" style="text-align:center;color:#6b7280;">暂无活动作业</td></tr>';
                 return;
             }
 
@@ -307,6 +308,7 @@ page_scripts %}
                 stateCell.className = "col-status";
                 stateCell.appendChild(stateBadge);
                 row.appendChild(stateCell);
+                appendTextCell(row, job.reason || "—");
                 const priorityCell = appendTextCell(row, job.priority ?? "—");
                 priorityCell.classList.add("col-number");
                 appendTextCell(row, job.nodelist || "—");
@@ -360,7 +362,7 @@ page_scripts %}
         } catch (e) {
             console.error("[jobs] 活动作业加载失败:", e);
             tbody.innerHTML =
-                '<tr><td colspan="12" style="text-align:center;color:#dc3023;">加载失败，请检查 Slurm 服务</td></tr>';
+                '<tr><td colspan="13" style="text-align:center;color:#dc3023;">加载失败，请检查 Slurm 服务</td></tr>';
         }
     }
 

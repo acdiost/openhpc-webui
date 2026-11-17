@@ -443,7 +443,7 @@ class SlurmManager:
             # expression such as 3738_[3-101%2] or the entire parent array.
             cmd = [
                 'squeue', '--array', '-o',
-                '%i|%j|%u|%P|%T|%D|%C|%M|%S|%N|%Q',
+                '%i|%j|%u|%P|%T|%D|%C|%M|%S|%N|%Q|%r',
             ]
             result = _run_slurm_command(
                 cmd,
@@ -458,7 +458,7 @@ class SlurmManager:
 
             jobs = []
             for line in lines[1:]:  # Skip header
-                parts = line.split('|')
+                parts = line.split('|', 11)
                 if len(parts) >= 10:
                     job_state = parts[4]
                     job_partition = parts[3]
@@ -475,6 +475,7 @@ class SlurmManager:
                         'user': parts[2],
                         'partition': job_partition,
                         'state': job_state,
+                        'reason': self._normalize_null(parts[11]) if len(parts) > 11 else None,
                         'nodes': parts[5],
                         'cpus': self._safe_int(parts[6]),
                         'alloc_cpus': self._safe_int(parts[6]),
