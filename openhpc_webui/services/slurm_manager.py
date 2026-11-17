@@ -524,6 +524,7 @@ class SlurmManager:
                 'UserId': r'UserId=(\S+)',
                 'GroupId': r'GroupId=(\S+)',
                 'Partition': r'Partition=(\S+)',
+                'QOS': r'\bQOS=(\S+)',
                 'JobState': r'JobState=(\S+)',
                 'Priority': r'\bPriority=(\d+)',
                 'RunTime': r'RunTime=(\S+)',
@@ -548,6 +549,7 @@ class SlurmManager:
                     detail[key] = match.group(1).strip()
 
             detail["NodeList"] = self._normalize_null(detail.get("NodeList"))
+            detail["QOS"] = self._normalize_null(detail.get("QOS"))
             return detail
         except SlurmServiceUnavailable:
             raise
