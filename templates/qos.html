@@ -25,6 +25,7 @@
   <ul style="list-style:disc;margin-left:24px;color:#1e40af;font-size:14px;line-height:1.8">
     <li>优先级越高越容易获得调度资源，最长运行时间留空表示不限</li>
     <li>并发/提交限制分别控制同时运行和累计提交的作业数量</li>
+    <li>编辑时清空某项限制并保存，即可取消该项限制；填写 0 表示额度为 0</li>
     <li>MaxTRES 支持如 <code>cpu=64,gres/gpu=2</code> 的资源限制格式</li>
     <li>删除或调整 QoS 会影响使用它的后续作业，请先确认关联关系</li>
   </ul>
@@ -39,10 +40,14 @@
    <div class="form-group"><label for="qosName">名称</label><input id="qosName" required pattern="[A-Za-z0-9_.-]{1,64}" autocomplete="off"></div>
    <div class="form-group"><label for="qosDescription">描述</label><input id="qosDescription"></div>
    <div class="form-group"><label for="qosPriority">优先级</label><input id="qosPriority" type="number" min="0" step="1" value="0"></div>
+   <div class="form-group">
+    <button type="button" class="btn btn-secondary" onclick="clearQosLimits()">全部设为不限制</button>
+    <p style="margin-top:8px;color:#6b7280;font-size:13px">清空某项限制并保存即可设为不限制；填写 0 表示额度为 0。全部不限制后仍受分区和账户的其他限制约束。</p>
+   </div>
    <div class="form-group"><label for="qosMaxWall">最长运行时间</label><input id="qosMaxWall" placeholder="如 2-00:00:00，留空不限"></div>
-   <div class="form-group"><label>用户限制（并发 / 提交）</label><div style="display:flex;gap:8px"><input id="qosMaxJobs" type="number" min="0" step="1" placeholder="MaxJobsPU"><input id="qosMaxSubmit" type="number" min="0" step="1" placeholder="MaxSubmitJobsPU"></div></div>
+   <div class="form-group"><label>用户限制（并发 / 提交）</label><div style="display:flex;gap:8px"><input id="qosMaxJobs" type="number" min="0" step="1" aria-label="用户并发上限" placeholder="并发上限，留空不限"><input id="qosMaxSubmit" type="number" min="0" step="1" aria-label="用户提交上限" placeholder="提交上限，留空不限"></div></div>
    <div class="form-group"><label for="qosMaxTres">MaxTRESPerUser</label><input id="qosMaxTres" placeholder="如 cpu=64,gres/gpu=2，留空不限"></div>
-   <div class="form-group"><label>账户限制（并发 / 提交）</label><div style="display:flex;gap:8px"><input id="qosMaxJobsPA" type="number" min="0" step="1" placeholder="MaxJobsPA"><input id="qosMaxSubmitPA" type="number" min="0" step="1" placeholder="MaxSubmitJobsPA"></div></div>
+   <div class="form-group"><label>账户限制（并发 / 提交）</label><div style="display:flex;gap:8px"><input id="qosMaxJobsPA" type="number" min="0" step="1" aria-label="账户并发上限" placeholder="并发上限，留空不限"><input id="qosMaxSubmitPA" type="number" min="0" step="1" aria-label="账户提交上限" placeholder="提交上限，留空不限"></div></div>
    <div class="form-group"><label for="qosMaxTresPA">MaxTRESPerAccount</label><input id="qosMaxTresPA" placeholder="如 cpu=128,gres/gpu=8，留空不限"></div>
    <div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="closeQosModal()">取消</button><button class="btn btn-primary">保存</button></div>
   </form>
@@ -52,6 +57,15 @@
 {% block page_scripts %}
 <script>
 let qosItems = [];
+const qosLimitFields = [
+  ['qosMaxWall', 'max_wall', false],
+  ['qosMaxJobs', 'max_jobs_pu', true],
+  ['qosMaxSubmit', 'max_submit_jobs_pu', true],
+  ['qosMaxTres', 'max_tres_pu', false],
+  ['qosMaxJobsPA', 'max_jobs_pa', true],
+  ['qosMaxSubmitPA', 'max_submit_jobs_pa', true],
+  ['qosMaxTresPA', 'max_tres_pa', false],
+];
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 async function loadQos() {
   const response = await fetch('/api/slurm/qos'); const data = await response.json();
@@ -61,7 +75,38 @@ async function loadQos() {
 }
   function openQosModal(index = null) { const q = index === null ? {} : qosItems[index]; document.getElementById('qosModalTitle').textContent = index === null ? '创建 QoS' : '编辑 QoS'; document.getElementById('qosOriginalName').value = q.name || ''; document.getElementById('qosName').value = q.name || ''; document.getElementById('qosName').disabled = index !== null; document.getElementById('qosDescription').value = q.description || ''; document.getElementById('qosPriority').value = q.priority ?? 0; document.getElementById('qosMaxWall').value = q.max_wall || ''; document.getElementById('qosMaxJobs').value = q.max_jobs_pu ?? ''; document.getElementById('qosMaxSubmit').value = q.max_submit_jobs_pu ?? ''; document.getElementById('qosMaxTres').value = q.max_tres_pu || ''; document.getElementById('qosMaxJobsPA').value = q.max_jobs_pa ?? ''; document.getElementById('qosMaxSubmitPA').value = q.max_submit_jobs_pa ?? ''; document.getElementById('qosMaxTresPA').value = q.max_tres_pa || ''; document.getElementById('qosModal').style.display = 'flex'; }
 function closeQosModal() { document.getElementById('qosModal').style.display = 'none'; }
-  async function saveQos(event) { event.preventDefault(); const original = document.getElementById('qosOriginalName').value; const value = { description: document.getElementById('qosDescription').value, priority: Number(document.getElementById('qosPriority').value || 0), max_wall: document.getElementById('qosMaxWall').value || null, max_jobs_pu: document.getElementById('qosMaxJobs').value === '' ? null : Number(document.getElementById('qosMaxJobs').value), max_submit_jobs_pu: document.getElementById('qosMaxSubmit').value === '' ? null : Number(document.getElementById('qosMaxSubmit').value), max_tres_pu: document.getElementById('qosMaxTres').value || null, max_jobs_pa: document.getElementById('qosMaxJobsPA').value === '' ? null : Number(document.getElementById('qosMaxJobsPA').value), max_submit_jobs_pa: document.getElementById('qosMaxSubmitPA').value === '' ? null : Number(document.getElementById('qosMaxSubmitPA').value), max_tres_pa: document.getElementById('qosMaxTresPA').value || null }; const name = document.getElementById('qosName').value; const response = await fetch('/api/slurm/qos' + (original ? '/' + encodeURIComponent(original) : ''), {method: original ? 'PUT' : 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(original ? value : {...value, name})}); const data = await response.json(); if (!response.ok) { showToast(data.detail || '保存 QoS 失败', 'error'); return; } showToast(data.message || 'QoS 已保存', 'success'); closeQosModal(); loadQos(); }
+function clearQosLimits() {
+  qosLimitFields.forEach(([id]) => { document.getElementById(id).value = ''; });
+}
+async function saveQos(event) {
+  event.preventDefault();
+  const original = document.getElementById('qosOriginalName').value;
+  const value = {
+    description: document.getElementById('qosDescription').value,
+    priority: Number(document.getElementById('qosPriority').value || 0),
+  };
+  qosLimitFields.forEach(([id, key, numeric]) => {
+    const text = document.getElementById(id).value.trim();
+    value[key] = text === '' ? null : numeric ? Number(text) : text;
+  });
+  const previous = qosItems.find(q => q.name === original);
+  if (previous) {
+    const defaults = {description: '', priority: 0};
+    Object.keys(value).forEach(key => {
+      if (value[key] === (previous[key] ?? defaults[key] ?? null)) delete value[key];
+    });
+  }
+  const name = document.getElementById('qosName').value;
+  const response = await fetch('/api/slurm/qos' + (original ? '/' + encodeURIComponent(original) : ''), {
+    method: original ? 'PUT' : 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(original ? value : {...value, name}),
+  });
+  const data = await response.json();
+  if (!response.ok) { showToast(data.detail || '保存 QoS 失败', 'error'); return; }
+  showToast(data.message || 'QoS 已保存', 'success');
+  closeQosModal();
+  await loadQos();
+}
 async function removeQos(index) { const name = qosItems[index].name; if (!confirm(`确定删除 QoS "${name}" 吗？`)) return; const response = await fetch('/api/slurm/qos/' + encodeURIComponent(name), {method:'DELETE'}); const data = await response.json(); if (!response.ok) { showToast(data.detail || '删除 QoS 失败', 'error'); return; } showToast(data.message || 'QoS 已删除', 'success'); loadQos(); }
 document.addEventListener('DOMContentLoaded', loadQos);
 </script>

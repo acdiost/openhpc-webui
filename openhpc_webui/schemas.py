@@ -145,6 +145,8 @@ class QosCreate(BaseModel):
 
 
 class QosUpdate(BaseModel):
+    """Omit a limit to keep it; explicitly send null to remove it."""
+
     description: Optional[str] = None
     priority: Optional[int] = Field(None, ge=0)
     max_wall: Optional[str] = None

@@ -1532,7 +1532,7 @@ class SlurmManager:
     def _qos_number(value):
         """从 Slurm JSON 的 {number, infinite, set} 包装值取数字。"""
         if isinstance(value, dict):
-            if value.get("infinite"):
+            if value.get("infinite") or value.get("set") is False:
                 return None
             return value.get("number")
         return value
@@ -1544,7 +1544,7 @@ class SlurmManager:
             value = value.get(key, {}) if isinstance(value, dict) else {}
         if isinstance(value, dict) and {"number", "infinite", "set"}.intersection(value):
             return cls._qos_number(value)
-        return value or None
+        return None if value in (None, "", {}) else value
 
     @classmethod
     def _qos_tres(cls, qos: Dict, scope: str = "user"):
@@ -1555,9 +1555,11 @@ class SlurmManager:
         for item in values:
             if isinstance(item, dict):
                 name = item.get("type") or item.get("name") or item.get("tres")
+                if item.get("type") and item.get("name"):
+                    name = f"{item['type']}/{item['name']}"
                 number = cls._qos_number(item.get("count", item.get("value")))
-                if name:
-                    rendered.append(f"{name}={number}" if number is not None else str(name))
+                if name and number is not None:
+                    rendered.append(f"{name}={number}")
             elif item:
                 rendered.append(str(item))
         return ",".join(rendered)
@@ -1569,15 +1571,13 @@ class SlurmManager:
         changes = []
         if description is not None: changes.append(f"Description={description}")
         if priority is not None: changes.append(f"Priority={priority}")
-        if max_wall is not None: changes.append(f"MaxWall={max_wall or 'NONE'}")
+        if max_wall is not None: changes.append(f"MaxWall={max_wall or '-1'}")
         if max_jobs_pu is not None: changes.append(f"MaxJobsPU={max_jobs_pu or '0'}")
         if max_submit_jobs_pu is not None: changes.append(f"MaxSubmitJobsPU={max_submit_jobs_pu or '0'}")
         if max_tres_pu is not None: changes.append(f"MaxTRESPU={max_tres_pu or 'NONE'}")
         if max_jobs_pa is not None: changes.append(f"MaxJobsPA={max_jobs_pa or '0'}")
         if max_submit_jobs_pa is not None: changes.append(f"MaxSubmitJobsPA={max_submit_jobs_pa or '0'}")
-        # Slurm exposes the account/QoS-wide TRES limit as MaxTRES;
-        # the per-user variant is MaxTRESPU.
-        if max_tres_pa is not None: changes.append(f"MaxTRES={max_tres_pa or 'NONE'}")
+        if max_tres_pa is not None: changes.append(f"MaxTRESPA={max_tres_pa or 'NONE'}")
         return changes
 
     def create_qos(self, name: str, **kwargs) -> bool:
@@ -1594,6 +1594,23 @@ class SlurmManager:
 
     def update_qos(self, name: str, **kwargs) -> bool:
         try:
+            # Omitted fields stay unchanged; explicit null removes a limit.
+            for field in ("max_wall", "max_jobs_pu", "max_submit_jobs_pu",
+                          "max_jobs_pa", "max_submit_jobs_pa"):
+                if field in kwargs and kwargs[field] in (None, ""):
+                    kwargs[field] = -1
+            clear_tres = [
+                field for field in ("max_tres_pu", "max_tres_pa")
+                if field in kwargs and not (kwargs[field] or "").strip()
+            ]
+            if clear_tres:
+                current = next((q for q in self.list_qos() if q["name"] == name), None)
+                if current is None:
+                    return False
+                for field in clear_tres:
+                    # Slurm requires an explicit -1 for each configured resource.
+                    resources = self._parse_tres(current.get(field) or "")
+                    kwargs[field] = ",".join(f"{resource}=-1" for resource in resources) or None
             changes = self._qos_changes(**kwargs)
             if not changes:
                 return True
